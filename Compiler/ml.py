@@ -386,7 +386,7 @@ class Output(NoVariableLayer):
 class MultiOutputBase(NoVariableLayer):
     def __init__(self, N, d_out, approx=False, debug=False):
         self.X = sfix.Matrix(N, d_out)
-        self.Y = sint.Matrix(N, d_out)
+        self.Y = sfix.Matrix(N, d_out)
         self.nabla_X = sfix.Matrix(N, d_out)
         self.l = MemValue(sfix(-1))
         self.losses = sfix.Array(N)
