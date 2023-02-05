@@ -2159,7 +2159,10 @@ class Optimizer:
 
             part = self.layers[-1].eval(batch_size, top=top)
             res.assign_part_vector(part.get_vector(), start)
+            print_str(".")
+        print_str("opt.eval in batches: ")
         self.run_in_batches(f, data, batch_size or len(self.layers[1].X))
+        print_ln(" -> done")
 
         if latent_space_layer is not None:
             return latent
