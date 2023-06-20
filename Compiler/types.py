@@ -6128,12 +6128,12 @@ class SubMultiArray(_vectorizable):
         """ Assign the same value to all entries.
 
         :param value: convertible to relevant basic type """
-        try:
-            self.to_array().assign_all(value)
-        except AssertionError:
-            @library.for_range(self.sizes[0])
-            def f(i):
-                self[i].assign_all(value)
+        # try:
+        #     self.to_array().assign_all(value)
+        # except AssertionError:
+        @library.for_range(self.sizes[0])
+        def f(i):
+            self[i].assign_all(value)
         return self
 
     def total_size(self):

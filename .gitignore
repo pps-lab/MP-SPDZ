@@ -6,6 +6,16 @@ Prep-Data/*
 logs/*
 Language-Definition/main.pdf
 keys/*
+Player-SSL-Data
+
+# simlinked sources
+Programs/Source/audit_owner_knn.mpc
+Programs/Source/audit_owner_unlearn.mpc
+Compiler/script_utils
+
+deps/mpir
+
+
 
 # Personal CONFIG file #
 ##############################

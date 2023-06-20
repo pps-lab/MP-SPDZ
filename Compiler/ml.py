@@ -429,7 +429,7 @@ class LinearOutput(NoVariableLayer):
 class MultiOutputBase(NoVariableLayer):
     def __init__(self, N, d_out, approx=False, debug=False):
         self.X = sfix.Matrix(N, d_out)
-        self.Y = sint.Matrix(N, d_out)
+        self.Y = sfix.Matrix(N, d_out)
         self.nabla_X = sfix.Matrix(N, d_out)
         self.l = MemValue(sfix(-1))
         self.losses = sfix.Array(N)
@@ -2306,14 +2306,25 @@ class Optimizer:
                     theta.delete()
 
     @_no_mem_warnings
-    def eval(self, data, batch_size=None, top=False):
+    def eval(self, data, batch_size=None, top=False, latent_space_layer=None):
         """ Compute evaluation after training.
 
         :param data: sample data (:py:class:`Compiler.types.Matrix` with one row per sample)
         :param top: return top prediction instead of probability distribution
+        :param latent_space_layer: return latent space representation of this layer (provided layer needs to be part of the optimizer)
         :returns: sfix/sint Array (depening on :py:obj:`top`)
 
         """
+
+        if latent_space_layer is not None:
+
+            latent_space_size = latent_space_layer.Y.sizes[-1]
+
+            print("latent_space_size=%s", latent_space_size)
+
+            latent = sfix.Matrix(len(data), latent_space_size)
+
+
         if isinstance(self.layers[-1].Y, Array) or top:
             if top:
                 res = sint.Array(len(data))
@@ -2321,13 +2332,30 @@ class Optimizer:
                 res = sfix.Array(len(data))
         else:
             res = sfix.Matrix(len(data), self.layers[-1].d_out)
+
+
+
         def f(start, batch_size, batch):
             batch.assign_vector(regint.inc(batch_size, start))
-            self.forward(batch=batch, run_last=False)
+            self.forward(batch=batch, run_last=not top)
+
+            if latent_space_layer is not None:
+                latent_space_part = latent_space_layer.Y.get_part(0, batch_size)
+            #print(f"latent_space={latent_space.sizes}")
+            #print_ln("latent_space=%s", latent_space.sizes) #.reveal_nested()
+                latent.get_part(start, batch_size).assign(latent_space_part)
+
             part = self.layers[-1].eval(batch_size, top=top)
             res.assign_part_vector(part.get_vector(), start)
+            print_str(".")
+        print_str("opt.eval in batches: ")
         self.run_in_batches(f, data, batch_size or len(self.layers[1].X))
-        return res
+        print_ln(" -> done")
+
+        if latent_space_layer is not None:
+            return latent
+        else:
+            return res
 
     @_no_mem_warnings
     def backward(self, batch):
