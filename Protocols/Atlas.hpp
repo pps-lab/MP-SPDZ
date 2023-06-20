@@ -126,8 +126,6 @@ void Atlas<T>::next_dotprod()
 {
     prepare(dotprod_share);
     dotprod_share = 0;
-
-    std::cout << "next_dotprod" << std::endl;
 }
 
 template<class T>

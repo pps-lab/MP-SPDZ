@@ -6,7 +6,7 @@
 #ifndef PROTOCOLS_MALICIOUSATLAS_HPP_
 #define PROTOCOLS_MALICIOUSATLAS_HPP_
 
-//#define ATLAS_DEBUG 0
+#define ATLAS_DEBUG 1
 
 #include "MaliciousAtlas.h"
 
@@ -30,44 +30,117 @@ void MaliciousAtlas<T>::check()
 template<class T>
 void MaliciousAtlas<T>::check_products()
 {
-    if (!check_x.empty()) {
-#ifdef ATLAS_DEBUG
-        std::cout << "Checking " << check_x.size() << " multiplication triples!" << std::endl;
-        std::cout << "check_z size: " << check_z.size() << std::endl;
-#endif
-        assert(check_x.size() == check_y.size());
-        assert(check_y.size() == check_z.size());
+//    hadamard_check_naive();
+    hadamard_check_combined();
+}
 
-        hadamard_check();
+// Protocol 13, convert multiplication tuples into inner product tuples
+template<class T>
+void MaliciousAtlas<T>::hadamard_check_naive()
+{
+    if (check_x.size() > 1) {
+
+#ifdef ATLAS_DEBUG
+        std::cout << "Hadamard " << check_x.size() << std::endl;
+#endif
+
+        typename T::open_type r = coin();
+
+        // Iterate over check_z and sum its elements
+        T z_sum = T(); // zero
+        T r_i = T() + 1; // one
+        // Combine the two above loops into one loop that iterates over both at the same time using i
+        for (size_t i = 0; i < check_z.size(); i++) {
+            check_x[i] = check_x[i] * r_i;
+            check_z[i] = check_z[i] * r_i;
+            z_sum += check_z[i];
+            r_i = r_i * r;
+        }
+
+        ip_check(check_x, check_y, z_sum);
+
+        // Clear things
+        this->ip_check_index = 0;
+        check_x = PointerVector<T>();
+        check_y = PointerVector<T>();
+        check_z = PointerVector<T>();
     }
+
+    if (ip_check_x.size() > 0) {
+
+#ifdef ATLAS_DEBUG
+        std::cout << "verifying " << ip_check_x.size() << " dot products" << std::endl;
+#endif
+
+        // Naive way to verify inner products using ip_check per inner product.
+        assert(ip_check_x.size() == ip_check_z.size());
+        assert(ip_check_y.size() == ip_check_z.size());
+        for (size_t i = 0; i < ip_check_x.size(); i++) {
+            assert(ip_check_x[i].size() == ip_check_y[i].size());
+            std::cout << i << "th dot product of size " << ip_check_x[i].size() << std::endl;
+            ip_check(ip_check_x[i], ip_check_y[i], ip_check_z[i]);
+        }
+
+        // Clear things
+        ip_check_x = PointerVector<PointerVector<T>>();
+        ip_check_y = PointerVector<PointerVector<T>>();
+        ip_check_z = PointerVector<T>();
+    }
+
 }
 
 template<class T>
-void MaliciousAtlas<T>::hadamard_check()
+void MaliciousAtlas<T>::hadamard_check_combined()
 {
+    if (check_x.size() > 1) {
+
 #ifdef ATLAS_DEBUG
-    std::cout << "Hadamard " << check_x.size() << std::endl;
+        std::cout << "Hadamard " << check_x.size() << std::endl;
 #endif
 
-    typename T::open_type r = coin();
-//    std::cout << "Hadamard Random" << element << std::endl;
+        typename T::open_type r = coin();
 
-    // Iterate over check_z and sum its elements
-    T z_sum = T(); // zero
+        // Iterate over check_z and sum its elements
+        T z_sum = T(); // zero
+        T r_i = T() + 1; // one
+        // Combine the two above loops into one loop that iterates over both at the same time using i
+        for (size_t i = 0; i < check_z.size(); i++) {
+            check_x[i] = check_x[i] * r_i;
+            check_z[i] = check_z[i] * r_i;
+            z_sum += check_z[i];
+            r_i = r_i * r;
+        }
 
-    T r_i = T() + 1; // one
-    // Combine the two above loops into one loop that iterates over both at the same time using i
-    for (size_t i = 0; i < check_z.size(); i++) {
-        check_x[i] = check_x[i] * r_i;
-        check_z[i] = check_z[i] * r_i;
-        z_sum += check_z[i];
-        r_i = r_i * r;
+        if (ip_check_x.size() > 0) {
+            assert(ip_check_x.size() == ip_check_z.size());
+            assert(ip_check_y.size() == ip_check_z.size());
+
+            for (size_t i = 0; i < ip_check_x.size(); i++) {
+                assert(ip_check_x[i].size() == ip_check_y[i].size());
+
+                for (size_t j = 0; j < ip_check_x[i].size(); j++) {
+                    check_x.push_back(ip_check_x[i][j] * r_i);
+                    check_y.push_back(ip_check_y[i][j]);
+                }
+                z_sum += ip_check_z[i] * r_i;
+                r_i = r_i * r;
+
+            }
+        }
+
+        ip_check(check_x, check_y, z_sum);
+
+        // Clear things
+        this->ip_check_index = 0;
+        check_x = PointerVector<T>();
+        check_y = PointerVector<T>();
+        check_z = PointerVector<T>();
+
+        // Clear things
+        ip_check_x = PointerVector<PointerVector<T>>();
+        ip_check_y = PointerVector<PointerVector<T>>();
+        ip_check_z = PointerVector<T>();
     }
-
-#ifdef ATLAS_DEBUG
-    std::cout << "Finish " << z_sum << ", r " << r << ", x*r " << check_x[0] << " " << std::endl;
-#endif
-    ip_check(z_sum);
 
 }
 
@@ -80,17 +153,14 @@ void print_list(std::vector<T> path) {
 
 // Check an IP, recursively shrinking it
 template<class T>
-void MaliciousAtlas<T>::ip_check(T rzs_sum)
+void MaliciousAtlas<T>::ip_check(std::vector<T> xs, std::vector<T> ys, T rzs_sum)
 {
     (void)rzs_sum;
 #ifdef ATLAS_DEBUG
     std::cout << "ip_check for size " << check_x.size() << std::endl;
 #endif
 
-    assert(check_x.size() == check_y.size());
-
-    std::vector<T> xs(check_x);
-    std::vector<T> ys(check_y);
+    assert(xs.size() == ys.size());
 
 #ifdef ATLAS_DEBUG
     print_list(xs);
@@ -252,10 +322,10 @@ T MaliciousAtlas<T>::ip_compute(std::vector<T> xs, std::vector<T> ys) {
     assert(xs.size() == ys.size());
     size_t n = xs.size();
 
-    this->init_dotprod();
+    this->init_dotprod(false);
     for (size_t i = 0; i < n; i++)
-        this->prepare_dotprod(xs[i], ys[i]);
-    this->next_dotprod();
+        this->prepare_dotprod(xs[i], ys[i], false);
+    this->next_dotprod(false);
     this->exchange();
     return this->finalize_dotprod_q(false);
 //
@@ -423,12 +493,60 @@ void MaliciousAtlas<T>::exchange()
 }
 
 template<class T>
+void MaliciousAtlas<T>::init_dotprod()
+{
+    MaliciousAtlas<T>::init_dotprod(true);
+}
+
+template<class T>
+void MaliciousAtlas<T>::init_dotprod(bool queue_check)
+{
+    Atlas<T>::init_dotprod();
+    if (queue_check) {
+        ip_check_x.push_back(PointerVector<T>());
+        ip_check_y.push_back(PointerVector<T>());
+    }
+}
+
+
+template<class T>
+void MaliciousAtlas<T>::next_dotprod(bool queue_check) {
+    (void)queue_check;
+    Atlas<T>::next_dotprod();
+
+    if (queue_check) {
+        this->ip_check_index = this->ip_check_index + 1;
+    }
+
+    std::cout << "next_dotprod " << queue_check << std::endl;
+}
+
+template<class T>
+void MaliciousAtlas<T>::next_dotprod()
+{
+    MaliciousAtlas<T>::next_dotprod(true);
+}
+
+template<class T>
 void MaliciousAtlas<T>::prepare_dotprod(const T& x, const T& y)
 {
+    MaliciousAtlas<T>::prepare_dotprod(x, y, true);
+}
+
+template<class T>
+void MaliciousAtlas<T>::prepare_dotprod(const T& x, const T& y, bool queue_check)
+{
+    if (queue_check) {
+        if (ip_check_x.size() <= this->ip_check_index) {
+            ip_check_x.push_back(PointerVector<T>());
+            ip_check_y.push_back(PointerVector<T>());
+        }
+        ip_check_x[this->ip_check_index].push_back(x);
+        ip_check_y[this->ip_check_index].push_back(y);
+    }
+
     Atlas<T>::prepare_dotprod(x, y);
 
-    // Add this in some smart way
-    std::cout << "prepare_dotprod" << std::endl;
 }
 
 template<class T>
@@ -440,7 +558,11 @@ T MaliciousAtlas<T>::finalize_dotprod(int)
 template<class T>
 T MaliciousAtlas<T>::finalize_dotprod_q(bool queue_check)
 {
-    return finalize_mul(queue_check);
+    T res = finalize_mul(false); // dont add here because we will add it to the inner product queue
+    if (queue_check) {
+        ip_check_z.push_back(res);
+    }
+    return res;
 }
 
 
