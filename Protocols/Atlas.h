@@ -15,6 +15,7 @@
 template<class T>
 class Atlas : public ProtocolBase<T>
 {
+protected:
     Shamir<T> shamir, shamir2;
 
     Bundle<octetStream> oss, oss2;

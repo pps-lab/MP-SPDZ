@@ -232,6 +232,7 @@ chaigear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(TINIER)
 lowgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 highgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
 atlas-party.x: GC/AtlasSecret.o
+malicious-atlas-party.x: GC/AtlasSecret.o
 static/hemi-party.x: $(FHEOBJS)
 static/temi-party.x: $(FHEOBJS)
 static/soho-party.x: $(FHEOBJS)

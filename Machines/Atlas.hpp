@@ -13,4 +13,7 @@
 #include "ShamirMachine.hpp"
 #include "Protocols/Atlas.hpp"
 
+#include "Protocols/MaliciousAtlasShare.h"
+#include "Protocols/MaliciousAtlas.hpp"
+
 #endif /* MACHINES_ATLAS_HPP_ */

@@ -332,10 +332,11 @@ void modp_<L>::output(ostream& s,const Zp_Data& ZpD,bool human) const
   if (human)
     { bigint te;
       to_bigint(te, ZpD);
-      if (te < ZpD.pr / 2)
-          s << te;
-      else
-          s << (te - ZpD.pr);
+        s << te;
+//      if (te < ZpD.pr / 2)
+//          s << te;
+//      else
+//          s << (te - ZpD.pr);
     }
   else
     { s.write((char*) x,ZpD.t*sizeof(mp_limb_t)); }

@@ -55,10 +55,15 @@ void Atlas<T>::prepare_mul(const T& x, const T& y, int)
 template<class T>
 void Atlas<T>::prepare(const typename T::open_type& product)
 {
+    // Adds random r to product
     auto r = get_double_sharing();
+    // Protocol Mult 7.2, add randomness and to be sent to next_king
     (product + r[0]).pack(oss2[next_king]);
     next_king = (next_king + 1) % P.num_players();
+    // Save mask (degree t) r to be used to decode response
     masks.push_back(r[1]);
+
+//    std::cout << "Atlas prepare " << this->P.my_num() << std::endl;
 }
 
 template<class T>
@@ -97,6 +102,7 @@ void Atlas<T>::exchange()
 template<class T>
 T Atlas<T>::finalize_mul(int)
 {
+    // Subtract degree t r (Protocol 7.4), z
     T res = resharing.finalize(base_king) - masks.next();
     base_king = (base_king + 1) % P.num_players();
     return res;
@@ -120,6 +126,8 @@ void Atlas<T>::next_dotprod()
 {
     prepare(dotprod_share);
     dotprod_share = 0;
+
+    std::cout << "next_dotprod" << std::endl;
 }
 
 template<class T>
