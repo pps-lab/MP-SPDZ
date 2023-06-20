@@ -5,6 +5,7 @@
 #include "Processor/Program.h"
 #include "GC/square64.h"
 #include "SpecificPrivateOutput.h"
+#include "Conv2dTuple.h"
 
 #include "Processor/ProcessorBase.hpp"
 #include "GC/Processor.hpp"
@@ -31,6 +32,7 @@ SubProcessor<T>::SubProcessor(typename T::MAC_Check& MC,
   DataF.set_proc(this);
   protocol.init(DataF, MC);
   DataF.set_protocol(protocol);
+  MC.set_prep(DataF);
   bit_usage.set_num_players(P.num_players());
   personal_bit_preps.resize(P.num_players());
   for (int i = 0; i < P.num_players(); i++)
@@ -40,6 +42,7 @@ SubProcessor<T>::SubProcessor(typename T::MAC_Check& MC,
 template<class T>
 SubProcessor<T>::~SubProcessor()
 {
+  DataF.set_proc(0);
   for (size_t i = 0; i < personal_bit_preps.size(); i++)
     {
       auto& x = personal_bit_preps[i];
@@ -86,7 +89,7 @@ Processor<sint, sgf2n>::Processor(int thread_num,Player& P,
   Procb(machine.bit_memories),
   Proc2(*this,MC2,DataF.DataF2,P),Procp(*this,MCp,DataF.DataFp,P),
   external_clients(machine.external_clients),
-  binary_file_io(Binary_File_IO())
+  binary_file_io(Binary_File_IO()), client_timer(client_stats.timer)
 {
   reset(program,0);
 
@@ -124,7 +127,9 @@ Processor<sint, sgf2n>::~Processor()
     cerr << "Opened " << sent << " elements in " << rounds << " rounds" << endl;
 #endif
   if (OnlineOptions::singleton.verbose and client_timer.elapsed())
-    cerr << "Client communication time = " << client_timer.elapsed() << endl;
+    cerr << "Client communication: " << client_stats.data * 1e-6 << " MB in "
+        << client_timer.elapsed() << " seconds and " << client_stats.rounds
+        << " rounds " << endl;
 }
 
 template<class sint, class sgf2n>
@@ -315,7 +320,7 @@ void Processor<sint, sgf2n>::write_socket(const RegType reg_type,
 #endif
 
   try {
-    TimeScope _(client_timer);
+    TimeScope _(client_stats.add(socket_stream.get_length()));
     socket_stream.Send(external_clients.get_socket(socket_id));
   }
     catch (bad_value& e) {
@@ -335,6 +340,7 @@ void Processor<sint, sgf2n>::read_socket_ints(int client_id,
   client_timer.start();
   socket_stream.Receive(external_clients.get_socket(client_id));
   client_timer.stop();
+  client_stats.add(socket_stream.get_length());
   for (int j = 0; j < size; j++)
     for (int i = 0; i < m; i++)
       {
@@ -354,6 +360,7 @@ void Processor<sint, sgf2n>::read_socket_vector(int client_id,
   client_timer.start();
   socket_stream.Receive(external_clients.get_socket(client_id));
   client_timer.stop();
+  client_stats.add(socket_stream.get_length());
   for (int j = 0; j < size; j++)
     for (int i = 0; i < m; i++)
       get_Cp_ref(registers[i] + j) =
@@ -370,6 +377,7 @@ void Processor<sint, sgf2n>::read_socket_private(int client_id,
   client_timer.start();
   socket_stream.Receive(external_clients.get_socket(client_id));
   client_timer.stop();
+  client_stats.add(socket_stream.get_length());
 
   for (int j = 0; j < size; j++)
     for (int i = 0; i < m; i++)
@@ -386,7 +394,7 @@ void Processor<sint, sgf2n>::read_shares_from_file(int start_file_posn, int end_
     return;
 
   string filename;
-  filename = "Persistence/Transactions-P" + to_string(P.my_num()) + ".data";
+  filename = binary_file_io.filename(P.my_num());
 
   unsigned int size = data_registers.size();
 
@@ -578,49 +586,68 @@ void SubProcessor<T>::matmulsm(const CheckVector<T>& source,
     assert(Proc);
 
     int base = 0;
+    int base2 = 0;
     protocol.init_dotprod();
     for (int i = 0; i < dim[0]; i++)
     {
-        matmulsm_prep(i, source, dim, a, b);
-        if (protocol.get_buffer_size() > OnlineOptions::singleton.batch_size)
+        auto ii = Proc->get_Ci().at(dim[3] + i);
+        for (int j = 0; j < dim[2]; j++)
         {
-            protocol.exchange();
-            for (int j = base; j <= i; j++)
-                matmulsm_finalize(j, dim, C);
-            base = i + 1;
-            protocol.init_dotprod();
+#ifdef DEBUG_MATMULSM
+            cerr << "matmulsm prep " << i << " " << j << endl;
+#endif
+            matmulsm_prep(ii, j, source, dim, a, b);
+            if (protocol.get_buffer_size() > OnlineOptions::singleton.batch_size)
+            {
+#ifdef DEBUG_MATMULSM
+                cerr << "matmulsm round " << protocol.get_buffer_size() << endl;
+#endif
+                protocol.exchange();
+                if (base < i)
+                    for (int l = base2; l < dim[2]; l++)
+                        matmulsm_finalize(base, l, dim, C);
+                for (int k = base + 1; k < i; k++)
+                    for (int l = 0; l < dim[2]; l++)
+                        matmulsm_finalize(k, l, dim, C);
+                for (int l = base < i ? 0 : base2; l <= j; l++)
+                    matmulsm_finalize(i, l, dim, C);
+                base = i;
+                base2 = j + 1;
+                protocol.init_dotprod();
+            }
         }
     }
     protocol.exchange();
-    for (int i = base; i < dim[0]; i++)
-        matmulsm_finalize(i, dim, C);
+    for (int j = base2; j < dim[2]; j++)
+        matmulsm_finalize(base, j, dim, C);
+    for (int i = base + 1; i < dim[0]; i++)
+        for (int j = 0; j < dim[2]; j++)
+            matmulsm_finalize(i, j, dim, C);
 }
 
 template<class T>
-void SubProcessor<T>::matmulsm_prep(int i, const CheckVector<T>& source,
+void SubProcessor<T>::matmulsm_prep(int ii, int j, const CheckVector<T>& source,
         const vector<int>& dim, size_t a, size_t b)
 {
-    auto ii = Proc->get_Ci().at(dim[3] + i);
-    for (int j = 0; j < dim[2]; j++)
+    auto jj = Proc->get_Ci().at(dim[6] + j);
+    for (int k = 0; k < dim[1]; k++)
     {
-        auto jj = Proc->get_Ci().at(dim[6] + j);
-        for (int k = 0; k < dim[1]; k++)
-        {
-            auto kk = Proc->get_Ci().at(dim[4] + k);
-            auto ll = Proc->get_Ci().at(dim[5] + k);
-            protocol.prepare_dotprod(source.at(a + ii * dim[7] + kk),
-                    source.at(b + ll * dim[8] + jj));
-        }
-        protocol.next_dotprod();
+        auto kk = Proc->get_Ci().at(dim[4] + k);
+        auto ll = Proc->get_Ci().at(dim[5] + k);
+        protocol.prepare_dotprod(source.at(a + ii * dim[7] + kk),
+                source.at(b + ll * dim[8] + jj));
     }
+    protocol.next_dotprod();
 }
 
 template<class T>
-void SubProcessor<T>::matmulsm_finalize(int i, const vector<int>& dim,
+void SubProcessor<T>::matmulsm_finalize(int i, int j, const vector<int>& dim,
         typename vector<T>::iterator C)
 {
-    for (int j = 0; j < dim[2]; j++)
-        *(C + i * dim[2] + j) = protocol.finalize_dotprod(dim[1]);
+#ifdef DEBUG_MATMULSM
+            cerr << "matmulsm finalize " << i << " " << j << endl;
+#endif
+    *(C + i * dim[2] + j) = protocol.finalize_dotprod(dim[1]);
 }
 
 template<class T>
@@ -628,21 +655,35 @@ void SubProcessor<T>::conv2ds(const Instruction& instruction)
 {
     protocol.init_dotprod();
     auto& args = instruction.get_start();
-    int output_h = args[0], output_w = args[1];
-    int inputs_h = args[2], inputs_w = args[3];
-    int weights_h = args[4], weights_w = args[5];
-    int stride_h = args[6], stride_w = args[7];
-    int n_channels_in = args[8];
-    int padding_h = args[9];
-    int padding_w = args[10];
-    int batch_size = args[11];
-    size_t r0 = instruction.get_r(0);
-    size_t r1 = instruction.get_r(1);
-    int r2 = instruction.get_r(2);
-    int lengths[batch_size][output_h][output_w];
-    memset(lengths, 0, sizeof(lengths));
-    int filter_stride_h = 1;
-    int filter_stride_w = 1;
+    vector<Conv2dTuple> tuples;
+    for (size_t i = 0; i < args.size(); i += 15)
+        tuples.push_back(Conv2dTuple(args, i));
+    for (auto& tuple : tuples)
+        tuple.pre(S, protocol);
+    protocol.exchange();
+    for (auto& tuple : tuples)
+        tuple.post(S, protocol);
+}
+
+inline
+Conv2dTuple::Conv2dTuple(const vector<int>& arguments, int start)
+{
+    assert(arguments.size() >= start + 15ul);
+    auto args = arguments.data() + start + 3;
+    output_h = args[0], output_w = args[1];
+    inputs_h = args[2], inputs_w = args[3];
+    weights_h = args[4], weights_w = args[5];
+    stride_h = args[6], stride_w = args[7];
+    n_channels_in = args[8];
+    padding_h = args[9];
+    padding_w = args[10];
+    batch_size = args[11];
+    r0 = arguments[start];
+    r1 = arguments[start + 1];
+    r2 = arguments[start + 2];
+    lengths.resize(batch_size, vector<vector<int>>(output_h, vector<int>(output_w)));
+    filter_stride_h = 1;
+    filter_stride_w = 1;
     if (stride_h < 0)
     {
         filter_stride_h = -stride_h;
@@ -653,7 +694,11 @@ void SubProcessor<T>::conv2ds(const Instruction& instruction)
         filter_stride_w = -stride_w;
         stride_w = 1;
     }
+}
 
+template<class T>
+void Conv2dTuple::pre(vector<T>& S, typename T::Protocol& protocol)
+{
     for (int i_batch = 0; i_batch < batch_size; i_batch ++)
     {
         size_t base = r1 + i_batch * inputs_w * inputs_h * n_channels_in;
@@ -690,9 +735,11 @@ void SubProcessor<T>::conv2ds(const Instruction& instruction)
                 protocol.next_dotprod();
             }
     }
+}
 
-    protocol.exchange();
-
+template<class T>
+void Conv2dTuple::post(vector<T>& S, typename T::Protocol& protocol)
+{
     for (int i_batch = 0; i_batch < batch_size; i_batch ++)
     {
         size_t base = r0 + i_batch * output_h * output_w;
@@ -857,12 +904,6 @@ void Processor<sint, sgf2n>::fixinput(const Instruction& instruction)
           write_Cp(instruction.get_r(0) + i, tmp);
         }
     }
-}
-
-template<class sint, class sgf2n>
-long Processor<sint, sgf2n>::sync_Ci(size_t i) const
-{
-  return sync(read_Ci(i));
 }
 
 template<class sint, class sgf2n>

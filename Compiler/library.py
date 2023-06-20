@@ -626,12 +626,18 @@ def mergesort(A):
         width.imul(2)
         return width < len(A)
 
-def range_loop(loop_body, start, stop=None, step=None):
+def _range_prep(start, stop, step):
     if stop is None:
         stop = start
         start = 0
     if step is None:
         step = 1
+    if util.is_zero(step):
+        raise CompilerError('step must not be zero')
+    return start, stop, step
+
+def range_loop(loop_body, start, stop=None, step=None):
+    start, stop, step = _range_prep(start, stop, step)
     def loop_fn(i):
         res = loop_body(i)
         return util.if_else(res == 0, stop, i + step)
@@ -640,8 +646,6 @@ def range_loop(loop_body, start, stop=None, step=None):
             condition = lambda x: x < stop
         elif step < 0:
             condition = lambda x: x > stop
-        else:
-            raise CompilerError('step must not be zero')
     else:
         b = step > 0
         condition = lambda x: b * (x < stop) + (1 - b) * (x > stop)
@@ -718,7 +722,7 @@ def for_range_parallel(n_parallel, n_loops):
         return for_range_multithread(None, n_parallel, n_loops)
     return map_reduce_single(n_parallel, n_loops)
 
-def for_range_opt(n_loops, budget=None):
+def for_range_opt(start, stop=None, step=None, budget=None):
     """ Execute loop bodies in parallel up to an optimization budget.
     This prevents excessive loop unrolling. The budget is respected
     even with nested loops. Note that the optimization is rather
@@ -728,8 +732,10 @@ def for_range_opt(n_loops, budget=None):
     :py:func:`for_range_opt` (e.g, :py:func:`for_range`) breaks the
     optimization.
 
-    :param n_loops: int/regint/cint
-    :param budget: number of instructions after which to start optimization (default is 100,000)
+    :param start/stop/step: int/regint/cint (used as in :py:func:`range`)
+      or :py:obj:`start` only as list/tuple of int (see below)
+    :param budget: number of instructions after which to start optimization
+      (default is 100,000)
 
     Example:
 
@@ -749,6 +755,15 @@ def for_range_opt(n_loops, budget=None):
         def f(i, j):
             ...
     """
+    if stop is not None:
+        start, stop, step = _range_prep(start, stop, step)
+        def wrapper(loop_body):
+            n_loops = (step - 1 + stop - start) // step
+            @for_range_opt(n_loops, budget=budget)
+            def _(i):
+                return loop_body(start + i * step)
+        return wrapper
+    n_loops = start
     if isinstance(n_loops, (list, tuple)):
         return for_range_opt_multithread(None, n_loops)
     return map_reduce_single(None, n_loops, budget=budget)
@@ -819,6 +834,7 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                     j = i + k
                     state = reducer(tuplify(loop_body(j)), state)
                     k += 1
+                RegintOptimizer().run(block.instructions, get_program())
                 _link(pre, loop_body.__globals__)
                 r = reducer(mem_state, state)
                 write_state_to_memory(r)
@@ -1200,21 +1216,19 @@ def while_loop(loop_body, condition, arg=None, g=None):
         raise CompilerError('Condition must be callable')
     if arg is None:
         pre_condition = condition()
-    else:
-        pre_condition = condition(arg)
-        arg = regint(arg)
-        cond = condition
-        condition = lambda: cond(arg)
-        tmp = loop_body
-        def loop_body():
-            result = tmp(arg)
-            if isinstance(result, MemValue):
-                result = result.read()
-            result.link(arg)
-    if not isinstance(pre_condition, (bool,int)) or pre_condition:
         def loop_fn():
             loop_body()
             return condition()
+    else:
+        pre_condition = condition(arg)
+        arg = regint(arg)
+        def loop_fn():
+            result = loop_body(arg)
+            if isinstance(result, MemValue):
+                result = result.read()
+            arg.update(result)
+            return condition(result)
+    if not isinstance(pre_condition, (bool,int)) or pre_condition:
         if_statement(pre_condition, lambda: do_while(loop_fn, g=g))
 
 def while_do(condition, *args):

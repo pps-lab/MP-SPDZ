@@ -311,6 +311,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case PRIVATEOUTPUT:
       case TRUNC_PR:
       case RUN_TAPE:
+      case CONV2DS:
         num_var_args = get_int(s);
         get_vector(num_var_args, start, s);
         break;
@@ -321,10 +322,6 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case MATMULSM:
         get_ints(r, s, 3);
         get_vector(9, start, s);
-        break;
-      case CONV2DS:
-        get_ints(r, s, 3);
-        get_vector(12, start, s);
         break;
 
       // read from file, input is opcode num_args, 
@@ -424,6 +421,10 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
             ss << "Tape requires prime of bit length " << n << endl;
             throw Processor_Error(ss.str());
           }
+        break;
+      case ACTIVE:
+        n = get_int(s);
+        BaseMachine::s().active(n);
         break;
       case XORM:
       case ANDM:
@@ -720,7 +721,16 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
   case MATMULSM:
       return r[0] + start[0] * start[2];
   case CONV2DS:
-      return r[0] + start[0] * start[1] * start[11];
+  {
+      unsigned res = 0;
+      for (size_t i = 0; i < start.size(); i += 15)
+      {
+          unsigned tmp = start[i]
+                               + start[i + 3] * start[i + 4] * start.at(i + 14);
+          res = max(res, tmp);
+      }
+      return res;
+  }
   case OPEN:
       skip = 2;
       break;
@@ -908,14 +918,14 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         n++;
         break;
       case LDMCI:
-        Proc.write_Cp(r[0], Proc.machine.Mp.read_C(Proc.sync_Ci(r[1])));
+        Proc.write_Cp(r[0], Proc.machine.Mp.read_C(Proc.read_Ci(r[1])));
         break;
       case STMC:
         Proc.machine.Mp.write_C(n,Proc.read_Cp(r[0]));
         n++;
         break;
       case STMCI:
-        Proc.machine.Mp.write_C(Proc.sync_Ci(r[1]), Proc.read_Cp(r[0]));
+        Proc.machine.Mp.write_C(Proc.read_Ci(r[1]), Proc.read_Cp(r[0]));
         break;
       case MOVC:
         Proc.write_Cp(r[0],Proc.read_Cp(r[1]));
@@ -992,7 +1002,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Procp.protocol.randoms_inst(Procp.get_S(), *this);
         return;
       case INPUTMASKREG:
-        Procp.DataF.get_input(Proc.get_Sp_ref(r[0]), Proc.temp.rrp, Proc.sync_Ci(r[2]));
+        Procp.DataF.get_input(Proc.get_Sp_ref(r[0]), Proc.temp.rrp, Proc.read_Ci(r[2]));
         Proc.write_Cp(r[1], Proc.temp.rrp);
         break;
       case INPUTMASK:
@@ -1082,7 +1092,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         return;
       case MATMULSM:
         Proc.Procp.protocol.matmulsm(Proc.Procp, Proc.machine.Mp.MS, *this,
-            Proc.sync_Ci(r[1]), Proc.sync_Ci(r[2]));
+            Proc.read_Ci(r[1]), Proc.read_Ci(r[2]));
         return;
       case CONV2DS:
         Proc.Procp.protocol.conv2ds(Proc.Procp, *this);
@@ -1122,14 +1132,14 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Proc.PC += (signed int) n;
         break;
       case JMPI:
-        Proc.PC += (signed int) Proc.sync_Ci(r[0]);
+        Proc.PC += (signed int) Proc.read_Ci(r[0]);
         break;
       case JMPNZ:
-        if (Proc.sync_Ci(r[0]) != 0)
+        if (Proc.read_Ci(r[0]) != 0)
           { Proc.PC += (signed int) n; }
         break;
       case JMPEQZ:
-        if (Proc.sync_Ci(r[0]) == 0)
+        if (Proc.read_Ci(r[0]) == 0)
           { Proc.PC += (signed int) n; }
         break;
       case PRINTREG:
@@ -1164,6 +1174,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         break;
       case REQBL:
       case GREQBL:
+      case ACTIVE:
       case USE:
       case USE_INP:
       case USE_EDABIT:
@@ -1189,7 +1200,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Proc.machine.join_tape(r[0]);
         break;
       case CRASH:
-        if (Proc.sync_Ci(r[0]))
+        if (Proc.read_Ci(r[0]))
           throw crash_requested();
         break;
       case STARTGRIND:
@@ -1212,7 +1223,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       // ***
       case LISTEN:
         // listen for connections at port number n
-        Proc.external_clients.start_listening(Proc.sync_Ci(r[0]));
+        Proc.external_clients.start_listening(Proc.read_Ci(r[0]));
         break;
       case ACCEPTCLIENTCONNECTION:
       {

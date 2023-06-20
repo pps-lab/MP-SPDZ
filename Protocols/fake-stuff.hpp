@@ -295,9 +295,13 @@ void write_mac_key(const string& directory, int i, int nplayers, U key)
 #ifdef VERBOSE
   cout << "Writing to " << filename.str().c_str() << endl;
 #endif
+  if (not directory.empty())
+    mkdir_p(directory.c_str());
   outf.open(filename.str().c_str());
   outf << nplayers << endl;
   key.output(outf,true);
+  if (outf.fail())
+    throw IO_Error("cannot write to " + filename.str());
   outf.close();
 }
 
@@ -439,9 +443,8 @@ T reconstruct(vector<MaliciousShamirShare<T>>& shares)
 
 template<class T>
 void make_mac_key_share(typename T::mac_share_type::open_type& key,
-    vector<typename T::mac_share_type>& key_shares, int nplayers, T)
+    vector<typename T::mac_share_type>& key_shares, int nplayers, T, PRNG& G)
 {
-  SeededPRNG G;
   key.randomize(G);
   make_share(key_shares.data(), key, nplayers, GC::NoShare(), G);
   assert(not key_shares[0].is_zero());
@@ -449,9 +452,8 @@ void make_mac_key_share(typename T::mac_share_type::open_type& key,
 
 template<int K, int S>
 void make_mac_key_share(Z2<K + S>& key,
-    vector<SemiShare<Z2<K + S>>>& key_shares, int nplayers, Spdz2kShare<K, S>)
+    vector<SemiShare<Z2<K + S>>>& key_shares, int nplayers, Spdz2kShare<K, S>, PRNG& G)
 {
-  SeededPRNG G;
   key = {};
   key_shares.resize(nplayers);
   for (int i = 0; i < nplayers; i++)
@@ -464,21 +466,21 @@ void make_mac_key_share(Z2<K + S>& key,
 
 template<class T>
 void generate_mac_keys(typename T::mac_share_type::open_type& key,
-    int nplayers, string prep_data_prefix)
+    int nplayers, string prep_data_prefix, PRNG& G)
 {
   key.assign_zero();
   int tmpN = 0;
   ifstream inpf;
-  prep_data_prefix = get_prep_sub_dir<T>(prep_data_prefix, nplayers);
+  prep_data_prefix = get_prep_sub_dir<T>(prep_data_prefix, nplayers, true);
   bool generate = false;
   vector<typename T::mac_share_type> key_shares(nplayers);
 
   for (int i = 0; i < nplayers; i++)
     {
       auto& pp = key_shares[i];
-      stringstream filename;
-      filename << mac_filename<typename T::mac_key_type>(prep_data_prefix, i);
-      inpf.open(filename.str().c_str());
+      string filename;
+      filename = mac_filename<typename T::mac_key_type>(prep_data_prefix, i);
+      inpf.open(filename);
       if (inpf.fail())
         {
           inpf.close();
@@ -504,20 +506,20 @@ void generate_mac_keys(typename T::mac_share_type::open_type& key,
 
   if (generate)
     {
-      make_mac_key_share(key, key_shares, nplayers, T());
+      make_mac_key_share(key, key_shares, nplayers, T(), G);
 
       for (int i = 0; i < nplayers; i++)
         {
           auto& pp = key_shares[i];
-          stringstream filename;
-          filename
-              << mac_filename<typename T::mac_key_type>(prep_data_prefix, i);
-          ofstream outf(filename.str().c_str());
+          string filename;
+          filename = mac_filename<typename T::mac_key_type>(prep_data_prefix,
+              i);
+          ofstream outf(filename);
           if (outf.fail())
-            throw file_error(filename.str().c_str());
+            throw file_error(filename);
           outf << nplayers << " " << pp << endl;
           outf.close();
-          cout << "Written new MAC key share to " << filename.str() << endl;
+          cout << "Written new MAC key share to " << filename << endl;
           cout << " Key " << i << ": " << pp << endl;
         }
     }
@@ -538,14 +540,11 @@ inline void check_files(ofstream* outf, int N)
  */
 template<class T>
 void make_mult_triples(const typename T::mac_type& key, int N, int ntrip,
-    bool zero, string prep_data_prefix, int thread_num = -1)
+    bool zero, string prep_data_prefix, PRNG& G, int thread_num = -1)
 {
   T::clear::write_setup(get_prep_sub_dir<T>(prep_data_prefix, N));
+  Files<T> files(N, key, prep_data_prefix, DATA_TRIPLE, G, thread_num);
 
-  PRNG G;
-  G.ReSeed();
-
-  Files<T> files(N, key, prep_data_prefix, DATA_TRIPLE, thread_num);
   typename T::clear a,b,c;
   /* Generate Triples */
   for (int i=0; i<ntrip; i++)
@@ -567,12 +566,10 @@ void make_mult_triples(const typename T::mac_type& key, int N, int ntrip,
  */
 template<class T>
 void make_inverse(const typename T::mac_type& key, int N, int ntrip, bool zero,
-    string prep_data_prefix)
+    string prep_data_prefix, PRNG& G)
 {
-  PRNG G;
-  G.ReSeed();
 
-  Files<T> files(N, key, prep_data_prefix, DATA_INVERSE);
+  Files<T> files(N, key, prep_data_prefix, DATA_INVERSE, G);
   typename T::clear a,b;
   for (int i=0; i<ntrip; i++)
     {

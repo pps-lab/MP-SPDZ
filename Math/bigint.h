@@ -5,7 +5,7 @@
 using namespace std;
 
 #include <stddef.h>
-#include <mpirxx.h>
+#include <gmpxx.h>
 
 #include "Tools/Exceptions.h"
 #include "Tools/int.h"
@@ -39,7 +39,7 @@ namespace GC
 
 /**
  * Type for arbitrarily large integers.
- * This is a sub-class of ``mpz_class`` from MPIR. As such, it implements
+ * This is a sub-class of ``mpz_class`` from GMP. As such, it implements
  * all integers operations and input/output via C++ streams. In addition,
  * the ``get_ui()`` member function allows retrieving the least significant
  * 64 bits.
@@ -101,6 +101,8 @@ public:
 
   void mul(const bigint& x, const bigint& y) { *this = x * y; }
 
+  void add(octetStream& os, int = -1);
+
 #ifdef REALLOC_POLICE
   ~bigint() { lottery(); }
   void lottery();
@@ -129,8 +131,8 @@ public:
   void generateUniform(PRNG& G, int n_bits, bool positive = false)
   { G.get(*this, n_bits, positive); }
 
-  void pack(octetStream& os) const { os.store(*this); }
-  void unpack(octetStream& os)     { os.get(*this); };
+  void pack(octetStream& os, int = -1) const { os.store(*this); }
+  void unpack(octetStream& os, int = -1)     { os.get(*this); };
 
   size_t report_size(ReportType type) const;
 };
@@ -138,8 +140,6 @@ public:
 
 void inline_mpn_zero(mp_limb_t* x, mp_size_t size);
 void inline_mpn_copyi(mp_limb_t* dest, const mp_limb_t* src, mp_size_t size);
-
-#include "Z2k.h"
 
 
 inline bigint& bigint::operator=(int n)
@@ -270,7 +270,7 @@ inline int numBits(long m)
 
 
 
-inline int numBytes(const bigint& m)
+inline size_t numBytes(const bigint& m)
 {
   return mpz_sizeinbase(m.get_mpz_t(),256);
 }
@@ -281,11 +281,7 @@ inline int numBytes(const bigint& m)
 
 inline int probPrime(const bigint& x)
 {
-  gmp_randstate_t rand_state;
-  gmp_randinit_default(rand_state);
-  int ans = mpz_probable_prime_p(x.get_mpz_t(), rand_state,
-      max(40, DEFAULT_SECURITY), 0);
-  gmp_randclear(rand_state);
+  int ans = mpz_probab_prime_p(x.get_mpz_t(), max(40, DEFAULT_SECURITY) / 2);
   return ans;
 }
 
@@ -303,12 +299,13 @@ inline void bigintFromBytes(bigint& x,octet* bytes,int len)
 
 inline void bytesFromBigint(octet* bytes,const bigint& x,unsigned int len)
 {
-  size_t ll;
-  mpz_export(bytes,&ll,1,sizeof(octet),0,0,x.get_mpz_t());
+  size_t ll = x == 0 ? 0 : numBytes(x);
   if (ll>len)
     { throw invalid_length(); }
-  for (unsigned int i=ll; i<len; i++)
-    { bytes[i]=0; }
+  memset(bytes, 0, len - ll);
+  size_t l;
+  mpz_export(bytes + len - ll, &l, 1, sizeof(octet), 0, 0, x.get_mpz_t());
+  assert(ll == l);
 }
 
 
@@ -318,7 +315,8 @@ inline int isOdd(const bigint& x)
 }
 
 
-bigint sqrRootMod(const bigint& x,const bigint& p);
+template<class T>
+bigint sqrRootMod(const T& x);
 
 bigint powerMod(const bigint& x,const bigint& e,const bigint& p);
 

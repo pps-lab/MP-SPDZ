@@ -31,6 +31,8 @@ data_types = dict(
     inverse=3,
     dabit=4,
     mixed=5,
+    random=6,
+    open=7,
 )
 
 field_types = dict(
@@ -184,6 +186,8 @@ class Program(object):
         self.input_files = {}
         self.base_addresses = {}
         self._protect_memory = False
+        self._always_active = True
+        self.active = True
         if not self.options.cisc:
             self.options.cisc = not self.options.optimize_hard
 
@@ -205,15 +209,13 @@ class Program(object):
         return self.n_threads
 
     def init_names(self, args):
-        # ignore path to file - source must be in Programs/Source
-        if "Programs" in os.listdir(os.getcwd()):
-            # compile prog in ./Programs/Source directory
-            self.programs_dir = "Programs"
-        else:
-            # assume source is in main SPDZ directory
-            self.programs_dir = sys.path[0] + "/Programs"
+        self.programs_dir = "Programs"
         if self.verbose:
             print("Compiling program in", self.programs_dir)
+
+        for dirname in (self.programs_dir, "Player-Data"):
+            if not os.path.exists(dirname):
+                os.mkdir(dirname)
 
         # create extra directories if needed
         for dirname in ["Public-Input", "Bytecode", "Schedules"]:
@@ -222,13 +224,29 @@ class Program(object):
 
         if self.name is None:
             self.name = args[0].split("/")[-1]
-            if self.name.endswith(".mpc"):
-                self.name = self.name[:-4]
+            exts = ".mpc", ".py"
+            for ext in exts:
+                if self.name.endswith(ext):
+                    self.name = self.name[:-len(ext)]
 
             if os.path.exists(args[0]):
                 self.infile = args[0]
             else:
-                self.infile = self.programs_dir + "/Source/" + self.name + ".mpc"
+                infiles = []
+                for x in (self.programs_dir, sys.path[0] + "/Programs"):
+                    for ext in exts:
+                        filename = args[0]
+                        if not filename.endswith(ext):
+                            filename += ext
+                        infiles += [x + "/Source/" + filename]
+                for f in infiles:
+                    if os.path.exists(f):
+                        self.infile = f
+                        break
+                else:
+                    raise CompilerError(
+                        "found none of the potential input files: " +
+                        ", ".join("'%s'" % x for x in [args[0]] + infiles))
         """
         self.name is input file name (minus extension) + any optional arguments.
         Used to generate output filenames
@@ -477,11 +495,18 @@ class Program(object):
         # finalize the memory
         self.finalize_memory()
 
+        # communicate protocol compability
+        Compiler.instructions.active(self._always_active)
+
         self.write_bytes()
 
         if self.options.asmoutfile:
             for tape in self.tapes:
                 tape.write_str(self.options.asmoutfile + "-" + tape.name)
+
+        # Making sure that the public_input_file has been properly closed
+        if self.public_input_file is not None:
+            self.public_input_file.close()
 
     def finalize_memory(self):
         self.curr_tape.start_new_basicblock(None, "memory-usage")
@@ -669,6 +694,19 @@ class Program(object):
         p = self.prime
         logp = int(round(math.log(p, 2)))
         return abs(p - 2 ** logp) / p < 2 ** -self.security
+
+    @property
+    def active(self):
+        """ Whether to use actively secure protocols. """
+        return self._active
+
+    @active.setter
+    def active(self, change):
+        self._always_active &= change
+        self._active = change
+
+    def semi_honest(self):
+        self._always_active = False
 
     @staticmethod
     def read_tapes(schedule):
@@ -1206,12 +1244,18 @@ class Tape:
             def t(x):
                 return "integer" if x == "modp" else x
 
+            def f(num):
+                try:
+                    return "%12.0f" % num
+                except:
+                    return str(num)
+
             res = []
             for req, num in self.items():
                 domain = t(req[0])
                 if num < 0:
                     num = float('inf')
-                n = "%12.0f" % num
+                n = f(num)
                 if req[1] == "input":
                     res += ["%s %s inputs from player %d" % (n, domain, req[2])]
                 elif domain.endswith("edabit"):
@@ -1228,7 +1272,7 @@ class Tape:
                 elif req[0] != "all":
                     res += ["%s %s %ss" % (n, domain, req[1])]
             if self["all", "round"]:
-                res += ["% 12.0f virtual machine rounds" % self["all", "round"]]
+                res += ["%s virtual machine rounds" % f(self["all", "round"])]
             return res
 
         def __str__(self):
@@ -1347,6 +1391,7 @@ class Tape:
             "caller",
             "can_eliminate",
             "duplicates",
+            "block",
         ]
         maximum_size = 2 ** (64 - inst_base.Instruction.code_length) - 1
 
@@ -1360,6 +1405,7 @@ class Tape:
                     reg_type = RegType.SecretGF2N
             self.reg_type = reg_type
             self.program = program
+            self.block = program.active_basicblock
             if size is None:
                 size = Compiler.instructions_base.get_global_vector_size()
             if size is not None and size > self.maximum_size:
@@ -1450,6 +1496,9 @@ class Tape:
             return Tape.Register(self.reg_type, Program.prog.curr_tape)
 
         def link(self, other):
+            if Program.prog.options.noreallocate:
+                raise CompilerError("reallocation necessary for linking, "
+                                    "remove option -u")
             self.duplicates |= other.duplicates
             for dup in self.duplicates:
                 dup.duplicates = self.duplicates
@@ -1462,7 +1511,10 @@ class Tape:
             :param other: any convertible type
 
             """
-            other = self.conv(other)
+            diff_block = isinstance(other, Tape.Register) and self.block != other.block
+            other = type(self)(other)
+            if not diff_block:
+                self.program.start_new_basicblock()
             if self.program != other.program:
                 raise CompilerError(
                     'cannot update register with one from another thread')

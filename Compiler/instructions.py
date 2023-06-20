@@ -356,7 +356,17 @@ class reqbl(base.Instruction):
     code = base.opcodes['REQBL']
     arg_format = ['int']
 
+class active(base.Instruction):
+    """ Indicate whether program is compatible with malicious-security
+    protocols.
+
+    :param: 0 for no, 1 for yes
+    """
+    code = base.opcodes['ACTIVE']
+    arg_format = ['int']
+
 class time(base.IOInstruction):
+
     """ Output time since start of computation. """
     code = base.opcodes['TIME']
     arg_format = []
@@ -1204,7 +1214,7 @@ class randoms(base.Instruction):
     field_type = 'modp'
 
 @base.vectorize
-class randomfulls(base.Instruction):
+class randomfulls(base.DataInstruction):
     """ Store share(s) of a fresh secret random element in secret
     register (vectors).
 
@@ -1214,6 +1224,10 @@ class randomfulls(base.Instruction):
     code = base.opcodes['RANDOMFULLS']
     arg_format = ['sw']
     field_type = 'modp'
+    data_type = 'random'
+
+    def get_repeat(self):
+        return len(self.args)
 
 @base.gf2n
 @base.vectorize
@@ -1511,8 +1525,8 @@ class inputpersonal(personal_base):
     code = base.opcodes['INPUTPERSONAL']
     arg_format = tools.cycle(['int','p','sw','c'])
 
-class privateoutput(personal_base):
-    """ Private input from cint.
+class privateoutput(personal_base, base.DataInstruction):
+    """ Private output to cint.
 
     :param: vector size (int)
     :param: player (int)
@@ -1523,6 +1537,14 @@ class privateoutput(personal_base):
     __slots__ = []
     code = base.opcodes['PRIVATEOUTPUT']
     arg_format = tools.cycle(['int','p','cw','s'])
+    data_type = 'open'
+
+    def add_usage(self, req_node):
+        personal_base.add_usage(self, req_node)
+        base.DataInstruction.add_usage(self, req_node)
+
+    def get_repeat(self):
+        return sum(self.args[::4])
 
 class sendpersonal(base.Instruction, base.Mergeable):
     """ Private input from cint.
@@ -2202,7 +2224,7 @@ class gconvgf2n(base.Instruction):
 # rename 'open' to avoid conflict with built-in open function
 @base.gf2n
 @base.vectorize
-class asm_open(base.VarArgsInstruction):
+class asm_open(base.VarArgsInstruction, base.DataInstruction):
     """ Reveal secret registers (vectors) to clear registers (vectors).
 
     :param: number of argument to follow (odd number)
@@ -2214,6 +2236,10 @@ class asm_open(base.VarArgsInstruction):
     __slots__ = []
     code = base.opcodes['OPEN']
     arg_format = tools.chain(['int'], tools.cycle(['cw','s']))
+    data_type = 'open'
+
+    def get_repeat(self):
+        return (len(self.args) - 1) // 2
 
     def merge(self, other):
         self.args[0] |= other.args[0]
@@ -2402,9 +2428,10 @@ class matmulsm(matmul_base):
         super(matmulsm, self).add_usage(req_node)
         req_node.increment(('matmul', tuple(self.args[3:6])), 1)
 
-class conv2ds(base.DataInstruction):
+class conv2ds(base.DataInstruction, base.VarArgsInstruction, base.Mergeable):
     """ Secret 2D convolution.
 
+    :param: number of arguments to follow (int)
     :param: result (sint vector in row-first order)
     :param: inputs (sint vector in row-first order)
     :param: weights (sint vector in row-first order)
@@ -2420,10 +2447,12 @@ class conv2ds(base.DataInstruction):
     :param: padding height (int)
     :param: padding width (int)
     :param: batch size (int)
+    :param: repeat from result...
+
     """
     code = base.opcodes['CONV2DS']
-    arg_format = ['sw','s','s','int','int','int','int','int','int','int','int',
-                  'int','int','int','int']
+    arg_format = itertools.cycle(['sw','s','s','int','int','int','int','int',
+                                  'int','int','int','int','int','int','int'])
     data_type = 'triple'
     is_vec = lambda self: True
 
@@ -2434,14 +2463,16 @@ class conv2ds(base.DataInstruction):
         assert args[2].size == args[7] * args[8] * args[11]
 
     def get_repeat(self):
-        return self.args[3] * self.args[4] * self.args[7] * self.args[8] * \
-            self.args[11] * self.args[14]
+        args = self.args
+        return sum(args[i+3] * args[i+4] * args[i+7] * args[i+8] * \
+            args[i+11] * args[i+14] for i in range(0, len(args), 15))
 
     def add_usage(self, req_node):
         super(conv2ds, self).add_usage(req_node)
-        args = self.args
-        req_node.increment(('matmul', (1, args[7] * args[8] * args[11],
-                                       args[14] * args[3] * args[4])), 1)
+        for i in range(0, len(self.args), 15):
+            args = self.args[i:i + 15]
+            req_node.increment(('matmul', (1, args[7] * args[8] * args[11],
+                                           args[14] * args[3] * args[4])), 1)
 
 @base.vectorize
 class trunc_pr(base.VarArgsInstruction):

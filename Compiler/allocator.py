@@ -313,6 +313,7 @@ class Merger:
 
         reg_nodes = {}
         last_def = defaultdict_by_id(lambda: -1)
+        last_read = defaultdict_by_id(list)
         last_mem_write = []
         last_mem_read = []
         last_mem_write_of = defaultdict(list)
@@ -331,6 +332,8 @@ class Merger:
         round_type = {}
 
         def add_edge(i, j):
+            if i in (-1, j):
+                return
             G.add_edge(i, j)
             for d in (self.depths, self.real_depths):
                 if d[j] < d[i]:
@@ -338,10 +341,15 @@ class Merger:
 
         def read(reg, n):
             for dup in reg.duplicates:
-                if last_def[dup] != -1:
+                if last_def[dup] not in (-1, n):
                     add_edge(last_def[dup], n)
+            last_read[reg].append(n)
 
         def write(reg, n):
+            for dup in reg.duplicates:
+                add_edge(last_def[dup], n)
+                for m in last_read[dup]:
+                    add_edge(m, n)
             last_def[reg] = n
 
         def handle_mem_access(addr, reg_type, last_access_this_kind,
@@ -429,19 +437,19 @@ class Merger:
             # if options.debug:
             #     col = colordict[instr.__class__.__name__]
             #     G.add_node(n, color=col, label=str(instr))
-            for reg in inputs:
-                if reg.vector and instr.is_vec():
-                    for i in reg.vector:
-                        read(i, n)
-                else:
-                    read(reg, n)
-
             for reg in outputs:
                 if reg.vector and instr.is_vec():
                     for i in reg.vector:
                         write(i, n)
                 else:
                     write(reg, n)
+
+            for reg in inputs:
+                if reg.vector and instr.is_vec():
+                    for i in reg.vector:
+                        read(i, n)
+                else:
+                    read(reg, n)
 
             # will be merged
             if isinstance(instr, TextInputInstruction):
@@ -551,18 +559,6 @@ class Merger:
             if unused_result:
                 eliminate(i)
                 count += 1
-            # remove unnecessary stack instructions
-            # left by optimization with budget
-            if isinstance(inst, popint_class) and \
-               (not G.degree(i) or (G.degree(i) == 1 and
-                isinstance(instructions[list(G[i])[0]], StackInstruction))) \
-                and \
-               inst.args[0].can_eliminate and \
-               len(G.pred[i]) == 1 and \
-               isinstance(instructions[list(G.pred[i])[0]], pushint_class):
-                eliminate(list(G.pred[i])[0])
-                eliminate(i)
-                count += 2
         if count > 0 and self.block.parent.program.verbose:
             print('Eliminated %d dead instructions, among which %d opens: %s' \
                 % (count, open_count, dict(stats)))
@@ -586,6 +582,13 @@ class Merger:
 class RegintOptimizer:
     def __init__(self):
         self.cache = util.dict_by_id()
+        self.offset_cache = util.dict_by_id()
+        self.rev_offset_cache = {}
+
+    def add_offset(self, res, new_base, new_offset):
+        self.offset_cache[res] = new_base, new_offset
+        if (new_base.i, new_offset) not in self.rev_offset_cache:
+            self.rev_offset_cache[new_base.i, new_offset] = res
 
     def run(self, instructions, program):
         for i, inst in enumerate(instructions):
@@ -599,10 +602,36 @@ class RegintOptimizer:
                         self.cache[inst.args[0]] = res
                         instructions[i] = ldint(inst.args[0], res,
                                                 add_to_prog=False)
+                elif isinstance(inst, addint_class):
+                    def f(base, delta_reg):
+                        delta = self.cache[delta_reg]
+                        if base in self.offset_cache:
+                            reg, offset = self.offset_cache[base]
+                            new_base, new_offset = reg, offset + delta
+                        else:
+                            new_base, new_offset = base, delta
+                        self.add_offset(inst.args[0], new_base, new_offset)
+                    if inst.args[1] in self.cache:
+                        f(inst.args[2], inst.args[1])
+                    elif inst.args[2] in self.cache:
+                        f(inst.args[1], inst.args[2])
+                elif isinstance(inst, subint_class) and \
+                     inst.args[2] in self.cache:
+                    delta = self.cache[inst.args[2]]
+                    if inst.args[1] in self.offset_cache:
+                        reg, offset = self.offset_cache[inst.args[1]]
+                        new_base, new_offset = reg, offset - delta
+                    else:
+                        new_base, new_offset = inst.args[1], -delta
+                    self.add_offset(inst.args[0], new_base, new_offset)
             elif isinstance(inst, IndirectMemoryInstruction):
                 if inst.args[1] in self.cache:
                     instructions[i] = inst.get_direct(self.cache[inst.args[1]])
                     instructions[i]._protect = inst._protect
+                elif inst.args[1] in self.offset_cache:
+                    base, offset = self.offset_cache[inst.args[1]]
+                    addr = self.rev_offset_cache[base.i, offset]
+                    inst.args[1] = addr
             elif type(inst) == convint_class:
                 if inst.args[1] in self.cache:
                     res = self.cache[inst.args[1]]
