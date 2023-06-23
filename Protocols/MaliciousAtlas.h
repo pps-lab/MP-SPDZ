@@ -66,6 +66,8 @@ public:
     // Protocol 13
     void hadamard_check_naive();
     void hadamard_check_combined();
+    void hadamard_check_with_ip();
+
     // Protocol technically extend-compress ?
     void ip_check(std::vector<T> xs, std::vector<T> ys, T rzs_sum);
 

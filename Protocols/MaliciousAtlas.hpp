@@ -6,7 +6,7 @@
 #ifndef PROTOCOLS_MALICIOUSATLAS_HPP_
 #define PROTOCOLS_MALICIOUSATLAS_HPP_
 
-#define ATLAS_DEBUG 1
+//#define ATLAS_DEBUG 1
 
 #include "MaliciousAtlas.h"
 
@@ -24,6 +24,8 @@ template<class T>
 void MaliciousAtlas<T>::check()
 {
     // We need to check the products, if any
+    MAYBE THE CHECKS ARE RUN BECAUSE OF BIN ARITHMETIC SWITCHING ??
+
     this->check_products();
 }
 
@@ -31,7 +33,8 @@ template<class T>
 void MaliciousAtlas<T>::check_products()
 {
 //    hadamard_check_naive();
-    hadamard_check_combined();
+//    hadamard_check_combined();
+    hadamard_check_with_ip();
 }
 
 // Protocol 13, convert multiplication tuples into inner product tuples
@@ -89,6 +92,7 @@ void MaliciousAtlas<T>::hadamard_check_naive()
 
 }
 
+// I think this is insecure
 template<class T>
 void MaliciousAtlas<T>::hadamard_check_combined()
 {
@@ -141,7 +145,122 @@ void MaliciousAtlas<T>::hadamard_check_combined()
         ip_check_y = PointerVector<PointerVector<T>>();
         ip_check_z = PointerVector<T>();
     }
+}
 
+template<class T>
+void MaliciousAtlas<T>::hadamard_check_with_ip()
+{
+    if (check_x.size() > 1) {
+
+#ifdef ATLAS_DEBUG
+        std::cout << "Hadamard " << check_x.size() << std::endl;
+#endif
+
+        typename T::open_type r = coin();
+
+        // Iterate over check_z and sum its elements
+        T z_sum = T(); // zero
+        T r_i = T() + 1; // one
+        // Combine the two above loops into one loop that iterates over both at the same time using i
+        for (size_t i = 0; i < check_z.size(); i++) {
+            check_x[i] = check_x[i] * r_i;
+            check_z[i] = check_z[i] * r_i;
+            z_sum += check_z[i];
+            r_i = r_i * r;
+        }
+
+        // check_x and check_y now represent an inner product tuple
+        size_t max_size = check_x.size();
+
+        if (ip_check_x.size() > 0) {
+            assert(ip_check_x.size() == ip_check_z.size());
+            assert(ip_check_y.size() == ip_check_z.size());
+
+            for (size_t i = 0; i < ip_check_x.size(); i++) {
+                assert(ip_check_x[i].size() == ip_check_y[i].size());
+
+                max_size = max(max_size, ip_check_x[i].size());
+            }
+
+#ifdef ATLAS_DEBUG
+            // Group by the sizes of the inner products in ip_check_x and output how many we have of each size
+            std::map<size_t, size_t> size_counts;
+            for (size_t i = 0; i < ip_check_x.size(); i++) {
+                size_counts[ip_check_x[i].size()]++;
+            }
+            std::cout << "Size counts: " << std::endl;
+            for (auto it = size_counts.begin(); it != size_counts.end(); it++) {
+                std::cout << "  " << it->first << ": " << it->second << std::endl;
+            }
+            std::cout << "  + multiplication tuples: " << check_x.size() << std::endl;
+#endif
+
+            // pad all tuples to max_size
+            for (size_t i = 0; i < ip_check_x.size(); i++) {
+                // rewrite the above while loop as a for loop
+                for (size_t j = ip_check_x[i].size(); j < max_size; j++) {
+                    ip_check_x[i].push_back(T());
+                    ip_check_y[i].push_back(T());
+                }
+            }
+
+            // pad check_x to max_size
+            std::cout << "Pushing back until " << max_size << std::endl;
+            for (size_t j = check_x.size(); j < max_size; j++) {
+                check_x.push_back(T());
+                check_y.push_back(T());
+            }
+
+            // Combine these into one inner product
+            std::vector<tuple<std::vector<T>, std::vector<T>, T> > ip_tuples;
+            for (size_t i = 0; i < ip_check_x.size(); i++) {
+                ip_tuples.push_back(make_tuple(ip_check_x[i], ip_check_y[i], ip_check_z[i]));
+            }
+            ip_tuples.push_back(make_tuple(std::vector<T>(check_x), std::vector<T>(check_y), z_sum));
+
+            // Assert that all ip_tuples have max size
+            for (size_t i = 1; i < ip_tuples.size(); i++) {
+                assert(std::get<0>(ip_tuples[i]).size() == max_size);
+            }
+
+#ifdef ATLAS_DEBUG
+            std::cout << "Compressing " << ip_tuples.size() << " tuples" << std::endl;
+#endif
+
+            // Combine ip_tuples into one. For now we will do this by two's because ip_compress only takes two tuples
+            // Take two ip_tuples each and combine them using ip_compress, until ip_tuples only contains one element
+            while (ip_tuples.size() > 1) {
+                std::vector<tuple<std::vector<T>, std::vector<T>, T> > new_ip_tuples;
+                for (size_t i = 0; i < ip_tuples.size(); i += 2) {
+                    if (i + 1 < ip_tuples.size()) {
+                        new_ip_tuples.push_back(ip_compress(std::get<0>(ip_tuples[i]), std::get<1>(ip_tuples[i]), std::get<2>(ip_tuples[i]),
+                                                            std::get<0>(ip_tuples[i + 1]), std::get<1>(ip_tuples[i + 1]), std::get<2>(ip_tuples[i + 1])));
+                    } else {
+                        new_ip_tuples.push_back(ip_tuples[i]);
+                    }
+                }
+                ip_tuples = new_ip_tuples;
+            }
+
+            // Run ip_check on combined tuple
+            ip_check(std::get<0>(ip_tuples[0]), std::get<1>(ip_tuples[0]), std::get<2>(ip_tuples[0]));
+        } else {
+            // We only have multiplications to verify
+            ip_check(check_x, check_y, z_sum);
+        }
+
+
+        // Clear things
+        this->ip_check_index = 0;
+        check_x = PointerVector<T>();
+        check_y = PointerVector<T>();
+        check_z = PointerVector<T>();
+
+        // Clear things
+        ip_check_x = PointerVector<PointerVector<T> >();
+        ip_check_y = PointerVector<PointerVector<T> >();
+        ip_check_z = PointerVector<T>();
+    }
 }
 
 template<class T>
@@ -162,10 +281,10 @@ void MaliciousAtlas<T>::ip_check(std::vector<T> xs, std::vector<T> ys, T rzs_sum
 
     assert(xs.size() == ys.size());
 
-#ifdef ATLAS_DEBUG
-    print_list(xs);
-    print_list(ys);
-#endif
+//#ifdef ATLAS_DEBUG
+//    print_list(xs);
+//    print_list(ys);
+//#endif
 
     while (xs.size() > 1) {
         if (xs.size() % 2 == 1) {
@@ -181,12 +300,12 @@ void MaliciousAtlas<T>::ip_check(std::vector<T> xs, std::vector<T> ys, T rzs_sum
         auto ys_l = ys_split[0];
         auto ys_r = ys_split[1];
         T ip_l = ip_compute(xs_l, ys_l);
-#ifdef ATLAS_DEBUG
-        std::cout << "xs_l " << xs_l[0] << ", ys_l " << ys_l[0] << ", ip_l " << ip_l << std::endl;
-
-        typename T::open_type resipl = open(ip_l);
-        std::cout << "open ip_l " << resipl << std::endl;
-#endif
+//#ifdef ATLAS_DEBUG
+//        std::cout << "xs_l " << xs_l[0] << ", ys_l " << ys_l[0] << ", ip_l " << ip_l << std::endl;
+//
+//        typename T::open_type resipl = open(ip_l);
+//        std::cout << "open ip_l " << resipl << std::endl;
+//#endif
         T ip_r = rzs_sum - ip_l;
 
         // Compress
@@ -201,23 +320,23 @@ void MaliciousAtlas<T>::ip_check(std::vector<T> xs, std::vector<T> ys, T rzs_sum
     T x = xs[0];
     T y = ys[0];
 
-#ifdef ATLAS_DEBUG
-    std::cout << "x " << x << ", y " << y << ", rzs_sum " << rzs_sum << std::endl;
-#endif
+//#ifdef ATLAS_DEBUG
+//    std::cout << "x " << x << ", y " << y << ", rzs_sum " << rzs_sum << std::endl;
+//#endif
+//
+//#ifdef ATLAS_DEBUG
+//    T x_out_unblind = open(x);
+//    T y_out_unblind = open(y);
+//    T ip_out_unblind = open(rzs_sum);
+//
+//    std::cout << "x_out (not blind) " << x_out_unblind << std::endl;
+//    std::cout << "y_out (not blind) " << y_out_unblind << std::endl;
+//    std::cout << "ip_out (not blind) " << ip_out_unblind << std::endl;
+//
+//    assert(x_out_unblind * y_out_unblind == ip_out_unblind);
+//#endif
 
-#ifdef ATLAS_DEBUG
-    T x_out_unblind = open(x);
-    T y_out_unblind = open(y);
-    T ip_out_unblind = open(rzs_sum);
-
-    std::cout << "x_out (not blind) " << x_out_unblind << std::endl;
-    std::cout << "y_out (not blind) " << y_out_unblind << std::endl;
-    std::cout << "ip_out (not blind) " << ip_out_unblind << std::endl;
-
-    assert(x_out_unblind * y_out_unblind == ip_out_unblind);
-#endif
-
-    // Now multiply but without the check ??
+    // Now multiply but without the check
     // 15.4
     T ip_rand = mul_helper(xr, yr);
     T x_blind = mul_helper(x, xr);
@@ -236,11 +355,11 @@ void MaliciousAtlas<T>::ip_check(std::vector<T> xs, std::vector<T> ys, T rzs_sum
     T y_out = open(y_blind);
     T ip_out = open(ip_blind);
 
-#ifdef ATLAS_DEBUG
-    std::cout << "x_out " << x_out << std::endl;
-    std::cout << "y_out " << y_out << std::endl;
-    std::cout << "ip_out " << ip_out << std::endl;
-#endif
+//#ifdef ATLAS_DEBUG
+//    std::cout << "x_out " << x_out << std::endl;
+//    std::cout << "y_out " << y_out << std::endl;
+//    std::cout << "ip_out " << ip_out << std::endl;
+//#endif
 
     assert(x_out * y_out == ip_out);
 }
@@ -354,12 +473,14 @@ T MaliciousAtlas<T>::ip_compute(std::vector<T> xs, std::vector<T> ys) {
 }
 
 // Compress two inner product checks into one, Extend-Compress
+// This only works for 2 sets of tuples ? not sure why, is it maybe faster?
+// Maybe optimize to use reference?
 // Protocol 12
 template<class T>
 tuple<std::vector<T>, std::vector<T>, T> MaliciousAtlas<T>::ip_compress(std::vector<T> xs_l, std::vector<T> ys_l, T ip_l, std::vector<T> xs_r, std::vector<T> ys_r, T ip_r)
 {
 #ifdef ATLAS_DEBUG
-    std::cout << "ip_compress" << std::endl;
+//    std::cout << "ip_compress" << std::endl;
 #endif
 
     size_t n = xs_l.size();
@@ -518,7 +639,6 @@ void MaliciousAtlas<T>::next_dotprod(bool queue_check) {
         this->ip_check_index = this->ip_check_index + 1;
     }
 
-    std::cout << "next_dotprod " << queue_check << std::endl;
 }
 
 template<class T>
