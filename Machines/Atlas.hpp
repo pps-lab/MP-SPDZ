@@ -13,6 +13,7 @@
 #include "ShamirMachine.hpp"
 #include "Protocols/Atlas.hpp"
 
+#include "Protocols/MaliciousAtlasPrep.h"
 #include "Protocols/MaliciousAtlasShare.h"
 #include "Protocols/MaliciousAtlas.hpp"
 

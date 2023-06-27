@@ -24,7 +24,7 @@ template<class T>
 void MaliciousAtlas<T>::check()
 {
     // We need to check the products, if any
-    MAYBE THE CHECKS ARE RUN BECAUSE OF BIN ARITHMETIC SWITCHING ??
+//    MAYBE THE CHECKS ARE RUN BECAUSE OF BIN ARITHMETIC SWITCHING ??
 
     this->check_products();
 }

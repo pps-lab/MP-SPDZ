@@ -29,7 +29,7 @@ public:
     typedef IndirectShamirMC<This> MAC_Check;
     typedef ShamirMC<This> Direct_MC;
     typedef ::PrivateOutput<This> PrivateOutput;
-    typedef AtlasPrep<This> LivePrep;
+    typedef MaliciousAtlasPrep<This> LivePrep;
 
     typedef GC::AtlasSecret bit_type;
 
