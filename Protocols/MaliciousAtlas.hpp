@@ -389,6 +389,7 @@ typename T::open_type MaliciousAtlas<T>::coin() {
 // Open values
 template<class T>
 T MaliciousAtlas<T>::open(const T& val) {
+    // TODO: Not sure if this is the correct way to open a value, maybe there is a more generic way?
     // Everyone sends its share of val to everyone else, everyone reconstructs the result.
     int t = ShamirMachine::s().threshold;
     typename T::Direct_MC mc = typename T::Direct_MC(t);
