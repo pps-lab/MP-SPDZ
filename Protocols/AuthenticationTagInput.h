@@ -10,6 +10,7 @@
 
 /**
  * Honest-majority input protocol with MAC
+ * TODO: IS this a generic wrapper? can i wrap this in shamir?
  */
 template<class T>
 class AuthenticationTagInput : public InputBase<T>

@@ -43,6 +43,7 @@ void AuthenticationTagInput<T>::reset(int player)
 template<class T>
 void AuthenticationTagInput<T>::add_mine(const typename T::open_type& input, int n_bits)
 {
+    // TODO: This is something like input called on the type, gf2n Input type ??
     part_input.add_mine(input, n_bits);
     counters[P.my_num()]++;
 }
