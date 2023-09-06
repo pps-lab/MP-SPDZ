@@ -113,6 +113,10 @@ replicated: rep-field rep-ring rep-bin
 spdz2k: spdz2k-party.x ot-offline.x Check-Offline-Z2k.x galois-degree.x Fake-Offline.x
 mascot: mascot-party.x spdz2k mama-party.x
 
+ring: replicated-ring-party.x
+mal3pc-ring: mal3pc-ring-party.x
+mal3pc-field: mal3pc-field-party.x
+
 ifeq ($(OS), Darwin)
 setup: mac-setup
 else

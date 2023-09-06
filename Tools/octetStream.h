@@ -161,6 +161,15 @@ class octetStream
   /// Read 4-byte integer
   void get(int& a);
 
+    /// Append 8-byte integer
+    void store(long long a) { store_int(a, 8); }
+    /// Read 8-byte integer
+    void get(long long& a) { a = get_int(8); }
+    /// Append 8-byte integer
+    void store(unsigned long long a) { store_int(a, 8); }
+    /// Read 8-byte integer
+    void get(unsigned long long& a) { a = get_int(8); }
+
   /// Append 8-byte integer
   void store(size_t a) { store_int(a, 8); }
   /// Read 8-byte integer

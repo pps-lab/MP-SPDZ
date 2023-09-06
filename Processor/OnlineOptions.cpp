@@ -23,6 +23,12 @@ OnlineOptions::OnlineOptions() : playerno(-1)
     lgp = gfp0::MAX_N_BITS;
     live_prep = true;
     batch_size = 10000;
+    binary_batch_size = 10000;
+    max_status = 50;
+    thread_number = 10;
+    k_size = 8;
+    k2_size = 8;
+    verify_threshold = 1000;
     memtype = "empty";
     bits_from_squares = false;
     direct = false;
