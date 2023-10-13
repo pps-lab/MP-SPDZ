@@ -133,7 +133,7 @@ void MMO::hashEightBlocks(gfpvar_<X, L>* output, const void* input)
         break;
     switch(gfpvar_<X, L>::get_ZpD().get_t())
     {
-    X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12)
+    X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13)
     default:
         throw runtime_error("MMO not implemented");
     }
