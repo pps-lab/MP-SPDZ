@@ -405,6 +405,7 @@ class LinearOutput(NoVariableLayer):
         self.d_out = n_targets
 
     def _forward(self, batch):
+        print("forward", self.X, self.X.shape)
         assert len(self.X.shape) == 1
         N = len(batch)
         guess = self.X.get_vector(0, N)
