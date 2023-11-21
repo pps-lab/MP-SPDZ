@@ -245,6 +245,7 @@ static/chaigear-party.x: $(FHEOBJS)
 static/lowgear-party.x: $(FHEOBJS) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 static/highgear-party.x: $(FHEOBJS) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
 mascot-party.x: $(SPDZ)
+dealer-mal-field-party.x: $(SPDZ)
 static/mascot-party.x: $(SPDZ)
 Player-Online.x: $(SPDZ)
 mama-party.x: $(TINIER)

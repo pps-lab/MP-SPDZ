@@ -9,7 +9,7 @@
 #include "Math/Z2k.h"
 #include "SemiShare.h"
 
-template<class T> class DealerPrep;
+template<class T, class ShareType, class BitShareType> class DealerPrep;
 template<class T> class DealerInput;
 template<class T> class DealerMC;
 template<class T> class DirectDealerMC;
@@ -36,7 +36,7 @@ public:
     typedef DirectDealerMC<This> Direct_MC;
     typedef Hemi<This> Protocol;
     typedef DealerInput<This> Input;
-    typedef DealerPrep<This> LivePrep;
+    typedef DealerPrep<This, SemiShare<typename This::clear>, GC::SemiSecret> LivePrep; // adapted with generics
     typedef ::PrivateOutput<This> PrivateOutput;
 
     typedef DealerMatrixPrep<This> MatrixPrep;

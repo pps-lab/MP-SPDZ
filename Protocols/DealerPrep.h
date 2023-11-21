@@ -8,7 +8,7 @@
 
 #include "ReplicatedPrep.h"
 
-template<class T>
+template<class T, class ShareType, class BitShareType>
 class DealerPrep : virtual public BitPrep<T>
 {
     friend class DealerMatrixPrep<T>;

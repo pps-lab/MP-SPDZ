@@ -1,0 +1,11 @@
+
+make -j 8 malicious-atlas-party.x
+
+Logreg
+
+./Scripts/compile-run.py -E mal-atlas logreg 10 100
+
+# I need another MAC_Check_Base, for opening protocol with auth tags?
+# I also need to use the auth tag of each share, can we be efficient here?
+# I also need a special input protocol to input each share with tag.
+#   - Honest multiplication?

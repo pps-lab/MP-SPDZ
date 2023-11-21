@@ -7,10 +7,9 @@
 #define PROTOCOLS_DEALERPREP_HPP_
 
 #include "DealerPrep.h"
-#include "GC/SemiSecret.h"
 
-template<class T>
-void DealerPrep<T>::buffer_triples()
+template<class T, class ShareType, class BitShareType>
+void DealerPrep<T, ShareType, BitShareType>::buffer_triples()
 {
     assert(this->proc);
     auto& P = this->proc->P;
@@ -20,7 +19,7 @@ void DealerPrep<T>::buffer_triples()
     if (this->proc->input.is_dealer())
     {
         SeededPRNG G;
-        vector<SemiShare<typename T::clear>> shares(P.num_players() - 1);
+        vector<ShareType> shares(P.num_players() - 1);
         for (int i = 0; i < OnlineOptions::singleton.batch_size; i++)
         {
             T triples[3];
@@ -46,22 +45,22 @@ void DealerPrep<T>::buffer_triples()
     }
 }
 
-template<class T>
-void DealerPrep<T>::buffer_inverses()
+template<class T, class ShareType, class BitShareType>
+void DealerPrep<T, ShareType, BitShareType>::buffer_inverses()
 {
     buffer_inverses(T::invertible);
 }
 
-template<class T>
+template<class T, class ShareType, class BitShareType>
 template<int>
-void DealerPrep<T>::buffer_inverses(false_type)
+void DealerPrep<T, ShareType, BitShareType>::buffer_inverses(false_type)
 {
     throw not_implemented();
 }
 
-template<class T>
+template<class T, class ShareType, class BitShareType>
 template<int>
-void DealerPrep<T>::buffer_inverses(true_type)
+void DealerPrep<T, ShareType, BitShareType>::buffer_inverses(true_type)
 {
     assert(this->proc);
     auto& P = this->proc->P;
@@ -71,7 +70,7 @@ void DealerPrep<T>::buffer_inverses(true_type)
     if (this->proc->input.is_dealer())
     {
         SeededPRNG G;
-        vector<SemiShare<typename T::clear>> shares(P.num_players() - 1);
+        vector<ShareType> shares(P.num_players() - 1);
         for (int i = 0; i < OnlineOptions::singleton.batch_size; i++)
         {
             T tuple[2];
@@ -97,8 +96,8 @@ void DealerPrep<T>::buffer_inverses(true_type)
     }
 }
 
-template<class T>
-void DealerPrep<T>::buffer_bits()
+template<class T, class ShareType, class BitShareType>
+void DealerPrep<T, ShareType, BitShareType>::buffer_bits()
 {
     assert(this->proc);
     auto& P = this->proc->P;
@@ -108,7 +107,7 @@ void DealerPrep<T>::buffer_bits()
     if (this->proc->input.is_dealer())
     {
         SeededPRNG G;
-        vector<SemiShare<typename T::clear>> shares(P.num_players() - 1);
+        vector<ShareType> shares(P.num_players() - 1);
         for (int i = 0; i < OnlineOptions::singleton.batch_size; i++)
         {
             T bit = G.get_bit();
@@ -128,8 +127,8 @@ void DealerPrep<T>::buffer_bits()
     }
 }
 
-template<class T>
-void DealerPrep<T>::buffer_dabits(ThreadQueues*)
+template<class T, class ShareType, class BitShareType>
+void DealerPrep<T, ShareType, BitShareType>::buffer_dabits(ThreadQueues*)
 {
     assert(this->proc);
     auto& P = this->proc->P;
@@ -139,8 +138,8 @@ void DealerPrep<T>::buffer_dabits(ThreadQueues*)
     if (this->proc->input.is_dealer())
     {
         SeededPRNG G;
-        vector<SemiShare<typename T::clear>> shares(P.num_players() - 1);
-        vector<GC::SemiSecret> bit_shares(P.num_players() - 1);
+        vector<ShareType> shares(P.num_players() - 1);
+        vector<BitShareType> bit_shares(P.num_players() - 1);
         for (int i = 0; i < OnlineOptions::singleton.batch_size; i++)
         {
             auto bit = G.get_bit();
@@ -168,8 +167,8 @@ void DealerPrep<T>::buffer_dabits(ThreadQueues*)
     }
 }
 
-template<class T>
-void DealerPrep<T>::buffer_sedabits(int length, ThreadQueues*)
+template<class T, class ShareType, class BitShareType>
+void DealerPrep<T, ShareType, BitShareType>::buffer_sedabits(int length, ThreadQueues*)
 {
     auto& buffer = this->edabits[{false, length}];
     if (buffer.empty())
@@ -178,22 +177,22 @@ void DealerPrep<T>::buffer_sedabits(int length, ThreadQueues*)
     buffer.pop_back();
 }
 
-template<class T>
-void DealerPrep<T>::buffer_edabits(int length, ThreadQueues*)
+template<class T, class ShareType, class BitShareType>
+void DealerPrep<T, ShareType, BitShareType>::buffer_edabits(int length, ThreadQueues*)
 {
     buffer_edabits(length, T::clear::characteristic_two);
 }
 
-template<class T>
+template<class T, class ShareType, class BitShareType>
 template<int>
-void DealerPrep<T>::buffer_edabits(int, true_type)
+void DealerPrep<T, ShareType, BitShareType>::buffer_edabits(int, true_type)
 {
     throw not_implemented();
 }
 
-template<class T>
+template<class T, class ShareType, class BitShareType>
 template<int>
-void DealerPrep<T>::buffer_edabits(int length, false_type)
+void DealerPrep<T, ShareType, BitShareType>::buffer_edabits(int length, false_type)
 {
     assert(this->proc);
     auto& P = this->proc->P;
@@ -205,8 +204,8 @@ void DealerPrep<T>::buffer_edabits(int length, false_type)
     if (this->proc->input.is_dealer())
     {
         SeededPRNG G;
-        vector<SemiShare<typename T::clear>> shares(P.num_players() - 1);
-        vector<GC::SemiSecret> bit_shares(P.num_players() - 1);
+        vector<ShareType> shares(P.num_players() - 1);
+        vector<BitShareType> bit_shares(P.num_players() - 1);
         for (int i = 0; i < n_vecs; i++)
         {
             vector<typename T::clear> as;
