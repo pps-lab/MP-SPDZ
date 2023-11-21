@@ -134,6 +134,8 @@ sy: sy-rep-field-party.x sy-rep-ring-party.x sy-shamir-party.x
 ecdsa: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-ecdsa-party.cpp)) Fake-ECDSA.x
 ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ecdsa-party.cpp))
 
+poly_commit: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) Fake-ECDSA.x
+
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
 
@@ -210,6 +212,8 @@ Fake-Offline.x: Utils/Fake-Offline.o $(VM)
 
 %-ecdsa-party.x: ECDSA/%-ecdsa-party.o ECDSA/P256Element.o $(VM)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
+%-pc-party.x: ECDSA/%-pc-party.o ECDSA/P256Element.o $(VM)
+	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
 
 replicated-bin-party.x: GC/square64.o
 replicated-ring-party.x: GC/square64.o
@@ -251,6 +255,7 @@ rep4-ring-party.x: GC/Rep4Secret.o
 no-party.x: Protocols/ShareInterface.o
 semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
+mascot-pc-party.x: $(OT) $(LIBSIMPLEOT)
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 emulate.x: GC/FakeSecret.o
 semi-bmr-party.x: $(GC_SEMI) $(OT)
