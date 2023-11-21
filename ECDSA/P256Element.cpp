@@ -116,6 +116,7 @@ void P256Element::pack(octetStream& os, int) const
     octet* buffer;
     size_t length = EC_POINT_point2buf(curve, point,
             POINT_CONVERSION_COMPRESSED, &buffer, 0);
+    std::cout << "Length " << length << std::endl;
     assert(length != 0);
     os.store_int(length, 8);
     os.append(buffer, length);
@@ -175,4 +176,19 @@ octetStream P256Element::hash(size_t n_bytes) const
     assert(n_bytes >= res.get_length());
     res.resize_precise(n_bytes);
     return res;
+}
+
+void P256Element::randomize(PRNG& G, int n)
+{
+    (void) n;
+    P256Element::Scalar newscalar;
+    newscalar.randomize(G, n);
+    point = P256Element(newscalar).point;
+}
+
+void P256Element::input(istream& s,bool human)
+{
+    P256Element::Scalar newscalar;
+    newscalar.input(s,human);
+    point = P256Element(newscalar).point;
 }
