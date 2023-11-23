@@ -3298,6 +3298,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             raise CompilerError('unknown PyTorch module: ' + name)
 
     input_shape = data_input_shape + [1] * (4 - len(data_input_shape))
+    print("INPUT SHAPE", input_shape)
     process(sequence)
     if regression:
         layers.append(LinearOutput(data_input_shape[0], layers[-1].d_out))
