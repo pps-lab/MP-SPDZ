@@ -3290,6 +3290,17 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             pass
         elif name == 'BatchNorm2d':
             layers.append(BatchNorm(layers[-1].Y.sizes))
+        elif name == 'BatchNorm1d':
+            print("BatchNorm1d", layers[-1].Y.sizes)
+            layers.append(BatchNorm(layers[-1].Y.sizes))
+            layers[-1].weights = sfix.input_tensor_via(
+                input_via, item.weight.detach())
+            layers[-1].bias = sfix.input_tensor_via(
+                input_via, item.bias.detach())
+            layers[-1].mu_hat = sfix.input_tensor_via(
+                input_via, item.running_mean.detach())
+            layers[-1].var_hat = sfix.input_tensor_via(
+                input_via, item.running_var.detach())
         elif name == 'Dropout':
             layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
                                   alpha=item.p))
