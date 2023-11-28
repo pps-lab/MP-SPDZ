@@ -7,18 +7,20 @@
 #define AUDITABLE_HPP_
 
 //#include "CurveElement.h"
-#include "P256Element.h"
+#include "P377Element.h"
 #include "Tools/Bundle.h"
 
 #include "poly_commit.hpp"
 #include "Math/gfp.hpp"
+#include "Processor/Binary_File_IO.h"
 #include "PCOptions.h"
 
+//#include "sign.hpp"
 
-P256Element random_elem(PRNG& G) {
-    P256Element::Scalar r_scalar;
+P377Element random_elem(PRNG& G) {
+    P377Element::Scalar r_scalar;
     r_scalar.randomize(G);
-    return P256Element(r_scalar);
+    return P377Element(r_scalar);
 }
 
 inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
@@ -33,48 +35,64 @@ inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
     return params;
 }
 
+template<class T>
+std::vector<T> read_inputs(Player& P, size_t size) {
+    if (size == 0) {
+        return std::vector<T>();
+    }
+    Binary_File_IO binary_file_io = Binary_File_IO();
+
+    string filename;
+    filename = binary_file_io.filename(P.my_num());
+
+    std::vector< T > outbuf(size);
+
+    int start_file_posn = 0;
+    int end_file_posn = start_file_posn;
+
+    try {
+        binary_file_io.read_from_file(filename, outbuf, start_file_posn, end_file_posn);
+    } catch (file_missing& e) {
+        cerr << "Got file missing error, will return -2. " << e.what() << endl;
+    }
+
+    return outbuf;
+}
+
 
 template<template<class U> class T>
-void auditable_inference(
-        typename T<P256Element>::MAC_Check& MCc,
+std::string auditable_inference(
+        typename T<P377Element>::MAC_Check& MCc,
         Player& P,
-        PCOptions& opts,
-        typename T<P256Element::Scalar>::TriplePrep& prep)
+        PCOptions& opts)
 {
-
     Timer timer;
     timer.start();
     auto stats = P.total_comm();
     SeededPRNG G;
 
-    cout << "Prediction for " << opts.poly_dims.size() << " polynomials" << endl;
+//    test_arith();
 
-    // TODO: Load additional commitments to the 'datasets'!
-    std::vector<KZGCommitment> datasets;
-    KZGCommitment model = KZGCommitment { random_elem(G) };
-    for (int i = 0; i < opts.n_datasets; i++) {
-        datasets.push_back(KZGCommitment { random_elem(G) });
-    }
-
-    int n_parameters = max_element(opts.poly_dims.begin(), opts.poly_dims.end()).operator*();
-    KZGPublicParameters publicParameters = get_public_parameters(n_parameters, G);
 
     std::vector<KZGCommitment> commitments;
 
-    for (int size : opts.poly_dims) {
+    int commitment_sizes_arr[] = { opts.n_model, opts.n_x, opts.n_y };
+    std::vector<int> commitment_sizes(commitment_sizes_arr, commitment_sizes_arr + 3);
+    int n_parameters = max_element(commitment_sizes.begin(), commitment_sizes.end()).operator*();
+    KZGPublicParameters publicParameters = get_public_parameters(n_parameters, G);
+
+     for (int size : commitment_sizes) {
         // Proof for each size poly commitment
+        if (size == 0) {
+            continue;
+        }
         std::cout << "Committing to polynomial of size " << size << endl;
+        std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size);
+
         Polynomial<T> polynomial;
-
-        // Fill poly up to size
-        for (int i = 0; i < n_parameters; i++)
+        for (int i = 0; i < size; i++)
         {
-            // inefficient, uses a triple for each input!
-            T<P256Element::Scalar> k[3];
-            prep.get_three_no_count(DATA_TRIPLE, k[0], k[1], k[2]); // this takes data
-//            prep.get_three(DATA_TRIPLE, k[0], k[1], k[2]);
-
-            polynomial.coeffs.push_back(k[0]);
+            polynomial.coeffs.push_back(input[i]);
         }
 
         assert(polynomial.coeffs.size() <= publicParameters.powers_of_g.size());
@@ -82,26 +100,42 @@ void auditable_inference(
         commitments.push_back(commit_and_open(polynomial, publicParameters, MCc, P));
     }
 
-    // Now we compute the hash of the concatenation!
-    // Length of P256 is 33 bits + 8 bits for the length!
-
-    const int commitment_size = 41;
-    int expected_size = (commitment_size * datasets.size()) + (commitment_size * opts.poly_dims.size()) + commitment_size;
-
-    octetStream os;
-    model.c.pack(os);
-    for (auto& dataset : datasets) {
-        dataset.c.pack(os);
-    }
-    for (auto& commitment : commitments) {
-        commitment.c.pack(os);
-    }
-    assert((int)os.get_length() == expected_size);
 
     auto diff = (P.total_comm() - stats);
     cout << "Auditable inference took " << timer.elapsed() * 1e3 << " ms and sending "
          << diff.sent << " bytes" << endl;
     diff.print(true);
+
+    // Now we compute the hash of the concatenation!
+    octetStream os;
+    for (auto& commitment : commitments) {
+        commitment.c.pack(os);
+    }
+    std::cout << "SIZE " << os.get_length() << endl;
+
+//    P256Element::Scalar sk;
+//    sk.randomize(G);
+
+    string message = os.str();
+    return message;
+
+//    auto sig = sign((const unsigned char *) message.c_str(), message.length(), sk);
+//    std::cout << "Signature: " << sig.R << " " << sig.s << endl;
+
+//    const int commitment_size = 41;
+//    int expected_size = (commitment_size * datasets.size()) + (commitment_size * opts.poly_dims.size()) + commitment_size;
+
+//    octetStream os;
+//    model.c.pack(os);
+//    for (auto& dataset : datasets) {
+//        dataset.c.pack(os);
+//    }
+//    for (auto& commitment : commitments) {
+//        commitment.c.pack(os);
+//    }
+//    cout << "SIZE " << os.get_length() << endl;
+//    assert((int)os.get_length() == expected_size);
+
 
 }
 

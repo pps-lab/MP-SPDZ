@@ -8,33 +8,44 @@
 
 #include "Tools/ezOptionParser.h"
 
-class PCOptions
+class PCOptions: public EcdsaOptions
 {
 public:
-    vector<int> poly_dims;
     bool check_open;
     bool check_beaver_open;
-    int n_datasets;
+    int n_model;
+    int n_x;
+    int n_y;
+    string prime;
 
-    PCOptions(ez::ezOptionParser& opt, int argc, const char** argv)
+    PCOptions(ez::ezOptionParser& opt, int argc, const char** argv): EcdsaOptions(opt, argc, argv)
     {
         opt.add(
                 "", // Default.
                 0, // Required?
-                0, // Number of args expected.
-                ',', // Delimiter if expecting multiple args.
-                "Sizes of the commitments to commit to", // Help description.
-                "-D", // Flag token.
-                "--dimensions" // Flag token.
+                1, // Number of args expected.
+                0, // Delimiter if expecting multiple args.
+                "Size of the model to commit to", // Help description.
+                "-m", // Flag token.
+                "--n_model" // Flag token.
         );
         opt.add(
                 "", // Default.
                 0, // Required?
-                0, // Number of args expected.
+                1, // Number of args expected.
                 0, // Delimiter if expecting multiple args.
-                "Number of dataset commitments", // Help description.
-                "-N", // Flag token.
-                "--n_datasets" // Flag token.
+                "Size of the x prediction to commit to", // Help description.
+                "-x", // Flag token.
+                "--n_x" // Flag token.
+        );
+        opt.add(
+                "", // Default.
+                0, // Required?
+                1, // Number of args expected.
+                0, // Delimiter if expecting multiple args.
+                "Size of the y prediction to commit to", // Help description.
+                "-y", // Flag token.
+                "--n_y" // Flag token.
         );
         opt.add(
                 "", // Default.
@@ -54,20 +65,40 @@ public:
                 "-B", // Flag token.
                 "--no-beaver-open-check" // Flag token.
         );
+        opt.add(
+                "", // Default.
+                0, // Required?
+                1, // Number of args expected.
+                0, // Delimiter if expecting multiple args.
+                "Prime for GF(p) field (default: read from file or "
+                "generated from -lgp argument)", // Help description.
+                "-P", // Flag token.
+                "--prime" // Flag token.
+        );
+
+
         opt.parse(argc, argv);
 
-        if (opt.isSet("-D")) {
-            opt.get("-D")->getInts(poly_dims);
-            std::cout << "getting ints " << poly_dims.size() << std::endl;
-        } else {
-            poly_dims.push_back(16);
-            std::cout << "pushing ints" << std::endl;
-        }
+//        if (opt.isSet("-D")) {
+//            opt.get("-D")->getInts(poly_dims);
+//            std::cout << "getting ints " << poly_dims.size() << std::endl;
+//        } else {
+//            poly_dims.push_back(16);
+//            std::cout << "pushing ints" << std::endl;
+//        }
 
         check_open = not opt.isSet("-C");
         check_beaver_open = not opt.isSet("-B");
-        opt.get("-N")->getInt(n_datasets);
-        std::cout << "Datasets " << n_datasets << std::endl;
+
+        std::cout << opt.isSet("-x") << std::endl;
+        opt.get("-m")->getInt(n_model);
+        opt.get("-x")->getInt(n_x);
+        opt.get("-y")->getInt(n_y);
+        opt.get("--prime")->getString(prime);
+
+        std::cout << "n_model " << n_model << std::endl;
+        std::cout << "n_x " << n_x << std::endl;
+        std::cout << "n_y " << n_y << std::endl;
 
         opt.resetArgs();
     }

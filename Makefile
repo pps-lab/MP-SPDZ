@@ -27,6 +27,7 @@ COMMON = $(SHAREDLIB)
 TINIER =  Machines/Tinier.o $(OT)
 SPDZ = Machines/SPDZ.o $(TINIER)
 
+BLS = local/lib/libff.a ECDSA/P377Element.o
 
 LIB = libSPDZ.a
 SHAREDLIB = libSPDZ.so
@@ -134,7 +135,7 @@ sy: sy-rep-field-party.x sy-rep-ring-party.x sy-shamir-party.x
 ecdsa: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-ecdsa-party.cpp)) Fake-ECDSA.x
 ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ecdsa-party.cpp))
 
-poly_commit: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) Fake-ECDSA.x
+poly_commit: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) Fake-ECDSA.x $(BLS)
 
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
@@ -149,7 +150,7 @@ $(FHEOFFLINE): $(FHEOBJS) $(SHAREDLIB)
 	$(CXX) $(CFLAGS) -shared -o $@ $^ $(LDLIBS)
 
 static/%.x: Machines/%.o $(LIBRELEASE) $(LIBSIMPLEOT) local/lib/libcryptoTools.a local/lib/liblibOTe.a
-	$(CXX) -o $@ $(CFLAGS) $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(LIBRELEASE) -llibOTe -lcryptoTools $(LIBSIMPLEOT) $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
+	$(CXX) -o $@ $(CFLAGS) $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(LIBRELEASE) -llibOTe -lcryptoTools $(LIBSIMPLEOT) $(BOOST ) $(LDLIBS) -Wl,-Bdynamic -ldl
 
 static/%.x: ECDSA/%.o ECDSA/P256Element.o $(VMOBJS) $(OT) $(LIBSIMPLEOT)
 	$(CXX) $(CFLAGS) -o $@ $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
@@ -255,7 +256,7 @@ rep4-ring-party.x: GC/Rep4Secret.o
 no-party.x: Protocols/ShareInterface.o
 semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
-mascot-pc-party.x: $(OT) $(LIBSIMPLEOT)
+mascot-pc-party.x: $(OT) $(LIBSIMPLEOT) $(BLS)
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 emulate.x: GC/FakeSecret.o
 semi-bmr-party.x: $(GC_SEMI) $(OT)
@@ -352,6 +353,25 @@ cmake:
 	tar xzvf cmake-3.24.1.tar.gz
 	cd cmake-3.24.1; \
 	./bootstrap --parallel=8 --prefix=../local && make && make install
+
+deps/libff:
+	git submodule update --init deps/libff || git clone https://github.com/clearmatics/libff deps/libff
+	cd deps/libff && git submodule update --init
+
+
+ifeq ($(OS), Darwin)
+libff: deps/libff
+	cd deps/libff; \
+	mkdir -p build && cd build && cmake .. -DCMAKE_INSTALL_PREFIX=$(CURDIR)/local -DMULTICORE=0 && \
+	make && make install
+else
+libff: deps/libff
+	cd deps/libff; \
+	mkdir -p build && cd build && cmake .. -DCMAKE_INSTALL_PREFIX=$(CURDIR)/local -DMULTICORE=0 && \
+	make && make install
+endif
+
+
 
 mac-setup: mac-machine-setup
 	brew install openssl boost libsodium gmp yasm ntl cmake
