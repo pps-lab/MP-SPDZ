@@ -2536,6 +2536,7 @@ class Optimizer:
                     loss = self.layers[-1].average_loss(N)
                     res = (loss < stop_on_loss) * (loss >= -1)
                     self.stopped_on_loss.write(1 - res)
+                    print_ln(" Stopping on loss!")
                     return res
             if self.print_losses:
                 print_ln()
@@ -2570,9 +2571,11 @@ class Optimizer:
 
         """
         N = data.sizes[0]
+        print(N, truth, batch_size)
         n_correct = MemValue(0)
         loss = MemValue(sfix(0))
         def f(start, batch_size, batch):
+            print(start, batch_size, batch)
             batch.assign_vector(regint.inc(batch_size, start))
             self.forward(batch=batch)
             part_truth = truth.get_part(start, batch_size)
@@ -2680,6 +2683,7 @@ class Optimizer:
             if not acc_first:
                 if self.time_training:
                     start_timer(1)
+                print('no_loss' in program.args, 'no_loss', program.args)
                 self.run(batch_size,
                          stop_on_loss=0 if 'no_loss' in program.args else 100)
                 if self.time_training:
@@ -3290,24 +3294,28 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             pass
         elif name == 'BatchNorm2d':
             layers.append(BatchNorm(layers[-1].Y.sizes))
-            layers[-1].weights = sfix.input_tensor_via(
-                input_via, item.weight.detach())
-            layers[-1].bias = sfix.input_tensor_via(
-                input_via, item.bias.detach())
-            layers[-1].mu_hat = sfix.input_tensor_via(
-                input_via, item.running_mean.detach())
-            layers[-1].var_hat = sfix.input_tensor_via(
-                input_via, item.running_var.detach())
+            if input_via is not None:
+                layers[-1].weights = sfix.input_tensor_via(
+                    input_via, item.weight.detach())
+                layers[-1].bias = sfix.input_tensor_via(
+                    input_via, item.bias.detach())
+                layers[-1].mu_hat = sfix.input_tensor_via(
+                    input_via, item.running_mean.detach())
+                layers[-1].var_hat = sfix.input_tensor_via(
+                    input_via, item.running_var.detach())
+            pass
         elif name == 'BatchNorm1d':
             layers.append(BatchNorm(layers[-1].Y.sizes))
-            layers[-1].weights = sfix.input_tensor_via(
-                input_via, item.weight.detach())
-            layers[-1].bias = sfix.input_tensor_via(
-                input_via, item.bias.detach())
-            layers[-1].mu_hat = sfix.input_tensor_via(
-                input_via, item.running_mean.detach())
-            layers[-1].var_hat = sfix.input_tensor_via(
-                input_via, item.running_var.detach())
+            if input_via is not None:
+                layers[-1].weights = sfix.input_tensor_via(
+                    input_via, item.weight.detach())
+                layers[-1].bias = sfix.input_tensor_via(
+                    input_via, item.bias.detach())
+                layers[-1].mu_hat = sfix.input_tensor_via(
+                    input_via, item.running_mean.detach())
+                layers[-1].var_hat = sfix.input_tensor_via(
+                    input_via, item.running_var.detach())
+            pass
         elif name == 'Dropout':
             layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
                                   alpha=item.p))
