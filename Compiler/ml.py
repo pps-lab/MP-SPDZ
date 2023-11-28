@@ -405,6 +405,7 @@ class LinearOutput(NoVariableLayer):
         self.d_out = n_targets
 
     def _forward(self, batch):
+        print("forward", self.X, self.X.shape)
         assert len(self.X.shape) == 1
         N = len(batch)
         guess = self.X.get_vector(0, N)
@@ -3289,6 +3290,24 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             pass
         elif name == 'BatchNorm2d':
             layers.append(BatchNorm(layers[-1].Y.sizes))
+            layers[-1].weights = sfix.input_tensor_via(
+                input_via, item.weight.detach())
+            layers[-1].bias = sfix.input_tensor_via(
+                input_via, item.bias.detach())
+            layers[-1].mu_hat = sfix.input_tensor_via(
+                input_via, item.running_mean.detach())
+            layers[-1].var_hat = sfix.input_tensor_via(
+                input_via, item.running_var.detach())
+        elif name == 'BatchNorm1d':
+            layers.append(BatchNorm(layers[-1].Y.sizes))
+            layers[-1].weights = sfix.input_tensor_via(
+                input_via, item.weight.detach())
+            layers[-1].bias = sfix.input_tensor_via(
+                input_via, item.bias.detach())
+            layers[-1].mu_hat = sfix.input_tensor_via(
+                input_via, item.running_mean.detach())
+            layers[-1].var_hat = sfix.input_tensor_via(
+                input_via, item.running_var.detach())
         elif name == 'Dropout':
             layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
                                   alpha=item.p))
@@ -3297,6 +3316,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             raise CompilerError('unknown PyTorch module: ' + name)
 
     input_shape = data_input_shape + [1] * (4 - len(data_input_shape))
+    print("INPUT SHAPE", input_shape)
     process(sequence)
     if regression:
         layers.append(LinearOutput(data_input_shape[0], layers[-1].d_out))

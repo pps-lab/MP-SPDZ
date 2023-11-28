@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # brew-installed OpenSSL on MacOS
-PATH="/opt/homebrew/opt/openssl@3/bin:$PATH"
+PATH="/usr/local/opt/openssl@3/bin:$PATH"
 
 n=${1:-4}
-ssl_dir=${2:-"Player-Data"}
+ssl_dir=${2:-"Player-SSL-Data"}
 
 test -e $ssl_dir || mkdir $ssl_dir
 
