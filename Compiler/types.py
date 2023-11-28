@@ -1042,6 +1042,9 @@ class cint(_clear, _int):
 
     @staticmethod
     def in_immediate_range(value):
+        if program.options.ring:
+            if abs(value) > 2 ** int(program.options.ring):
+                raise CompilerError('value outside range for domain')
         return value < 2**31 and value >= -2**31
 
     @vectorize_init
@@ -4007,7 +4010,7 @@ class cfix(_number, _structure):
         elif isinstance(other, sfix):
             return sfix._new(self.v - other.v, k=self.k, f=self.f)
         else:
-            raise NotImplementedError
+            return NotImplemented
 
     @vectorize
     def __neg__(self):
@@ -4122,6 +4125,9 @@ class cfix(_number, _structure):
         :param other: sfix/sint/cfix/cint/regint/int """
         other = self.parse_type(other)
         return other / self
+
+    def reveal(self):
+        return self
 
     @vectorize
     def print_plain(self):
@@ -6843,8 +6849,9 @@ class SubMultiArray(_vectorizable):
 
     def reveal(self):
         """ Reveal to :py:obj:`MultiArray` of same shape. """
-        res = MultiArray(self.sizes, self.value_type.clear_type)
-        res[:] = self.get_vector().reveal()
+        v = self.get_vector().reveal()
+        res = MultiArray(self.sizes, type(v))
+        res[:] = v
         return res
 
     def reveal_list(self):
@@ -7046,7 +7053,7 @@ class _mem(_number):
     __floordiv__ = lambda self,other: self.read() // other
     __mod__ = lambda self,other: self.read() % other
     __pow__ = lambda self,other: self.read() ** other
-    __neg__ = lambda self,other: -self.read()
+    __neg__ = lambda self: -self.read()
     __lt__ = lambda self,other: self.read() < other
     __gt__ = lambda self,other: self.read() > other
     __le__ = lambda self,other: self.read() <= other
