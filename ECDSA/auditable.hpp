@@ -25,6 +25,8 @@ P377Element random_elem(PRNG& G) {
 
 inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
     // TODO: Is this consistent across parties?
+    // It seems if we call GlobalPRNG is becomes consistent globally across parties, but it is not always called
+    // so we call it again in the auditable inference function
 
     KZGPublicParameters params;
     for (int i = 0; i < n_parameters; i++) {
@@ -70,6 +72,7 @@ std::string auditable_inference(
     timer.start();
     auto stats = P.total_comm();
     SeededPRNG G;
+    G.SeedGlobally(P);
 
 //    test_arith();
 
@@ -89,7 +92,7 @@ std::string auditable_inference(
         std::cout << "Committing to polynomial of size " << size << endl;
         std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size);
 
-        Polynomial<T> polynomial;
+        InputPolynomial<T> polynomial;
         for (int i = 0; i < size; i++)
         {
             polynomial.coeffs.push_back(input[i]);
@@ -111,7 +114,8 @@ std::string auditable_inference(
     for (auto& commitment : commitments) {
         commitment.c.pack(os);
     }
-    std::cout << "SIZE " << os.get_length() << endl;
+    std::cout << "Generated " << commitments.size() << " commitments of total size " << os.get_length() << endl;
+//    std::cout << "SIZE " << os.get_length() << endl;
 
 //    P256Element::Scalar sk;
 //    sk.randomize(G);

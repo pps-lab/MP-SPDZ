@@ -116,7 +116,7 @@ void P256Element::pack(octetStream& os, int) const
     octet* buffer;
     size_t length = EC_POINT_point2buf(curve, point,
             POINT_CONVERSION_COMPRESSED, &buffer, 0);
-    std::cout << "Length " << length << std::endl;
+//    std::cout << "Length " << length << std::endl;
     assert(length != 0);
     os.store_int(length, 8);
     os.append(buffer, length);

@@ -73,6 +73,12 @@ public:
     octetStream hash(size_t n_bytes) const;
 
     friend ostream& operator<<(ostream& s, const P377Element& x);
+
+//    static P377Element Mul(const P377Element &a, P377Element::Scalar &b)
+//    {
+//        return a * b;
+//    }
+
 };
 
 P377Element operator*(const P377Element::Scalar& x, const P377Element& y);

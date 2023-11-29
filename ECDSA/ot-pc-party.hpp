@@ -23,17 +23,15 @@
 #include "GC/VectorProtocol.hpp"
 #include "GC/CcdPrep.hpp"
 #include "ECDSA/auditable.hpp"
-
 #include "ECDSA/P377Element.h"
-#include "sign.hpp"
 
 #include <assert.h>
 
 
 //template<template<class U> class T>
-//void get_poly_input(int n_parameters, typename T<P256Element::Scalar>::TriplePrep prep, Polynomial<T> *poly) {
+//void get_poly_input(int n_parameters, typename T<P256Element::Scalar>::TriplePrep prep, InputPolynomial<T> *poly) {
 //
-//    // Polynomial input should not take any shares ?
+//    // InputPolynomial input should not take any shares ?
 //
 //    for (int i = 0; i < n_parameters; i++)
 //    {
@@ -212,38 +210,30 @@ void run(int argc, const char** argv)
 
     prep.params.use_extension = not opt.isSet("-S");
 
-//    P256Element pk = MCc.open(sk, P);
-//    MCc.Check(P);
+    P256Element pk = MCc.open(sk, P);
+    MCc.Check(P);
 
     vector<EcTuple<T>> tuples;
     preprocessing(tuples, n_signatures, sk, proc, opts);
 
-//    sign((const unsigned char *)message.c_str(), message.length(), tuples[0], MCp, MCc, P, opts, pk, sk, &proc);
-    //check(tuples, sk, keyp, P);
-//    sign_benchmark(tuples, sk, MCp, P, opts, prep_mul ? 0 : &proc);
+    bool prep_mul = not opt.isSet("-D");
+    auto sig = sign((const unsigned char *)message.c_str(), message.length(), tuples[0], MCp, MCc, P, opts, pk, sk, prep_mul ? 0 : &proc);
+
+    Timer timer_sig;
+    timer_sig.start();
+    auto& check_player = MCp.get_check_player(P);
+    stats = check_player.total_comm();
+    MCp.Check(P);
+    MCc.Check(P);
+    auto diff = (check_player.total_comm() - stats);
+    cout << "Online checking took " << timer_sig.elapsed() * 1e3 << " ms and sending "
+         << diff.sent << " bytes" << endl;
+    diff.print();
+
+    check(sig, (const unsigned char *)message.c_str(), message.length(), pk);
 
     pShare::MAC_Check::teardown();
     T<P256Element>::MAC_Check::teardown();
-
-//    Polynomial<T> poly;
-//    get_poly_input<T>(n_parameters, prep, &poly);
-
-//    Polynomial<T> poly;
-//    for (int i = 0; i < n_parameters; i++)
-//    {
-//        // inefficient, uses a triple for each input!
-//        T<P256Element::Scalar> k[3];
-//        prep.get(DATA_TRIPLE, k);
-//        poly.coeffs.push_back(k[0]);
-//    }
-
-
-    // Maybe here: read poly coeffs from secret shares insta
-//    vector<> dvec;
-//    sk_proc.Proc.read_shares_from_file(0, 100, dvec);
-
-//    preprocessing(tuples, n_tuples, sk, proc, opts);
-//    sign_benchmark(tuples, sk, MCp, P, opts, prep_mul ? 0 : &proc);
 
     P256Element::finish();
 }

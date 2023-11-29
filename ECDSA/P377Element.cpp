@@ -136,6 +136,7 @@ void P377Element::pack(octetStream& os, int) const
 //
     std::string buffer_str = ss.str();
     size_t length = buffer_str.length();
+//    std::cout << "Length 377 " << length << std::endl;
     octet* buffer = (octet*) buffer_str.c_str();
     os.store_int(length, 8);
     os.append(buffer, length);

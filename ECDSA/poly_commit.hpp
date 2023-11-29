@@ -23,7 +23,7 @@ public:
 };
 
 template<template<class U> class T>
-class Polynomial {
+class InputPolynomial {
 public:
     vector<T<typename P377Element::Scalar> > coeffs;
 };
@@ -43,8 +43,9 @@ public:
 
 template<template<class U> class T>
 void ecscalarmulshare(T<P377Element> pointshare, P377Element::Scalar multiplier, T<P377Element>& result){
-    result.set_share(pointshare.get_share() * multiplier);
-    result.set_mac(pointshare.get_mac() * multiplier);
+//    result.set_share(pointshare.get_share() * multiplier);
+//    result.set_mac(pointshare.get_mac() * multiplier);
+    result = pointshare * multiplier;
 }
 
 // Function for Scalar multiplication of a clear p256 and a shared gfp
@@ -54,9 +55,64 @@ void ecscalarmulshare(P377Element point, T<P377Element::Scalar> multiplierShare,
     result.set_mac(point * multiplierShare.get_mac());
 }
 
+//template<template<class U> class T>
+//void ecscalarmulshare(T<P377Element> pointshare, P377Element::Scalar multiplier, T<P377Element>& result) {
+//    // General implementation
+//    cout << "ERROR NOT IMPLEMENTED" << endl;
+//    (void) pointshare;
+//    (void) multiplier;
+//    (void) result;
+//    exit(1);
+//}
+//template<template<class U> class T>
+//void ecscalarmulshare(P377Element point, T<P377Element::Scalar> multiplierShare, T<P377Element>& result) {
+//    // General implementation
+//    cout << "ERROR NOT IMPLEMENTED" << endl;
+//    (void) point;
+//    (void) multiplierShare;
+//    (void) result;
+//    exit(1);
+//}
+//
+//template<>
+//void ecscalarmulshare(Share<P377Element> pointshare, P377Element::Scalar multiplier, Share<P377Element>& result){
+//    result.set_share(pointshare.get_share() * multiplier);
+//    result.set_mac(pointshare.get_mac() * multiplier);
+//}
+//
+//// Function for Scalar multiplication of a clear p256 and a shared gfp
+//template<>
+//void ecscalarmulshare(P377Element point, Share<P377Element::Scalar> multiplierShare, Share<P377Element>& result){
+//    result.set_share(point * multiplierShare.get_share());
+//    result.set_mac(point * multiplierShare.get_mac());
+//}
+//
+//template<>
+//void ecscalarmulshare(Rep3Share<P377Element> pointshare, P377Element::Scalar multiplier, Rep3Share<P377Element>& result){
+//    result = pointshare * multiplier;
+//}
+
+//// Function for Scalar multiplication of a clear p256 and a shared gfp
+template<>
+void ecscalarmulshare(P377Element point, Rep3Share<P377Element::Scalar> multiplierShare, Rep3Share<P377Element>& result){
+
+    // This is ugly and specific for Rep3Share!!
+    // We need: for each share in multiplierShare, get the value, multiply with point
+    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
+    array<P377Element, 2> result_shares;
+    for (int i = 0; i < 2; i++) {
+        P377Element::Scalar share = shares[i];
+        P377Element result_share = point * share;
+        result_shares[i] = result_share;
+    }
+
+    result = Rep3Share<P377Element>(result_shares);
+
+}
+
 template<template<class U> class T>
 KZGCommitment commit_and_open(
-        Polynomial<T> tuple,
+        InputPolynomial<T> tuple,
         KZGPublicParameters kzgPublicParameters,
         typename T<P377Element>::MAC_Check& MCc,
         Player& P)
@@ -68,16 +124,34 @@ KZGCommitment commit_and_open(
 
     assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
 
-    T<P377Element> result;
+    // Opening tuple coeffs is working
+//    typename T<P377Element::Scalar>::Direct_MC MCp(MCc.get_alphai());
+//    vector<P377Element::Scalar> test_element;
+//    tuple.coeffs[0] = tuple.coeffs[0] * 2;
+//    MCp.POpen_Begin(test_element, tuple.coeffs, P);
+//    MCp.POpen_End(test_element, tuple.coeffs, P);
+//    std::cout << "OPEN TEST ELEM " << test_element[0] << endl;
+
+    T<P377Element> sum = T<P377Element>(P377Element());
     for (unsigned long i = 0; i < tuple.coeffs.size(); ++i) {
         // This is technically a share!!
+        T<P377Element> result;
+//        std::cout << "Before " << result.get()[0] << " " << result.get()[1] << std::endl;
+//        std::cout << "KZG " << i << ": " << kzgPublicParameters.powers_of_g[i];
         ecscalarmulshare(kzgPublicParameters.powers_of_g[i], tuple.coeffs[i], result);
+//        std::cout << "After " << result.get()[0] << " " << result.get()[1] << std::endl; // these should be diff due to coeffs diff
+//        std::cout << "Before " << result.get_share() << std::endl;
+
+
+        sum = sum + result;
     }
-    vector<T<P377Element> > commitment_share = { result };
+    vector<T<P377Element> > commitment_share = { sum };
 
     vector<P377Element> commitment_element;
     MCc.POpen_Begin(commitment_element, commitment_share, P);
     MCc.POpen_End(commitment_element, commitment_share, P);
+
+//    std::cout << "After open " << commitment_element[0] << endl;
 
     auto diff = (P.total_comm() - stats);
     cout << "Commitment took " << timer.elapsed() * 1e3 << " ms and sending "

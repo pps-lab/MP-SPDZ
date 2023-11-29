@@ -214,7 +214,9 @@ Fake-Offline.x: Utils/Fake-Offline.o $(VM)
 
 %-ecdsa-party.x: ECDSA/%-ecdsa-party.o ECDSA/P256Element.o $(VM)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
-%-pc-party.x: ECDSA/%-pc-party.o ECDSA/P256Element.o $(VM)
+%-pc-party.x: ECDSA/%-pc-party.o ECDSA/P256Element.o ECDSA/P377Element.o $(VM) $(BLS)
+	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
+%-switch-party.x: ECDSA/%-switch-party.o ECDSA/P256Element.o ECDSA/P377Element.o $(VM) $(BLS)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
 
 replicated-bin-party.x: GC/square64.o
