@@ -51,9 +51,7 @@ void run(int argc, const char** argv)
     opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
     Names N(opt, argc, argv,
             3 + is_same<T<P256Element>, Rep4Share<P256Element>>::value);
-    int n_tuples = 1000;
-    if (not opt.lastArgs.empty())
-        n_tuples = atoi(opt.lastArgs[0]->c_str());
+
     CryptoPlayer P(N, "pc");
 
     P377Element::init();

@@ -13,7 +13,6 @@ void P377Element::init()
 {
     libff::bls12_377_pp::init_public_params();
 
-
     mpz_t t;
     mpz_init(t);
     G1::order().to_mpz(t);
