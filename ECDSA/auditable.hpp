@@ -67,7 +67,7 @@ std::string auditable_inference(
             continue;
         }
         std::cout << "Committing to polynomial of size " << size << endl;
-        std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size);
+        std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size, KZG_SUFFIX);
 
         InputPolynomial<T> polynomial;
         for (int i = 0; i < size; i++)

@@ -40,82 +40,25 @@
 #include "Machines/MalRep.hpp"
 #include "Machines/Rep.hpp"
 #include "ECDSA/share_utils.hpp"
+#include "ECDSA/SwitchOptions.h"
 
 #include <assert.h>
 
-template<template<class U> class T>
-void bit_decompose() {
-
-}
-
 template<class inputShare, class outputShare>
-void run(int argc, const char** argv)
-{
-    bigint::init_thread();
-    ez::ezOptionParser opt;
-    PCOptions opts(opt, argc, argv);
-//    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
-    Names N(opt, argc, argv, 3);
-
-    CryptoPlayer P(N, "pc");
-
-    size_t input_size = 92;
-
-//    P256Element::init();
-//    P377Element::init();
-//    P377Element::Scalar::next::init_field(P377Element::Scalar::pr(), false);
-
-    // TODO: adapt
-//    typedef Z2<64> input_type;
-//    typedef P377Element::Scalar output_type;
-//    typedef gfp_<0, 2> input_type;
-//    typedef P377Element::Scalar output_type;
-//    typedef T<input_type> inputShare;
-//    typedef T<output_type > outputShare;
-
-//    (void)input_type;
-//    (void)output_type;
-
-    // protocol setup (domain, MAC key if needed etc)
-    libff::bls12_377_pp::init_public_params();
-    mpz_t t;
-    mpz_init(t);
-    P377Element::G1::order().to_mpz(t);
-
-    int prime_length = 64;
-    MixedProtocolSetup<inputShare> setup_input(P, prime_length);
-    MixedProtocolSet<inputShare> set_input(P, setup_input);
-
-    ProtocolSetup<outputShare> setup_output(bigint(t), P);
-    ProtocolSet<outputShare> set_output(P, setup_output);
+vector<outputShare> convert_shares(vector<inputShare>& input_shares,
+                                   MixedProtocolSet<inputShare> set_input,
+                                   ProtocolSet<outputShare> set_output,
+                                   typename inputShare::bit_type::mac_key_type binary_mac_key,
+                                   Player &P, const int prime_length) {
+    const bool debug = false;
 
     // for now we need to use all the bits;
+    const int input_size = input_shares.size();
     int n_bits_per_input = prime_length;
 
     // TODO: compute how many bits we need
     DataPositions usage;
 
-//    typename inputShare::mac_key_type input_mac_key;
-//    inputShare::read_or_generate_mac_key("", P, input_mac_key);
-//
-//    typename inputShare::LivePrep input_prep(0, usage);
-//    typename inputShare::MAC_Check input_MCp(input_mac_key);
-//    typename T<input_type>::Direct_MC input_MCc(input_MCp.get_alphai());
-//    ArithmeticProcessor _({}, 0);
-//    SubProcessor<inputShare> input_proc(_, input_MCp, input_prep, P);
-
-//    typename outputShare::mac_key_type output_mac_key;
-//    outputShare::read_or_generate_mac_key("", P, output_mac_key);
-//    typename outputShare::LivePrep output_prep(0, usage);
-//    typename outputShare::MAC_Check output_MCp(output_mac_key);
-//    typename T<output_type>::Direct_MC output_MCc(input_MCp.get_alphai());
-//    ArithmeticProcessor _2({}, 0);
-//    SubProcessor<outputShare> output_proc(_2, output_MCp, output_prep, P);
-
-    // we want two sets of edabits, one for input type to bits and one for output type to bits
-//    typename inputShare::bit_type bit_b;
-//    inputShare bit_a;
-//    input_prep.get_dabit(bit_a, bit_b);
     bool strict = true;
 
 //    std::cout << "Singleton " << BaseMachine::singleton << endl;
@@ -145,7 +88,14 @@ void run(int argc, const char** argv)
 //    std::cout << "Total edabits " << set_input.preprocessing.proc->DataF.usage.total_edabits(n_bits_per_input) << endl;
 //    std::cout << "Total edabits out " << set_output.preprocessing.proc->DataF.usage.total_edabits(n_bits_per_input) << endl;
 
-    vector<inputShare> input_shares = read_inputs<inputShare>(P, input_size);
+
+    Timer timer_all;
+    timer_all.start();
+    auto overall_stats = P.total_comm();
+
+    Timer timer_edabit_mask;
+    timer_edabit_mask.start();
+    auto edabit_stats = P.total_comm();
 
     vector<edabit<inputShare> > edabits_in;
     vector<edabit<outputShare> > edabits_out;
@@ -155,16 +105,18 @@ void run(int argc, const char** argv)
 
     std::cout << buffer_in.size() << " " << buffer_in.get_b(0).size() << endl;
     // open for debug
-    set_input.output.init_open(P, input_size);
-    for (size_t i = 0; i < input_shares.size(); i++) {
-        inputShare c = input_shares[i];
-        set_input.output.prepare_open(c);
-    }
-    set_input.output.exchange(P);
     vector<typename inputShare::clear> reals;
-    for (size_t i = 0; i < input_size; i++) {
-        typename inputShare::clear c = set_input.output.finalize_open();
-        reals.push_back(c);
+    if (debug) {
+        set_input.output.init_open(P, input_size);
+        for (size_t i = 0; i < input_shares.size(); i++) {
+            inputShare c = input_shares[i];
+            set_input.output.prepare_open(c);
+        }
+        set_input.output.exchange(P);
+        for (int i = 0; i < input_size; i++) {
+            typename inputShare::clear c = set_input.output.finalize_open();
+            reals.push_back(c);
+        }
     }
     // end debug
 
@@ -181,7 +133,6 @@ void run(int argc, const char** argv)
         auto edabit_out = buffer_out.next();
         edabits_in.push_back(edabit_in);
 
-//        std::cout << "size " << edabit_in.second.size() << " " << edabit_out.second.size() << endl;
         edabits_out.push_back(edabit_out);
 
         inputShare c = input_shares[i] - edabit_in.first;
@@ -189,25 +140,24 @@ void run(int argc, const char** argv)
         set_input.output.prepare_open(c);
     }
 
-    Timer timer;
-    timer.start();
-    auto stats = P.total_comm();
-    set_input.output.exchange(P);
+    cout << "Generating " << 2 * input_size << " edabits " << timer_edabit_mask.elapsed() * 1e3 << " ms" << endl;
+    (P.total_comm() - edabit_stats).print(true);
 
-    // result check after opening
+    Timer timer_open_c;
+    timer_open_c.start();
+    auto stats = P.total_comm();
+
+    set_input.output.exchange(P);
     set_input.check();
 
-    cout << "Opening " << input_size << " masked input values " << timer.elapsed() * 1e3 << " ms" << endl;
+    cout << "Opening " << input_size << " masked input values " << timer_open_c.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - stats).print(true);
 
-    cout << "result: ";
     vector<typename inputShare::clear> cs;
-    for (size_t i = 0; i < input_size; i++) {
+    for (int i = 0; i < input_size; i++) {
         typename inputShare::clear c = set_input.output.finalize_open();
-        cout << c << " ";
         cs.push_back(c);
     }
-    cout << endl;
 
     int dl = inputShare::clear::MAX_EDABITS;
     int buffer_size = edabitvec<inputShare>::MAX_SIZE;
@@ -215,13 +165,17 @@ void run(int argc, const char** argv)
 
     typedef typename inputShare::bit_type bt;
 
+    Timer timer_adders;
+    timer_adders.start();
+    stats = P.total_comm();
+
     BitAdder bit_adder;
     // dim 0: n_bits, dim 1: (x,y), dim 2; element?
     vector<vector<vector<bt> > > summands_one(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
     vector<vector<bt>> sums_one(input_size);
-    for (int i = 0; i < (int)n_bits_per_input; i++) {
-        for (int j = 0; j < (int)input_size; j++) {
-            summands_one[i][0][j] = bt::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), setup_input.binary.get_mac_key());
+    for (int i = 0; i < n_bits_per_input; i++) {
+        for (int j = 0; j < input_size; j++) {
+            summands_one[i][0][j] = bt::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
             summands_one[i][1][j] = edabits_in[j].second[i];
         }
     }
@@ -230,12 +184,12 @@ void run(int argc, const char** argv)
     int begin = 0;
     int end = input_size;
     bit_adder.add(sums_one, summands_one, begin, end, bit_proc,
-                   dl, 0);
+                  dl, 0);
 
     // Now we add the second masking bits
     vector<vector<vector<bt> > > summands_two(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
-    for (int i = 0; i < (int)n_bits_per_input; i++) {
-        for (int j = 0; j < (int)input_size; j++) {
+    for (int i = 0; i < n_bits_per_input; i++) {
+        for (int j = 0; j < input_size; j++) {
 //            std::cout << "numbits " << i << " " << j << ": " << bigint(cs[j]) << " " << Integer(bigint(cs[j])).get_bit(i) << endl;
             summands_two[i][0][j] = sums_one[j][i];
             summands_two[i][1][j] = edabits_out[j].second[i];
@@ -245,35 +199,42 @@ void run(int argc, const char** argv)
     bit_adder.add(sums_two, summands_two, begin, end, bit_proc,
                   bt::default_length, 0);
 
+    cout << "Adding " << input_size * n_bits_per_input << " bits: " << timer_adders.elapsed() * 1e3 << " ms" << endl;
+    (P.total_comm() - stats).print(true);
 
 
 //    // now we open each bit
-//    set_input.binary.output.init_open(P, n_bits_per_input * input_size);
-//    for (int i = 0; i < (int)n_bits_per_input; i++) {
-//        for (int j = 0; j < (int)input_size; j++) {
-//            set_input.binary.output.prepare_open(sums_one[j][i]);
-//        }
-//    }
-//    set_input.binary.output.exchange(P);
-//
-//    vector<vector<typename bt::clear> > open_bits(n_bits_per_input, vector<typename bt::clear>(input_size));
-//    std::cout << "open bits type " << typeid(open_bits).name() << endl;
-//    for (int i = 0; i < (int)n_bits_per_input; i++) {
-//        for (int j = 0; j < (int)input_size; j++) {
-//            open_bits[i][j] = set_input.binary.output.finalize_open();
-//        }
-//    }
-//    for (int i = 0; i < (int)input_size; i++) {
-//        std::cout << open_bits[0][i].get_bit(0) << " ";
-//        std::cout << n_bits_per_input << " Number " << cs[i] << " has bits (these should be the original, unmasked value): ";
-//        for (int j = 0; j < (int)n_bits_per_input; j++) {
-////            std::cout << " j" << j << " " << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
-//            std::cout << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
-//        }
-//        std::cout << endl;
-//    }
+    if (debug) {
+        set_input.binary.output.init_open(P, n_bits_per_input * input_size);
+        for (int i = 0; i < n_bits_per_input; i++) {
+            for (int j = 0; j < input_size; j++) {
+                set_input.binary.output.prepare_open(sums_one[j][i]);
+            }
+        }
+        set_input.binary.output.exchange(P);
 
-    // now we open
+        vector <vector<typename bt::clear>> open_bits(n_bits_per_input, vector<typename bt::clear>(input_size));
+        std::cout << "open bits type " << typeid(open_bits).name() << endl;
+        for (int i = 0; i < (int) n_bits_per_input; i++) {
+            for (int j = 0; j < (int) input_size; j++) {
+                open_bits[i][j] = set_input.binary.output.finalize_open();
+            }
+        }
+        for (int i = 0; i < (int) input_size; i++) {
+            std::cout << open_bits[0][i].get_bit(0) << " ";
+            std::cout << n_bits_per_input << " Number " << cs[i]
+                      << " has bits (these should be the original, unmasked value): ";
+            for (int j = 0; j < (int) n_bits_per_input; j++) {
+//            std::cout << " j" << j << " " << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
+                std::cout << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
+            }
+            std::cout << endl;
+        }
+    }
+
+    Timer timer_bits;
+    timer_bits.start();
+    stats = P.total_comm();
 
     set_input.binary.output.init_open(P, n_bits_per_input * input_size);
     for (int i = 0; i < (int)n_bits_per_input; i++) {
@@ -299,6 +260,9 @@ void run(int argc, const char** argv)
         }
     }
 
+    cout << "Opening " << input_size * n_bits_per_input << " masked bits: " << timer_bits.elapsed() * 1e3 << " ms" << endl;
+    (P.total_comm() - stats).print(true);
+
     // now everyone subtracts c_prime from the mask
     vector<outputShare > result;
     for (int i = 0; i < (int)input_size; i++) {
@@ -312,17 +276,59 @@ void run(int argc, const char** argv)
     }
 
     // open for debug
-    set_output.output.init_open(P, input_size);
-    for (size_t i = 0; i < result.size(); i++) {
-        outputShare c = result[i];
-        set_output.output.prepare_open(c);
-    }
-    set_output.output.exchange(P);
-    for (size_t i = 0; i < input_size; i++) {
-        typename outputShare::clear c = set_output.output.finalize_open();
-        assert(c == reals[i]);
+    if (debug) {
+        set_output.output.init_open(P, input_size);
+        for (unsigned long i = 0; i < result.size(); i++) {
+            outputShare c = result[i];
+            set_output.output.prepare_open(c);
+        }
+        set_output.output.exchange(P);
+        vector <outputShare> outputs;
+        for (int i = 0; i < input_size; i++) {
+            typename outputShare::clear c = set_output.output.finalize_open();
+            if (debug)
+                assert(c == reals[i]);
+            outputs.push_back(c);
+        }
     }
     // end debug
+
+    cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
+    (P.total_comm() - overall_stats).print(true);
+
+    return result;
+}
+
+template<class inputShare, class outputShare>
+void run(int argc, const char** argv)
+{
+    bigint::init_thread();
+    ez::ezOptionParser opt;
+    SwitchOptions opts(opt, argc, argv);
+//    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
+    Names N(opt, argc, argv, 3);
+
+    assert(opts.n_shares > 0);
+    CryptoPlayer P(N, "pc");
+
+    // protocol setup (domain, MAC key if needed etc)
+    libff::bls12_377_pp::init_public_params();
+    mpz_t t;
+    mpz_init(t);
+    P377Element::G1::order().to_mpz(t);
+
+    int prime_length = 64;
+    MixedProtocolSetup<inputShare> setup_input(P, prime_length);
+    MixedProtocolSet<inputShare> set_input(P, setup_input);
+
+    ProtocolSetup<outputShare> setup_output(bigint(t), P);
+    ProtocolSet<outputShare> set_output(P, setup_output);
+
+    vector<inputShare> input_shares = read_inputs<inputShare>(P, opts.n_shares);
+
+    vector<outputShare> result = convert_shares(input_shares, set_input, set_output, setup_input.binary.get_mac_key(), P, prime_length);
+
+    write_shares<outputShare>(P, result, KZG_SUFFIX);
 
     P377Element::finish();
 }

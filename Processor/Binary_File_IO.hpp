@@ -21,7 +21,10 @@ void Binary_File_IO::write_to_file(const string filename,
   ofstream outf;
 
   outf.open(filename, ios::out | ios::binary | ios::ate | ios::in);
-  if (outf.fail()) { throw file_error(filename); }
+  if (outf.fail()) {
+    cerr << "open failure as expected: " << strerror(errno) << '\n';
+    throw file_error(filename);
+  }
 
   if (start_pos != -1)
     {

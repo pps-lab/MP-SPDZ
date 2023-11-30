@@ -135,7 +135,7 @@ sy: sy-rep-field-party.x sy-rep-ring-party.x sy-shamir-party.x
 ecdsa: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-ecdsa-party.cpp)) Fake-ECDSA.x
 ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ecdsa-party.cpp))
 
-poly_commit: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) Fake-ECDSA.x $(BLS)
+poly_commit: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp),$(wildcard ECDSA/*-switch-party.cpp)) Fake-ECDSA.x $(BLS)
 
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
@@ -214,9 +214,9 @@ Fake-Offline.x: Utils/Fake-Offline.o $(VM)
 
 %-ecdsa-party.x: ECDSA/%-ecdsa-party.o ECDSA/P256Element.o $(VM)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
-%-pc-party.x: ECDSA/%-pc-party.o ECDSA/P256Element.o ECDSA/P377Element.o $(VM) $(BLS)
+%-pc-party.x: ECDSA/%-pc-party.o ECDSA/P256Element.o ECDSA/P377Element.o Protocols/MalRepRingOptions.o $(VM) $(BLS)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
-%-switch-party.x: ECDSA/%-switch-party.o ECDSA/P256Element.o ECDSA/P377Element.o $(VM) $(BLS)
+%-switch-party.x: ECDSA/%-switch-party.o ECDSA/P256Element.o ECDSA/P377Element.o Protocols/MalRepRingOptions.o $(VM) $(BLS)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
 
 replicated-bin-party.x: GC/square64.o
