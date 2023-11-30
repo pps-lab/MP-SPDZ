@@ -14,6 +14,20 @@ std::string addSuffixBeforeExtension(const std::string& filename, const std::str
 }
 
 template<class T>
+void checkSignature(string filename) {
+    ifstream pers(filename);
+    try
+    {
+        check_file_signature<T>(pers, filename);
+    }
+    catch (signature_mismatch&)
+    {
+        ofstream pers(filename, ios::binary);
+        file_signature<T>().output(pers);
+    }
+}
+
+template<class T>
 std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
     if (size == 0) {
         return std::vector<T>();
@@ -22,7 +36,9 @@ std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
 
     string filename;
     filename = binary_file_io.filename(P.my_num());
-    filename = addSuffixBeforeExtension(filename, suffix);
+    const string filename_suffix = addSuffixBeforeExtension(filename, suffix);
+
+    std::cout << "Reading shares with " << file_signature<T>() << " signature." << std::endl;
 
     std::vector< T > outbuf(size);
 
@@ -30,9 +46,10 @@ std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
     int end_file_posn = start_file_posn;
 
     try {
-        binary_file_io.read_from_file(filename, outbuf, start_file_posn, end_file_posn);
+        binary_file_io.read_from_file(filename_suffix, outbuf, start_file_posn, end_file_posn);
     } catch (file_missing& e) {
         cerr << "Got file missing error, will return -2. " << e.what() << endl;
+        throw file_error(filename_suffix);
     }
 
     return outbuf;
@@ -46,16 +63,10 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "") {
     filename = binary_file_io.filename(P.my_num());
     const string filename_suffix = addSuffixBeforeExtension(filename, suffix);
 
-
-    ofstream outf;
-    outf.open(filename_suffix, ios::out | ios::binary);
-    outf.close();
-    if (outf.fail()) {
-        cerr << "22 open failure as expected: " << strerror(errno) << '\n';
-        throw file_error(filename_suffix);
-    }
-
     int start_pos = 0;
+
+    checkSignature<T>(filename_suffix);
+    std::cout << "Writing shares with " << file_signature<T>() << " signature." << std::endl;
 
     binary_file_io.write_to_file(filename_suffix, shares, start_pos);
 

@@ -110,23 +110,6 @@ void ecscalarmulshare(P377Element point, Rep3Share<P377Element::Scalar> multipli
 
 }
 
-//// Function for Scalar multiplication of a clear p256 and a shared gfp
-template<>
-void ecscalarmulshare(P377Element point, MaliciousRep3Share<P377Element::Scalar> multiplierShare, MaliciousRep3Share<P377Element>& result){
-
-    // This is ugly and specific for Rep3Share!!
-    // We need: for each share in multiplierShare, get the value, multiply with point
-    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
-    array<P377Element, 2> result_shares;
-    for (int i = 0; i < 2; i++) {
-        P377Element::Scalar share = shares[i];
-        P377Element result_share = point * share;
-        result_shares[i] = result_share;
-    }
-
-    result = MaliciousRep3Share<P377Element>(result_shares);
-
-}
 
 template<template<class U> class T>
 KZGCommitment commit_and_open(
@@ -150,7 +133,7 @@ KZGCommitment commit_and_open(
 //    MCp.POpen_End(test_element, tuple.coeffs, P);
 //    std::cout << "OPEN TEST ELEM " << test_element[0] << endl;
 
-    T<P377Element> sum = T<P377Element>(P377Element());
+    T<P377Element> sum;
     for (unsigned long i = 0; i < tuple.coeffs.size(); ++i) {
         // This is technically a share!!
         T<P377Element> result;

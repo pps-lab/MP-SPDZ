@@ -94,8 +94,10 @@ octetStream check_file_signature(ifstream& file, const string& filename)
     {
         throw signature_mismatch(filename);
     }
-    if (file_signature<T>() != file_spec)
+    if (file_signature<T>() != file_spec) {
+        std::cout << file_signature<T>() << " != " << file_spec << std::endl;
         throw signature_mismatch(filename);
+    }
     return file_spec;
 }
 

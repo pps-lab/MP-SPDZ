@@ -42,6 +42,24 @@
 
 #include <assert.h>
 
+
+//// Function for Scalar multiplication of a clear p256 and a shared gfp
+template<>
+void ecscalarmulshare(P377Element point, MaliciousRep3Share<P377Element::Scalar> multiplierShare, MaliciousRep3Share<P377Element>& result){
+
+    // This is ugly and specific for Rep3Share!!
+    // We need: for each share in multiplierShare, get the value, multiply with point
+    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
+    array<P377Element, 2> result_shares;
+    for (int i = 0; i < 2; i++) {
+        P377Element::Scalar share = shares[i];
+        P377Element result_share = point * share;
+        result_shares[i] = result_share;
+    }
+
+    result = MaliciousRep3Share<P377Element>(result_shares);
+}
+
 template<template<class U> class T>
 void run(int argc, const char** argv)
 {
@@ -66,8 +84,7 @@ void run(int argc, const char** argv)
     typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
     string message = auditable_inference<T>(inputMCc, P, opts);
 
-//    inputShare::MAC_Check::teardown();
-//    T<P377Element>::MAC_Check::teardown();
+//    std::cout << "Message: " << message << endl;
     P377Element::finish();
 
     // Signing
