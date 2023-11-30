@@ -14,6 +14,7 @@
 #include "Math/gfp.hpp"
 #include "Processor/Binary_File_IO.h"
 #include "PCOptions.h"
+#include "ECDSA/share_utils.hpp"
 
 //#include "sign.hpp"
 
@@ -35,30 +36,6 @@ inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
 
     params.g2 = random_elem(G);
     return params;
-}
-
-template<class T>
-std::vector<T> read_inputs(Player& P, size_t size) {
-    if (size == 0) {
-        return std::vector<T>();
-    }
-    Binary_File_IO binary_file_io = Binary_File_IO();
-
-    string filename;
-    filename = binary_file_io.filename(P.my_num());
-
-    std::vector< T > outbuf(size);
-
-    int start_file_posn = 0;
-    int end_file_posn = start_file_posn;
-
-    try {
-        binary_file_io.read_from_file(filename, outbuf, start_file_posn, end_file_posn);
-    } catch (file_missing& e) {
-        cerr << "Got file missing error, will return -2. " << e.what() << endl;
-    }
-
-    return outbuf;
 }
 
 

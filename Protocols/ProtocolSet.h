@@ -60,13 +60,16 @@ template<class T>
 class BinaryProtocolSet
 {
     DataPositions usage;
+
+public:
+
     typename T::LivePrep prep;
     GC::ShareThread<T> thread;
 
-public:
     typename T::MAC_Check& output;
     typename T::Protocol& protocol;
     typename T::Input input;
+
 
     /**
      * @param P communication instance
