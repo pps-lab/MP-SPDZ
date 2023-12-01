@@ -338,7 +338,7 @@ void run(int argc, const char** argv)
 //    OnlineOptions::singleton.batch_size = opts.n_shares;
 //    OnlineOptions::singleton.verbose = true;
 
-    vector<inputShare> input_shares = read_inputs<inputShare>(P, opts.n_shares);
+    vector<inputShare> input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
 
     int n_bits_per_input = bit_length;
     if (opts.n_bits_per_input != -1) {

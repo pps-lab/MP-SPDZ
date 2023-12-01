@@ -51,7 +51,7 @@ void eval_point(
 //    G.SeedGlobally(P);
 
 //    test_arith();
-    std::vector<T<P377Element::Scalar> > inputs = read_inputs<T<P377Element::Scalar> >(P, opts.n_shares, KZG_SUFFIX);
+    std::vector<T<P377Element::Scalar> > inputs = read_inputs<T<P377Element::Scalar> >(P, opts.n_shares, opts.start, KZG_SUFFIX);
 
 //    std::cout << "Share 0" << inputs[0] << std::endl;
 //

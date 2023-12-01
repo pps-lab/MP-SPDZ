@@ -30,7 +30,7 @@ void checkSignature(string filename) {
 //SOMETHING IS OFF WITH READ/WRITE SHARES
 
 template<class T>
-std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
+std::vector<T> read_inputs(Player& P, size_t size, int start, string suffix = "") {
     if (size == 0) {
         return std::vector<T>();
     }
@@ -44,7 +44,7 @@ std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
 
     std::vector< T > outbuf(size);
 
-    int start_file_posn = 0;
+    int start_file_posn = start;
     int end_file_posn = start_file_posn;
 
     try {

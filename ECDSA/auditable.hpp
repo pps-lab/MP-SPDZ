@@ -61,13 +61,14 @@ std::string auditable_inference(
     int n_parameters = max_element(commitment_sizes.begin(), commitment_sizes.end()).operator*();
     KZGPublicParameters publicParameters = get_public_parameters(n_parameters, G);
 
-     for (int size : commitment_sizes) {
+    int start = opts.start;
+    for (int size : commitment_sizes) {
         // Proof for each size poly commitment
         if (size == 0) {
             continue;
         }
         std::cout << "Committing to polynomial of size " << size << endl;
-        std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size, KZG_SUFFIX);
+        std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size, start, KZG_SUFFIX);
 
         InputPolynomial<T> polynomial;
         for (int i = 0; i < size; i++)
@@ -78,6 +79,7 @@ std::string auditable_inference(
         assert(polynomial.coeffs.size() <= publicParameters.powers_of_g.size());
 
         commitments.push_back(commit_and_open(polynomial, publicParameters, MCc, P));
+        start = start + size;
     }
 
 

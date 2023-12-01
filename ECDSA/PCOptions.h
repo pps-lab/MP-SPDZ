@@ -16,6 +16,7 @@ public:
     int n_model;
     int n_x;
     int n_y;
+    int start;
     string prime;
 
     PCOptions(ez::ezOptionParser& opt, int argc, const char** argv): EcdsaOptions(opt, argc, argv)
@@ -46,6 +47,15 @@ public:
                 "Size of the y prediction to commit to", // Help description.
                 "-y", // Flag token.
                 "--n_y" // Flag token.
+        );
+        opt.add(
+                "0", // Default.
+                0, // Required?
+                1, // Number of args expected.
+                0, // Delimiter if expecting multiple args.
+                "Size of the y prediction to commit to", // Help description.
+                "-s", // Flag token.
+                "--start" // Flag token.
         );
         opt.add(
                 "", // Default.
@@ -94,6 +104,7 @@ public:
         opt.get("-m")->getInt(n_model);
         opt.get("-x")->getInt(n_x);
         opt.get("-y")->getInt(n_y);
+        opt.get("-s")->getInt(start);
         opt.get("--prime")->getString(prime);
 
         std::cout << "n_model " << n_model << std::endl;
