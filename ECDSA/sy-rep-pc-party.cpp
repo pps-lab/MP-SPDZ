@@ -30,6 +30,11 @@
 #include "mal_poly_commit.hpp"
 #include "ECDSA/mal_poly_commit.hpp"
 
+#include "ECDSA/preprocessing.hpp"
+#include "ECDSA/sign.hpp"
+#include "ECDSA/preprocessing_pc.hpp"
+#include "ECDSA/sign_pc.hpp"
+
 #include "hm-pc-party.hpp"
 
 

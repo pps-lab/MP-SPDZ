@@ -17,6 +17,10 @@
 #include "GC/TinierSharePrep.hpp"
 #include "ot-pc-party.hpp"
 
+
+#include "ECDSA/preprocessing.hpp"
+#include "ECDSA/sign.hpp"
+
 #include <assert.h>
 
 int main(int argc, const char** argv)

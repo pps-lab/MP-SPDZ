@@ -19,10 +19,6 @@
 #include "GC/CcdSecret.h"
 #include "GC/VectorInput.h"
 
-#include "ECDSA/preprocessing.hpp"
-#include "ECDSA/sign.hpp"
-#include "ECDSA/preprocessing_pc.hpp"
-#include "ECDSA/sign_pc.hpp"
 #include "ECDSA/auditable.hpp"
 #include "ECDSA/P377Element.h"
 #include "ECDSA/poly_commit.hpp"
@@ -45,21 +41,24 @@
 #include <assert.h>
 
 
-//template<>
-//void ecscalarmulshare(P377Element point, SpdzWiseRepFieldShare<P377Element::Scalar> multiplierShare, SpdzWiseRepFieldShare<P377Element>& result){
-//
-//    // This is ugly and specific for Rep3Share!!
-//    // We need: for each share in multiplierShare, get the value, multiply with point
-//    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
-//    array<P377Element, 2> result_shares;
-//    for (int i = 0; i < 2; i++) {
-//        P377Element::Scalar share = shares[i];
-//        P377Element result_share = point * share;
-//        result_shares[i] = result_share;
-//    }
-//
-//    result = SpdzWiseRepFieldShare<P377Element>(result_shares);
-//}
+
+//// Function for Scalar multiplication of a clear p256 and a shared gfp
+template<>
+void ecscalarmulshare(P377Element point, MaliciousRep3Share<P377Element::Scalar> multiplierShare, MaliciousRep3Share<P377Element>& result){
+
+    // This is ugly and specific for Rep3Share!!
+    // We need: for each share in multiplierShare, get the value, multiply with point
+    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
+    array<P377Element, 2> result_shares;
+    for (int i = 0; i < 2; i++) {
+        P377Element::Scalar share = shares[i];
+        P377Element result_share = point * share;
+        result_shares[i] = result_share;
+    }
+
+    result = MaliciousRep3Share<P377Element>(result_shares);
+}
+
 
 template<template<class U> class T>
 void run(int argc, const char** argv)
