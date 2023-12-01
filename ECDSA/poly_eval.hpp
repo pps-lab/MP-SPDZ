@@ -74,7 +74,7 @@ void eval_point(
     set.output.exchange(P);
     set.check();
     P377Element::Scalar beta = set.output.finalize_open();
-    beta = P377Element::Scalar(1);
+//    beta = P377Element::Scalar(1);
 
     P377Element::Scalar current_beta = 1;
 
@@ -92,10 +92,16 @@ void eval_point(
 
     P377Element::Scalar rho = set.output.finalize_open();
 
+    set.check();
+
     auto diff = (P.total_comm() - stats);
     cout << "Auditable inference took " << timer.elapsed() * 1e3 << " ms and sending "
          << diff.sent << " bytes" << endl;
     diff.print(true);
+
+    print_timer("poly_eval", timer.elapsed());
+    print_stat("poly_eval", diff);
+    print_global("poly_eval", P, diff);
 
     std::cout << "input_consistency_player_" << opts.input_party_i << "_eval(" << beta << "," << rho << ")" << endl;
 

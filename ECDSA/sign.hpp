@@ -47,6 +47,7 @@ inline P256Element::Scalar hash_to_scalar(const unsigned char* message, size_t l
     return res;
 }
 
+// TODO: Fix this so it works with other ecdsa samples again ??
 template<template<class U> class T>
 EcSignature sign(const unsigned char* message, size_t length,
         EcTuple<T> tuple,

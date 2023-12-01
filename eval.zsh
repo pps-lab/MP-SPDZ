@@ -13,7 +13,10 @@ trap "kill 0" EXIT
 #
 echo "====================";
 
-BIN=./rep-pe-party.x
+#BIN=./rep-pe-party.x
+BIN=./sy-rep-pe-party.x
+
+
 $BIN -p 0 -N 3 -n 60000 -i 0 & ; pid0=$!
 $BIN -p 1 -N 3 -n 60000 -i 0 & ; pid1=$!
 $BIN -p 2 -N 3 -n 60000 -i 0 & ; pid2=$!

@@ -81,7 +81,24 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwri
 
 }
 
+void print_timer(const string name, double elapsed_s) {
+    std::cout << fixed << "TIMER (name=" << name << "_mus) (value=" << (long long)(elapsed_s * 1e6) << ")" << std::endl;
+}
+void print_stat(const string name, NamedCommStats& stats) {
+    std::cout << fixed << "STATS (name=" << name << "_bytes) (value=" << stats.sent << ")" << std::endl;
+}
 
+void print_global(const string name, Player &P, NamedCommStats& stats) {
+    Bundle<octetStream> bundle(P);
+    bundle.mine.store(stats.sent);
+    P.Broadcast_Receive_no_stats(bundle);
+    size_t global = 0;
+    for (auto& os : bundle)
+        global += os.get_int(8);
+
+    std::cout << fixed << "STATS (name=" << name << "_global_bytes) (value=" << global << ")" << std::endl;
+//    cerr << "Global data sent = " << global / 1e6 << " MB (all parties)" << endl;
+}
 
 
 #endif /* SHARE_UTILS_HPP */

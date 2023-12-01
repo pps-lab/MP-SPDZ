@@ -126,6 +126,11 @@ public:
             ProtocolSetup<T>(P, prime_length, directory), binary(P, directory)
     {
     }
+
+    MixedProtocolSetup(bigint prime, Player& P, string directory = "") :
+            ProtocolSetup<T>(prime, P, directory), binary(P, directory)
+    {
+    }
 };
 
 #endif /* PROTOCOLS_PROTOCOLSETUP_H_ */

@@ -49,6 +49,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
                                    MixedProtocolSet<inputShare>& set_input,
                                    ProtocolSet<outputShare>& set_output,
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
+                                   typename outputShare::mac_key_type out_arithmetic_mac_key,
                                    Player &P, const int prime_length) {
     const bool debug = false;
 
@@ -112,6 +113,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
             set_input.output.prepare_open(c);
         }
         set_input.output.exchange(P);
+        set_input.check();
         for (int i = 0; i < input_size; i++) {
             typename inputShare::clear c = set_input.output.finalize_open();
             reals.push_back(c);
@@ -245,6 +247,8 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         }
     }
     set_input.binary.output.exchange(P);
+    set_input.binary.check();
+
     vector< typename outputShare::clear > open_mask(input_size);
 
 //    std::cout << open_bits[0][0].get_bit(0) << " open " << open_bits[1][0].get_bit(0) << endl;
@@ -274,7 +278,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
 //        }
 //        cout << std::endl;
 //        result.push_back(outputShare::constant(open_mask[i], P.my_num()) - edabits_out[i].first);
-        result.push_back(outputShare::constant(open_mask[i], P.my_num()) - edabits_out[i].first);
+        result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - edabits_out[i].first);
     }
 
     // open for debug
@@ -285,7 +289,8 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
             set_output.output.prepare_open(c);
         }
         set_output.output.exchange(P);
-        vector <outputShare> outputs;
+        set_output.check();
+        vector <typename outputShare::clear> outputs;
         for (int i = 0; i < input_size; i++) {
             typename outputShare::clear c = set_output.output.finalize_open();
             if (debug)
@@ -295,6 +300,9 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         std::cout << "output_1" << " = " << outputs[1] << endl;
     }
     // end debug
+
+    set_input.check();
+    set_output.check();
 
     cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - overall_stats).print(true);
@@ -320,25 +328,42 @@ void run(int argc, const char** argv)
     mpz_init(t);
     P377Element::G1::order().to_mpz(t);
 
-    int prime_length = 64;
-    MixedProtocolSetup<inputShare> setup_input(P, prime_length);
+    int bit_length = 64;
+    MixedProtocolSetup<inputShare> setup_input(P, bit_length);
     MixedProtocolSet<inputShare> set_input(P, setup_input);
 
     ProtocolSetup<outputShare> setup_output(bigint(t), P);
     ProtocolSet<outputShare> set_output(P, setup_output);
 
+//    OnlineOptions::singleton.batch_size = opts.n_shares;
+//    OnlineOptions::singleton.verbose = true;
+
     vector<inputShare> input_shares = read_inputs<inputShare>(P, opts.n_shares);
 
-    vector<outputShare> result = convert_shares(input_shares, set_input, set_output, setup_input.binary.get_mac_key(), P, prime_length);
+    int n_bits_per_input = bit_length;
+    if (opts.n_bits_per_input != -1) {
+        n_bits_per_input = opts.n_bits_per_input;
+    }
+
+    Timer timer;
+    timer.start();
+    auto stats = P.total_comm();
+
+    vector<outputShare> result = convert_shares(input_shares, set_input, set_output, setup_input.binary.get_mac_key(), setup_output.get_mac_key(), P, n_bits_per_input);
 
     std::cout << "Share 0 " << result[0] << std::endl;
 
     write_shares<outputShare>(P, result, KZG_SUFFIX, true);
 
-    vector<outputShare> check_shares = read_inputs<outputShare>(P, 2, KZG_SUFFIX);
+    auto diff = P.total_comm() - stats;
+    print_timer("share_switch", timer.elapsed());
+    print_stat("share_switch", diff);
+    print_global("share_switch", P, diff);
 
-    std::cout << "Share 0 after reading " << check_shares[0] << std::endl;
-    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
+//    vector<outputShare> check_shares = read_inputs<outputShare>(P, 2, KZG_SUFFIX);
+//
+//    std::cout << "Share 0 after reading " << check_shares[0] << std::endl;
+//    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
     P377Element::finish();
 }

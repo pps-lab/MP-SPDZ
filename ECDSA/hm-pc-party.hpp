@@ -21,6 +21,8 @@
 
 #include "ECDSA/preprocessing.hpp"
 #include "ECDSA/sign.hpp"
+#include "ECDSA/preprocessing_pc.hpp"
+#include "ECDSA/sign_pc.hpp"
 #include "ECDSA/auditable.hpp"
 #include "ECDSA/P377Element.h"
 #include "ECDSA/poly_commit.hpp"
@@ -43,22 +45,21 @@
 #include <assert.h>
 
 
-//// Function for Scalar multiplication of a clear p256 and a shared gfp
-template<>
-void ecscalarmulshare(P377Element point, MaliciousRep3Share<P377Element::Scalar> multiplierShare, MaliciousRep3Share<P377Element>& result){
-
-    // This is ugly and specific for Rep3Share!!
-    // We need: for each share in multiplierShare, get the value, multiply with point
-    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
-    array<P377Element, 2> result_shares;
-    for (int i = 0; i < 2; i++) {
-        P377Element::Scalar share = shares[i];
-        P377Element result_share = point * share;
-        result_shares[i] = result_share;
-    }
-
-    result = MaliciousRep3Share<P377Element>(result_shares);
-}
+//template<>
+//void ecscalarmulshare(P377Element point, SpdzWiseRepFieldShare<P377Element::Scalar> multiplierShare, SpdzWiseRepFieldShare<P377Element>& result){
+//
+//    // This is ugly and specific for Rep3Share!!
+//    // We need: for each share in multiplierShare, get the value, multiply with point
+//    const array<P377Element::Scalar, 2>& shares = multiplierShare.get();
+//    array<P377Element, 2> result_shares;
+//    for (int i = 0; i < 2; i++) {
+//        P377Element::Scalar share = shares[i];
+//        P377Element result_share = point * share;
+//        result_shares[i] = result_share;
+//    }
+//
+//    result = SpdzWiseRepFieldShare<P377Element>(result_shares);
+//}
 
 template<template<class U> class T>
 void run(int argc, const char** argv)
@@ -81,6 +82,10 @@ void run(int argc, const char** argv)
 
     inputShare::clear::init_field(bigint(t));
     inputShare::clear::next::init_field(bigint(t), false);
+
+    Timer timer_all;
+    timer_all.start();
+    auto stats_all = P.total_comm();
 
     typename inputShare::mac_key_type input_mac_key;
     inputShare::read_or_generate_mac_key("", P, input_mac_key);
@@ -131,17 +136,26 @@ void run(int argc, const char** argv)
     auto sig = sign((const unsigned char *)message.c_str(), message.length(), tuples[0], MCp, MCc, P, opts, pk, sk, prep_mul ? 0 : &proc);
 
     std::cout << " " << sig.R << " " << sig.s << endl;
+    // No online checking!
+//    Timer timer_sig;
+//    timer_sig.start();
+//    auto& check_player = MCp.get_check_player(P);
+//    stats = check_player.total_comm();
+//    MCp.Check(P);
+//    MCc.Check(P);
+//    auto diff = (check_player.total_comm() - stats);
+//    cout << "Online checking took " << timer_sig.elapsed() * 1e3 << " ms and sending "
+//         << diff.sent << " bytes" << endl;
+//    diff.print();
 
-    Timer timer_sig;
-    timer_sig.start();
-    auto& check_player = MCp.get_check_player(P);
-    stats = check_player.total_comm();
+    auto diff_all = P.total_comm() - stats_all;
+    print_timer("poly_commit_sign", timer_all.elapsed());
+    print_stat("poly_commit_sign", diff_all);
+    print_global("poly_commit_sign", P, diff_all);
+
+    // we dont have to check the sig because its validity implies correctness.
     MCp.Check(P);
     MCc.Check(P);
-    auto diff = (check_player.total_comm() - stats);
-    cout << "Online checking took " << timer_sig.elapsed() * 1e3 << " ms and sending "
-         << diff.sent << " bytes" << endl;
-    diff.print();
 
     check(sig, (const unsigned char *)message.c_str(), message.length(), pk);
 

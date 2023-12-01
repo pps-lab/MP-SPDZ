@@ -13,6 +13,7 @@ class SwitchOptions
 public:
     int n_shares;
     int start;
+    int n_bits_per_input;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -34,11 +35,21 @@ public:
                 "-s", // Flag token.
                 "--start" // Flag token.
         );
+        opt.add(
+                "-1", // Default.
+                0, // Required?
+                1, // Number of args expected.
+                0, // Delimiter if expecting multiple args.
+                "Number of bits per input", // Help description.
+                "-b", // Flag token.
+                "--n_bits" // Flag token.
+        );
 
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
         opt.get("-s")->getInt(start);
+        opt.get("-b")->getInt(n_bits_per_input);
         opt.resetArgs();
     }
 };
