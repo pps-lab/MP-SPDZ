@@ -52,20 +52,29 @@ void run(int argc, const char** argv)
 
     CryptoPlayer P(N, "pc");
 
-    P377Element::init();
-    P377Element::Scalar::next::init_field(P377Element::Scalar::pr(), false);
+//    P377Element::init();
+//    P377Element::Scalar::next::init_field(P377Element::Scalar::pr(), false);
+    libff::bls12_377_pp::init_public_params();
+    mpz_t t;
+    mpz_init(t);
+    P377Element::G1::order().to_mpz(t);
 
     typedef T<P377Element::Scalar> inputShare;
+
+    inputShare::clear::init_field(bigint(t));
+    inputShare::clear::next::init_field(bigint(t), false);
+
+    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
+
 
     typename inputShare::mac_key_type input_mac_key;
     inputShare::read_or_generate_mac_key("", P, input_mac_key);
 
     ProtocolSet< inputShare> set(P, input_mac_key);
 
-    typename inputShare::MAC_Check inputMCp(input_mac_key);
+//    typename inputShare::MAC_Check inputMCp(input_mac_key);
 
-    typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
-    eval_point<T>(set, inputMCc, P, opts);
+    eval_point<T>(set, P, opts);
 
     P377Element::finish();
 

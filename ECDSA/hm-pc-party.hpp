@@ -72,10 +72,15 @@ void run(int argc, const char** argv)
 
     CryptoPlayer P(N, "pc");
 
-    P377Element::init();
-    P377Element::Scalar::next::init_field(P377Element::Scalar::pr(), false);
+    libff::bls12_377_pp::init_public_params();
+    mpz_t t;
+    mpz_init(t);
+    P377Element::G1::order().to_mpz(t);
 
     typedef T<P377Element::Scalar> inputShare;
+
+    inputShare::clear::init_field(bigint(t));
+    inputShare::clear::next::init_field(bigint(t), false);
 
     typename inputShare::mac_key_type input_mac_key;
     inputShare::read_or_generate_mac_key("", P, input_mac_key);

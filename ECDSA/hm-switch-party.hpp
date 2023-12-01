@@ -46,8 +46,8 @@
 
 template<class inputShare, class outputShare>
 vector<outputShare> convert_shares(vector<inputShare>& input_shares,
-                                   MixedProtocolSet<inputShare> set_input,
-                                   ProtocolSet<outputShare> set_output,
+                                   MixedProtocolSet<inputShare>& set_input,
+                                   ProtocolSet<outputShare>& set_output,
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
                                    Player &P, const int prime_length) {
     const bool debug = false;
@@ -55,9 +55,6 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     // for now we need to use all the bits;
     const int input_size = input_shares.size();
     int n_bits_per_input = prime_length;
-
-    // TODO: compute how many bits we need
-    DataPositions usage;
 
     bool strict = true;
 
@@ -67,6 +64,8 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     // buffer edabits
     // decompose, add bits to r, open,
     // compose
+
+    DataPositions usage;
     OnlineOptions::singleton.batch_size = input_size;
 
 //    edabitvec<inputShare> buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
@@ -117,6 +116,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
             typename inputShare::clear c = set_input.output.finalize_open();
             reals.push_back(c);
         }
+        std::cout << "input_1" << " = " << reals[1] << endl;
     }
     // end debug
 
@@ -180,7 +180,9 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         }
     }
 
-    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
+    // TODO: Fix this OOM issue, its likely released when this gets deconstructed
+    typename bt::LivePrep bit_prep(usage);
+    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), bit_prep, P);
     int begin = 0;
     int end = input_size;
     bit_adder.add(sums_one, summands_one, begin, end, bit_proc,
@@ -205,31 +207,31 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
 
 //    // now we open each bit
     if (debug) {
-        set_input.binary.output.init_open(P, n_bits_per_input * input_size);
-        for (int i = 0; i < n_bits_per_input; i++) {
-            for (int j = 0; j < input_size; j++) {
-                set_input.binary.output.prepare_open(sums_one[j][i]);
-            }
-        }
-        set_input.binary.output.exchange(P);
-
-        vector <vector<typename bt::clear>> open_bits(n_bits_per_input, vector<typename bt::clear>(input_size));
-        std::cout << "open bits type " << typeid(open_bits).name() << endl;
-        for (int i = 0; i < (int) n_bits_per_input; i++) {
-            for (int j = 0; j < (int) input_size; j++) {
-                open_bits[i][j] = set_input.binary.output.finalize_open();
-            }
-        }
-        for (int i = 0; i < (int) input_size; i++) {
-            std::cout << open_bits[0][i].get_bit(0) << " ";
-            std::cout << n_bits_per_input << " Number " << cs[i]
-                      << " has bits (these should be the original, unmasked value): ";
-            for (int j = 0; j < (int) n_bits_per_input; j++) {
-//            std::cout << " j" << j << " " << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
-                std::cout << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
-            }
-            std::cout << endl;
-        }
+//        set_input.binary.output.init_open(P, n_bits_per_input * input_size);
+//        for (int i = 0; i < n_bits_per_input; i++) {
+//            for (int j = 0; j < input_size; j++) {
+//                set_input.binary.output.prepare_open(sums_one[j][i]);
+//            }
+//        }
+//        set_input.binary.output.exchange(P);
+//
+//        vector <vector<typename bt::clear>> open_bits(n_bits_per_input, vector<typename bt::clear>(input_size));
+//        std::cout << "open bits type " << typeid(open_bits).name() << endl;
+//        for (int i = 0; i < (int) n_bits_per_input; i++) {
+//            for (int j = 0; j < (int) input_size; j++) {
+//                open_bits[i][j] = set_input.binary.output.finalize_open();
+//            }
+//        }
+//        for (int i = 0; i < (int) input_size; i++) {
+//            std::cout << open_bits[0][i].get_bit(0) << " ";
+//            std::cout << n_bits_per_input << " Number " << cs[i]
+//                      << " has bits (these should be the original, unmasked value): ";
+//            for (int j = 0; j < (int) n_bits_per_input; j++) {
+////            std::cout << " j" << j << " " << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
+//                std::cout << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
+//            }
+//            std::cout << endl;
+//        }
     }
 
     Timer timer_bits;
@@ -290,6 +292,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
                 assert(c == reals[i]);
             outputs.push_back(c);
         }
+        std::cout << "output_1" << " = " << outputs[1] << endl;
     }
     // end debug
 
@@ -328,7 +331,14 @@ void run(int argc, const char** argv)
 
     vector<outputShare> result = convert_shares(input_shares, set_input, set_output, setup_input.binary.get_mac_key(), P, prime_length);
 
-    write_shares<outputShare>(P, result, KZG_SUFFIX);
+    std::cout << "Share 0 " << result[0] << std::endl;
+
+    write_shares<outputShare>(P, result, KZG_SUFFIX, true);
+
+    vector<outputShare> check_shares = read_inputs<outputShare>(P, 2, KZG_SUFFIX);
+
+    std::cout << "Share 0 after reading " << check_shares[0] << std::endl;
+    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
     P377Element::finish();
 }

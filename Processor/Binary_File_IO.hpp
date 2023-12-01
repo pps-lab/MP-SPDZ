@@ -82,6 +82,16 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
   }
   while (n_read < size_in_bytes);
 
+//  std::cout << "Read buffer " << std::endl;
+//    for (int i=0; i < size_in_bytes; ++i) {
+//        if (! (i % 16) && i)
+//            printf("\n");
+//
+//        printf("0x%02x ", read[i]);
+//    }
+//    printf("\n\n");
+//  print_hex(read_buffer, size_in_bytes);
+
   end_posn = (inf.tellg() - data_start) / T::size();
   assert (end_posn == start_posn + int(buffer.size()));
 

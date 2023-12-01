@@ -144,7 +144,9 @@ class gfp_ : public ValueInterface
 
   void assign_zero()        { assignZero(a,ZpD); }
   void assign_one()         { assignOne(a,ZpD); } 
-  void assign(const void* buffer) { a.assign(buffer, ZpD.get_t()); }
+  void assign(const void* buffer) {
+    a.assign(buffer, ZpD.get_t());
+  }
 
   modp_type get() const           { return a; }
 
@@ -287,7 +289,9 @@ class gfp_ : public ValueInterface
    * @param n (unused)
    */
   void unpack(octetStream& o, int n = -1)
-    { (void) n; a.unpack(o); }
+    { (void) n;
+      a.unpack(o);
+    }
 
   void convert_destroy(bigint& x) { a.convert_destroy(x, ZpD); }
 

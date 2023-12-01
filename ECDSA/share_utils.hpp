@@ -27,6 +27,8 @@ void checkSignature(string filename) {
     }
 }
 
+//SOMETHING IS OFF WITH READ/WRITE SHARES
+
 template<class T>
 std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
     if (size == 0) {
@@ -56,7 +58,7 @@ std::vector<T> read_inputs(Player& P, size_t size, string suffix = "") {
 }
 
 template<class T>
-void write_shares(Player& P, vector<T>& shares, string suffix = "") {
+void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwrite = false) {
     Binary_File_IO binary_file_io = Binary_File_IO();
 
     string filename;
@@ -64,6 +66,13 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "") {
     const string filename_suffix = addSuffixBeforeExtension(filename, suffix);
 
     int start_pos = 0;
+
+    if (overwrite) {
+        ofstream outf;
+        outf.open(filename_suffix, ios::out | ios::binary | ios::trunc);
+        outf.close();
+        std::cout << "truncating value" << std::endl;
+    }
 
     checkSignature<T>(filename_suffix);
     std::cout << "Writing shares with " << file_signature<T>() << " signature." << std::endl;
