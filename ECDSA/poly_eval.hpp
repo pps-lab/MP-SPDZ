@@ -103,7 +103,7 @@ void eval_point(
     print_stat("poly_eval", diff);
     print_global("poly_eval", P, diff);
 
-    std::cout << "input_consistency_player_" << opts.input_party_i << "_eval(" << beta << "," << rho << ")" << endl;
+    std::cout << "input_consistency_player_" << opts.input_party_i << "_eval=(" << beta << "," << rho << ")" << endl;
 
 }
 
