@@ -359,6 +359,8 @@ cmake:
 	cd cmake-3.24.1; \
 	./bootstrap --parallel=8 --prefix=../local && make && make install
 
+local/lib/libff.a: libff
+
 deps/libff:
 	git submodule update --init deps/libff || git clone https://github.com/clearmatics/libff deps/libff
 	cd deps/libff && git submodule update --init
