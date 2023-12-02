@@ -128,7 +128,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
             buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
         }
         if (buffer_out.empty()) {
-            std::cout << "empty filling" << endl;
+//            std::cout << "empty filling" << endl;
             buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
         }
         auto edabit_in = buffer_in.next();

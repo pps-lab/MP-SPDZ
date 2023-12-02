@@ -30,8 +30,10 @@ void Binary_File_IO::write_to_file(const string filename,
     {
       long write_pos = file_signature<T>().get_total_length() + start_pos * T::size();
       // fill with zeros if needed
-      for (long i = outf.tellp(); i < write_pos; i++)
+      for (long i = outf.tellp(); i < write_pos; i++) {
         outf.put(0);
+        std::cout << "0" << std::endl;
+      }
       outf.seekp(write_pos);
     }
 
@@ -58,7 +60,9 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
 
   int size_in_bytes = T::size() * buffer.size();
   int n_read = 0;
-  char read_buffer[size_in_bytes];
+
+  // this char array is causing issues
+  char *read_buffer = new char[size_in_bytes];
   inf.seekg(start_posn * T::size(), iostream::cur);
   do
   {
@@ -103,4 +107,6 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
 
   for (unsigned int i = 0; i < buffer.size(); i++)
     buffer[i].assign(&read_buffer[i*T::size()]);
+
+  delete[] read_buffer;
 }
