@@ -93,6 +93,11 @@ void run(int argc, const char** argv)
     typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
     string message = auditable_inference<T>(inputMCc, P, opts);
 
+    auto diff_all = P.total_comm() - stats_all;
+    print_timer("commit", timer_all.elapsed());
+    print_stat("commit", diff_all);
+    print_global("commit", P, diff_all);
+
 //    std::cout << "Message: " << message << endl;
     P377Element::finish();
 
@@ -113,7 +118,16 @@ void run(int argc, const char** argv)
     ProtocolSet<typename T<P256Element::Scalar>::Honest> set(P, mac_key);
     pShare sk = set.protocol.get_random();
     cout << "Secret key generation took " << timer.elapsed() * 1e3 << " ms" << endl;
-    (P.total_comm() - stats).print(true);
+//    (P.total_comm() - stats).print(true);
+
+    auto diff_sk = P.total_comm() - stats;
+    print_timer("sign_sk", timer.elapsed());
+    print_stat("sign_sk", diff_sk);
+    print_global("sign_sk", P, diff_sk);
+
+    Timer timer_sign;
+    timer_sign.start();
+    auto stats_sign = P.total_comm();
 
     int n_signatures = 1;
 
@@ -147,10 +161,10 @@ void run(int argc, const char** argv)
 //         << diff.sent << " bytes" << endl;
 //    diff.print();
 
-    auto diff_all = P.total_comm() - stats_all;
-    print_timer("poly_commit_sign", timer_all.elapsed());
-    print_stat("poly_commit_sign", diff_all);
-    print_global("poly_commit_sign", P, diff_all);
+    auto diff_sign = P.total_comm() - stats_sign;
+    print_timer("sign", timer_sign.elapsed());
+    print_stat("sign", diff_sign);
+    print_global("sign", P, diff_sign);
 
     // we dont have to check the sig because its validity implies correctness.
     MCp.Check(P);

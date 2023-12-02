@@ -53,19 +53,19 @@ void eval_point(
 //    test_arith();
     std::vector<T<P377Element::Scalar> > inputs = read_inputs<T<P377Element::Scalar> >(P, opts.n_shares, opts.start, KZG_SUFFIX);
 
-    std::cout << "Share 0" << inputs[0] << std::endl;
+//    std::cout << "Share 0" << inputs[0] << std::endl;
 
     // debug reconstruct
-    set.output.init_open(P, inputs.size());
-    for (unsigned long i = 0; i < inputs.size(); i++) {
-        set.output.prepare_open(inputs[i]);
-    }
-    set.output.exchange(P);
-    set.check();
-    for (unsigned long i = 0; i < inputs.size(); i++) {
-        P377Element::Scalar input = set.output.finalize_open();
-        cout << "input_" << i << " = " << input << endl;
-    }
+//    set.output.init_open(P, inputs.size());
+//    for (unsigned long i = 0; i < inputs.size(); i++) {
+//        set.output.prepare_open(inputs[i]);
+//    }
+//    set.output.exchange(P);
+//    set.check();
+//    for (unsigned long i = 0; i < inputs.size(); i++) {
+//        P377Element::Scalar input = set.output.finalize_open();
+//        cout << "input_" << i << " = " << input << endl;
+//    }
 
     // generate random point
     T<P377Element::Scalar> beta_share = set.protocol.get_random();
@@ -95,7 +95,7 @@ void eval_point(
     set.check();
 
     auto diff = (P.total_comm() - stats);
-    cout << "Auditable inference took " << timer.elapsed() * 1e3 << " ms and sending "
+    cout << "Polynomial evaluation took " << timer.elapsed() * 1e3 << " ms and sending "
          << diff.sent << " bytes" << endl;
     diff.print(true);
 
