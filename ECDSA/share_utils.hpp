@@ -77,7 +77,8 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwri
     checkSignature<T>(filename_suffix);
     std::cout << "Writing " << shares.size() << " shares at position " << start_pos << " with " << file_signature<T>() << " signature." << std::endl;
 
-    binary_file_io.write_to_file(filename_suffix, shares, start_pos);
+    // should append at the end!
+    binary_file_io.write_to_file(filename_suffix, shares);
 
 }
 
