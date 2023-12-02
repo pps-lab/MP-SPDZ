@@ -116,6 +116,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         set_input.check();
         for (int i = 0; i < input_size; i++) {
             typename inputShare::clear c = set_input.output.finalize_open();
+            std::cout << "input_" << i << " = " << c << endl;
             reals.push_back(c);
         }
         std::cout << "input_1" << " = " << reals[1] << endl;
@@ -322,15 +323,21 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
         inputs = read_private_input<typename inputShare::clear>(P, inputs_format[P.my_num()]);
     }
 
+//    for (unsigned long i = 0; i < inputs.size(); i++) {
+//        std::cout << "Input " << i << " " << inputs[i] << std::endl;
+//    }
+
     typename inputShare::Input& input = set.input;
 
     // input from all parties
     input.reset_all(P);
     for (unsigned long i = 0; i < inputs_format.size(); i++) {
         if ((int)i == P.my_num()) {
+            int input_counter = 0;
             for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
                 for (int k = 0; k < inputs_format[i][j].length; k++) {
-                    input.add_mine(inputs[j]);
+                    input.add_mine(inputs[input_counter]);
+                    input_counter++;
                 }
             }
         } else {
