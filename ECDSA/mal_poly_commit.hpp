@@ -7,7 +7,7 @@
 #include "P377Element.h"
 #include "poly_commit.hpp"
 
-
+// Ideally we get a better abstraction in the future
 
 template<template<class U> class T>
 void ecscalarmulshare(P377Element point, SpdzWiseShare<T<P377Element::Scalar> > multiplierShare, SpdzWiseShare<T<P377Element> >& result){
@@ -37,6 +37,21 @@ void ecscalarmulshare(P377Element point, SpdzWiseShare<T<P377Element::Scalar> > 
 
     result.set_share(result_share);
     result.set_mac(result_mac);
+}
+
+SpdzWiseShare<MaliciousRep3Share<P377Element>> msm(std::vector<P377Element>& bases, std::vector<SpdzWiseShare<MaliciousRep3Share<P377Element::Scalar>>> & multipliers){
+
+    std::vector<MaliciousRep3Share<P377Element::Scalar> > multiplier_shares(multipliers.size());
+    std::vector<MaliciousRep3Share<P377Element::Scalar> > multiplier_macs(multipliers.size());
+    for (unsigned long i = 0; i < multipliers.size(); i++) {
+        multiplier_shares[i] = multipliers[i].get_share();
+        multiplier_macs[i] = multipliers[i].get_mac();
+    }
+
+    MaliciousRep3Share<P377Element> result_share = msm(bases, multiplier_shares);
+    MaliciousRep3Share<P377Element> result_mac = msm(bases, multiplier_macs);
+
+    return SpdzWiseShare(result_share, result_mac);
 }
 
 #endif /* MAL_POLY_COMMIT_HPP_ */

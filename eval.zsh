@@ -23,7 +23,6 @@ BIN=./rep-pe-party.x
 #wait $pid0 $pid1 $pid2
 
 
-
 $BIN -p 0 -N 3 --n_shares 799020 --start 0 --input_party_i 0 & ; pid0=$!
 $BIN -p 1 -N 3 --n_shares 799020 --start 0 --input_party_i 0 & ; pid1=$!
 $BIN -p 2 -N 3 --n_shares 799020 --start 0 --input_party_i 0 & ; pid2=$!

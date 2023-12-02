@@ -19,6 +19,7 @@ class P377Element : public ValueInterface
 public:
     typedef gfp_<4, 4> Scalar;
     typedef libff::bls12_377_G1 G1;
+    typedef libff::bls12_377_Fr Fr;
 
 private:
 
@@ -41,6 +42,7 @@ public:
     P377Element(const P377Element& other);
     P377Element(const Scalar& other);
     P377Element(word other);
+    P377Element(G1 p);
     ~P377Element();
 
     P377Element& operator=(const P377Element& other);
@@ -69,6 +71,8 @@ public:
 
     void pack(octetStream& os, int = -1) const;
     void unpack(octetStream& os, int = -1);
+
+    G1 get_point();
 
     octetStream hash(size_t n_bytes) const;
 

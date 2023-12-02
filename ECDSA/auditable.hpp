@@ -52,8 +52,6 @@ std::string auditable_inference(
     G.SeedGlobally(P);
 
 //    test_arith();
-
-
     std::vector<KZGCommitment> commitments;
 
     int commitment_sizes_arr[] = { opts.n_model, opts.n_x, opts.n_y };
@@ -86,6 +84,10 @@ std::string auditable_inference(
     cout << "Auditable inference took " << timer.elapsed() * 1e3 << " ms and sending "
          << diff.sent << " bytes" << endl;
     diff.print(true);
+
+    print_timer("commit", timer.elapsed());
+    print_stat("commit", diff);
+    print_global("commit", P, diff);
 
     // Now we compute the hash of the concatenation!
     octetStream os;

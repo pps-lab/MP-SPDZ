@@ -94,9 +94,9 @@ void run(int argc, const char** argv)
     string message = auditable_inference<T>(inputMCc, P, opts);
 
     auto diff_all = P.total_comm() - stats_all;
-    print_timer("commit", timer_all.elapsed());
-    print_stat("commit", diff_all);
-    print_global("commit", P, diff_all);
+    print_timer("commit_with_gen", timer_all.elapsed());
+    print_stat("commit_with_gen", diff_all);
+    print_global("commit_with_gen", P, diff_all);
 
 //    std::cout << "Message: " << message << endl;
     P377Element::finish();

@@ -49,6 +49,9 @@ P377Element::P377Element(word other) :
     auto fr = libff::bls12_377_Fr(to_string(other).c_str());
     point = fr * G1::one();
 }
+P377Element::P377Element(P377Element::G1 p) {
+    point = p;
+}
 
 P377Element::~P377Element()
 {
@@ -227,4 +230,8 @@ void P377Element::input(istream& s,bool human)
     P377Element::Scalar newscalar;
     newscalar.input(s,human);
     point = P377Element(newscalar).point;
+}
+
+P377Element::G1 P377Element::get_point() {
+    return point;
 }

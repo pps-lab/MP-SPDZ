@@ -31,14 +31,14 @@ N_BITS=32
 ##
 #echo "====================";
 
-#$BIN -p 0 -N 3 --n_bits 32 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 & ; pid0=$!
-#$BIN -p 1 -N 3 --n_bits 32 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 & ; pid1=$!
-#$BIN -p 2 -N 3 --n_bits 32 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 & ; pid2=$!
-#wait $pid0 $pid1 $pid2
-##
-#echo "====================";
-
-$BIN -p 0 -N 3 --n_bits 32 -i i868 -i 0 -i 0 & ; pid0=$!
-$BIN -p 1 -N 3 --n_bits 32 -i i868 -i 0 -i 0 & ; pid1=$!
-$BIN -p 2 -N 3 --n_bits 32 -i i868 -i 0 -i 0 & ; pid2=$!
+$BIN -p 0 -N 3 --n_bits 34 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 & ; pid0=$!
+$BIN -p 1 -N 3 --n_bits 34 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 & ; pid1=$!
+$BIN -p 2 -N 3 --n_bits 34 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 & ; pid2=$!
 wait $pid0 $pid1 $pid2
+#
+echo "====================";
+
+#$BIN -p 0 -N 3 --n_bits 32 -i i868 -i 0 -i 0 & ; pid0=$!
+#$BIN -p 1 -N 3 --n_bits 32 -i i868 -i 0 -i 0 & ; pid1=$!
+#$BIN -p 2 -N 3 --n_bits 32 -i i868 -i 0 -i 0 & ; pid2=$!
+#wait $pid0 $pid1 $pid2
