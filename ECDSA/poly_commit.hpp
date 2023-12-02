@@ -128,10 +128,13 @@ T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::S
         share2.push_back(ps2);
     }
 
-    std::vector<P377Element::G1> bases_format(bases.size());
-    for (unsigned long i = 0; i < bases.size(); i++) {
+    assert(bases.size() >= multipliers.size());
+    std::vector<P377Element::G1> bases_format(multipliers.size());
+    for (unsigned long i = 0; i < multipliers.size(); i++) {
         bases_format[i] = bases[i].get_point();
     }
+
+    std::cout << bases.size() << " and " << multipliers.size() << " and " << share1.size() << std::endl;
 
     const size_t parts = 36; // TODO: Make this configurable
 
@@ -144,13 +147,12 @@ T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::S
     return T<P377Element>(result_shares);
 }
 
-
 //Share<P377Element> msm(std::vector<P377Element>& bases, std::vector<Share<P377Element::Scalar>> & multipliers){
 //
 //    std::vector<P377Element::Fr> multiplier_shares(multipliers.size());
 //    std::vector<P377Element::Fr> multiplier_macs(multipliers.size());
 //    for (unsigned long i = 0; i < multipliers.size(); i++) {
-//        multiplier_shares[i] = libff::bls12_377_Fr(bigint(multipliers[i].get_share()).get_str().c_str());
+//        multiplier_shares[i] = libff::bls12_377_Fr(bigint(multipliers[i].get_share().).get_str().c_str());
 //        multiplier_macs[i] = libff::bls12_377_Fr(bigint(multipliers[i].get_mac()).get_str().c_str());
 //    }
 //
@@ -166,7 +168,7 @@ T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::S
 //    P377Element::G1 result_mac = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
 //                                                                                                              multiplier_macs.begin(), multiplier_macs.end(), parts);
 //
-//    return Share(P377Element(result_share), P377Element(result_mac));
+//    return Share(SemiShare(P377Element(result_share)), SemiShare(P377Element(result_mac)));
 //}
 
 
