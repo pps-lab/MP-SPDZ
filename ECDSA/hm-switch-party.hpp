@@ -310,16 +310,76 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     return result;
 }
 
+
+
+template<class inputShare>
+std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare>& set, std::vector<std::vector<std::string> >& inputs_format_str) {
+    // this method loads inputs, distributes them, and returns the shares
+    input_format_type inputs_format = process_format(inputs_format_str);
+
+    std::vector<typename inputShare::clear> inputs;
+    if (inputs_format[P.my_num()].size() > 0) {
+        inputs = read_private_input<typename inputShare::clear>(P, inputs_format[P.my_num()]);
+    }
+
+    typename inputShare::Input& input = set.input;
+
+    // input from all parties
+    input.reset_all(P);
+    for (unsigned long i = 0; i < inputs_format.size(); i++) {
+        if ((int)i == P.my_num()) {
+            for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
+                input.add_mine(inputs[j]);
+            }
+        } else {
+            for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
+                input.add_other(i);
+            }
+        }
+    }
+    input.exchange();
+
+    std::vector<inputShare> result;
+    // put shares in order of players
+    for (unsigned long i = 0; i < inputs_format.size(); i++) {
+        for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
+            result.push_back(input.finalize(i));
+        }
+    }
+
+    set.check();
+
+    return result;
+
+    //    input.reset_all(P);
+//    for (size_t i = begin; i < end; i++)
+//    {
+//        typename T::open_type x[2];
+//        for (int j = 0; j < 2; j++)
+//            this->get_input(triples[i][j], x[j], input_player);
+//        if (P.my_num() == input_player)
+//            input.add_mine(x[0] * x[1], T::default_length);
+//        else
+//            input.add_other(input_player);
+//    }
+//    input.exchange();
+//    for (size_t i = begin; i < end; i++)
+//        triples[i][2] = input.finalize(input_player, T::default_length);
+//
+
+}
+
 template<class inputShare, class outputShare>
 void run(int argc, const char** argv)
 {
     bigint::init_thread();
     ez::ezOptionParser opt;
     SwitchOptions opts(opt, argc, argv);
+    assert(opts.inputs_format.size() == 0 or opts.n_shares == 0); // can only specify one
+
 //    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
     Names N(opt, argc, argv, 3);
 
-    assert(opts.n_shares > 0);
     CryptoPlayer P(N, "pc");
 
     // protocol setup (domain, MAC key if needed etc)
@@ -335,10 +395,32 @@ void run(int argc, const char** argv)
     ProtocolSetup<outputShare> setup_output(bigint(t), P);
     ProtocolSet<outputShare> set_output(P, setup_output);
 
+    std::cout << "inputs format" << endl;
+    for(unsigned long i = 0; i < opts.inputs_format.size(); i++) {
+        for(unsigned long j = 0; j < opts.inputs_format[i].size(); j++) {
+            std::cout << opts.inputs_format[i][j] << " ";
+        }
+        std::cout << std::endl;
+    }
+
 //    OnlineOptions::singleton.batch_size = opts.n_shares;
 //    OnlineOptions::singleton.verbose = true;
 
-    vector<inputShare> input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
+    // we either read shares or re-share input
+    std::string log_name;
+
+    vector <inputShare> input_shares;
+    if (opts.n_shares > 0) {
+        input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
+        log_name = "share_switch_output";
+    } else if (opts.inputs_format.size() > 0) {
+        input_shares = distribute_inputs(P, set_input, opts.inputs_format);
+        std::cout << "Done reading inputs" << endl;
+        log_name = "share_switch_input";
+    } else {
+        std::cerr << "Must specify either n_shares or inputs_format," << std::endl;
+        exit(1);
+    }
 
     int n_bits_per_input = bit_length;
     if (opts.n_bits_per_input != -1) {
@@ -353,12 +435,13 @@ void run(int argc, const char** argv)
 
     std::cout << "Share 0 " << result[0] << std::endl;
 
-    write_shares<outputShare>(P, result, KZG_SUFFIX, true);
+    bool overwrite = opts.output_start == 0;
+    write_shares<outputShare>(P, result, KZG_SUFFIX, overwrite, opts.output_start);
 
     auto diff = P.total_comm() - stats;
-    print_timer("share_switch", timer.elapsed());
-    print_stat("share_switch", diff);
-    print_global("share_switch", P, diff);
+    print_timer(log_name, timer.elapsed());
+    print_stat(log_name, diff);
+    print_global(log_name, P, diff);
 
 //    vector<outputShare> check_shares = read_inputs<outputShare>(P, 2, KZG_SUFFIX);
 //

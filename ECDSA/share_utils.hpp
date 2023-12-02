@@ -58,14 +58,14 @@ std::vector<T> read_inputs(Player& P, size_t size, int start, string suffix = ""
 }
 
 template<class T>
-void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwrite = false) {
+void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwrite = false, int start_pos = 0) {
     Binary_File_IO binary_file_io = Binary_File_IO();
 
     string filename;
     filename = binary_file_io.filename(P.my_num());
     const string filename_suffix = addSuffixBeforeExtension(filename, suffix);
 
-    int start_pos = 0;
+    assert(not (overwrite && start_pos > 0)); // cannot overwrite file and start at a non-zero position
 
     if (overwrite) {
         ofstream outf;
@@ -75,7 +75,7 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwri
     }
 
     checkSignature<T>(filename_suffix);
-    std::cout << "Writing shares with " << file_signature<T>() << " signature." << std::endl;
+    std::cout << "Writing " << shares.size() << " shares at position " << start_pos << " with " << file_signature<T>() << " signature." << std::endl;
 
     binary_file_io.write_to_file(filename_suffix, shares, start_pos);
 
@@ -98,6 +98,109 @@ void print_global(const string name, Player &P, NamedCommStats& stats) {
 
     std::cout << fixed << "STATS (name=" << name << "_global_bytes) (value=" << global << ")" << std::endl;
 //    cerr << "Global data sent = " << global / 1e6 << " MB (all parties)" << endl;
+}
+
+
+
+struct input_format_item
+{
+    char type;
+    long length;
+};
+typedef std::vector<std::vector<input_format_item> > input_format_type;
+
+input_format_type process_format(std::vector<std::vector<std::string> >& inputs_format) {
+    std::vector<std::vector<input_format_item> > res;
+
+    for (unsigned long i = 0; i < inputs_format.size(); i++) {
+
+        std::vector<input_format_item> player_format;
+        for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
+            if (inputs_format[i][j][0] == '0') {
+                std::cout << "No inputs for player " << to_string(i) << std::endl;
+                continue;
+            } else if (inputs_format[i][j][0] == 'i') {
+                player_format.push_back({'i', stoi(inputs_format[i][j].substr(1))});
+            } else if (inputs_format[i][j][0] == 'f') {
+                player_format.push_back({'f', stoi(inputs_format[i][j].substr(1))});
+            } else {
+                throw runtime_error("Unknown format");
+            }
+        }
+        res.push_back(player_format);
+    }
+    return res;
+}
+
+template<class T>
+std::vector<T> read_private_input(Player &P, std::vector<input_format_item> format) {
+    string input_file = "Player-Data/Input-Binary-P" + to_string(P.my_num()) + "-0";
+    ifstream binary_input;
+    binary_input.open(input_file, ios::in | ios::binary);
+
+    std::vector<T> inputs;
+    for (unsigned long i = 0; i < format.size(); i++) {
+        if (binary_input.peek() == EOF)
+            throw IO_Error("not enough inputs in " + input_file);
+
+        if (format[i].type == 'i') {
+            // now parse the rest of format[i] into an int
+            long cnt = format[i].length;
+            std::cout << "Parsing " << cnt << " integers" << std::endl;
+            for (int j = 0; j < cnt; j++) {
+                int64_t x;
+                binary_input.read((char*) &x, sizeof(x));
+                inputs.push_back(T(x));
+            }
+        } else if (format[i].type == 'f') {
+            long cnt = format[i].length;
+            std::cout << "Parsing " << cnt << " floats" << std::endl;
+            for (int j = 0; j < cnt; j++) {
+                float x;
+                binary_input.read((char*) &x, sizeof(x));
+
+                const double f = 16;
+                long tmp = round(x * exp2(f));
+                inputs.push_back(T(tmp));
+            }
+        } else {
+            std::cerr << "Format is " << format[i].type << " " << to_string(format[i].length) << endl;
+            throw runtime_error("Unknown format");
+        }
+    }
+    std::cout << "Got " << inputs.size() << " inputs" << std::endl;
+    return inputs;
+
+
+
+//
+//    for (int i = 0; i < instruction.get_size(); i++)
+//    {
+//        if (binary_input.peek() == EOF)
+//            throw IO_Error("not enough inputs in " + binary_input_filename);
+//        double buf;
+//        if (instruction.get_r(2) == 0)
+//        {
+//            int64_t x;
+//            binary_input.read((char*) &x, sizeof(x));
+//            tmp = x;
+//        }
+//        else
+//        {
+//            if (use_double)
+//                binary_input.read((char*) &buf, sizeof(double));
+//            else
+//            {
+//                float x;
+//                binary_input.read((char*) &x, sizeof(float));
+//                buf = x;
+//            }
+//            tmp = bigint::tmp = round(buf * exp2(instruction.get_r(1)));
+//        }
+//        if (binary_input.fail())
+//            throw IO_Error("failure reading from " + binary_input_filename);
+//        write_Cp(instruction.get_r(0) + i, tmp);
+//    }
 }
 
 

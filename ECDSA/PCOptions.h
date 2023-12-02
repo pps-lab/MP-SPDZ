@@ -53,7 +53,7 @@ public:
                 0, // Required?
                 1, // Number of args expected.
                 0, // Delimiter if expecting multiple args.
-                "Size of the y prediction to commit to", // Help description.
+                "Start reading shares from", // Help description.
                 "-s", // Flag token.
                 "--start" // Flag token.
         );

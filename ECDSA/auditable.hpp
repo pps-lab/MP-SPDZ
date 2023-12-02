@@ -82,7 +82,6 @@ std::string auditable_inference(
         start = start + size;
     }
 
-
     auto diff = (P.total_comm() - stats);
     cout << "Auditable inference took " << timer.elapsed() * 1e3 << " ms and sending "
          << diff.sent << " bytes" << endl;
