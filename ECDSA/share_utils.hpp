@@ -79,7 +79,7 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwri
 
     // should append at the end!
     (void)start_pos;
-    binary_file_io.write_to_file(filename_suffix, shares);
+    binary_file_io.write_to_file(filename_suffix, shares, -1);
 
 }
 
