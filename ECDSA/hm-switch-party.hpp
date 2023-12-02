@@ -93,97 +93,81 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     timer_all.start();
     auto overall_stats = P.total_comm();
 
-    Timer timer_edabit_mask;
-    timer_edabit_mask.start();
-    auto edabit_stats = P.total_comm();
+    BitAdder bit_adder;
+    typedef typename inputShare::bit_type bt;
+    int dl = inputShare::clear::MAX_EDABITS;
+    vector <vector<bt>> sums_one(input_size);
+    vector<vector<vector<bt> > > summands_one(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
 
-    vector<edabit<inputShare> > edabits_in;
-    vector<edabit<outputShare> > edabits_out;
-
-    edabitvec<inputShare> buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
-    edabitvec<outputShare> buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
-
-    std::cout << buffer_in.size() << " " << buffer_in.get_b(0).size() << endl;
-    // open for debug
     vector<typename inputShare::clear> reals;
-    if (debug) {
+
+    {
+//        vector <edabit<inputShare>> edabits_in;
+        vector <FixedVector<typename inputShare::bit_type::part_type::small_type, (inputShare::clear::MAX_EDABITS + 5)>> edabits_in;
+
+        edabitvec <inputShare> buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
+
+        std::cout << buffer_in.size() << " " << buffer_in.get_b(0).size() << endl;
+        // open for debug
+        if (debug) {
+            set_input.output.init_open(P, input_size);
+            for (size_t i = 0; i < input_shares.size(); i++) {
+                inputShare c = input_shares[i];
+                set_input.output.prepare_open(c);
+            }
+            set_input.output.exchange(P);
+            set_input.check();
+            for (int i = 0; i < input_size; i++) {
+                typename inputShare::clear c = set_input.output.finalize_open();
+                std::cout << "input_" << i << " = " << c << endl;
+                reals.push_back(c);
+            }
+            std::cout << "input_1" << " = " << reals[1] << endl;
+        }
+        // end debug
+
         set_input.output.init_open(P, input_size);
         for (size_t i = 0; i < input_shares.size(); i++) {
-            inputShare c = input_shares[i];
+            if (buffer_in.empty()) {
+                buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
+            }
+            auto edabit_in = buffer_in.next();
+            edabits_in.push_back(edabit_in.second);
+
+            inputShare c = input_shares[i] - edabit_in.first;
+
             set_input.output.prepare_open(c);
         }
+
+        Timer timer_open_c;
+        timer_open_c.start();
+        auto stats = P.total_comm();
+
         set_input.output.exchange(P);
         set_input.check();
+
+        cout << "Opening " << input_size << " masked input values " << timer_open_c.elapsed() * 1e3 << " ms" << endl;
+        (P.total_comm() - stats).print(true);
+
+        vector<typename inputShare::clear> cs;
         for (int i = 0; i < input_size; i++) {
             typename inputShare::clear c = set_input.output.finalize_open();
-            std::cout << "input_" << i << " = " << c << endl;
-            reals.push_back(c);
+            cs.push_back(c);
         }
-        std::cout << "input_1" << " = " << reals[1] << endl;
-    }
-    // end debug
 
-    set_input.output.init_open(P, input_size);
-    for (size_t i = 0; i < input_shares.size(); i++) {
-        if (buffer_in.empty()) {
-            buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
+        // dim 0: n_bits, dim 1: (x,y), dim 2; element?
+        for (int i = 0; i < n_bits_per_input; i++) {
+            for (int j = 0; j < input_size; j++) {
+                summands_one[i][0][j] = bt::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
+                summands_one[i][1][j] = edabits_in[j][i];
+            }
         }
-        if (buffer_out.empty()) {
-//            std::cout << "empty filling" << endl;
-            buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
-        }
-        auto edabit_in = buffer_in.next();
-        auto edabit_out = buffer_out.next();
-        edabits_in.push_back(edabit_in);
-
-        edabits_out.push_back(edabit_out);
-
-        inputShare c = input_shares[i] - edabit_in.first;
-
-        set_input.output.prepare_open(c);
     }
-
-    cout << "Generating " << 2 * input_size << " edabits " << timer_edabit_mask.elapsed() * 1e3 << " ms" << endl;
-    (P.total_comm() - edabit_stats).print(true);
-
-    Timer timer_open_c;
-    timer_open_c.start();
-    auto stats = P.total_comm();
-
-    set_input.output.exchange(P);
-    set_input.check();
-
-    cout << "Opening " << input_size << " masked input values " << timer_open_c.elapsed() * 1e3 << " ms" << endl;
-    (P.total_comm() - stats).print(true);
-
-    vector<typename inputShare::clear> cs;
-    for (int i = 0; i < input_size; i++) {
-        typename inputShare::clear c = set_input.output.finalize_open();
-        cs.push_back(c);
-    }
-
-    int dl = inputShare::clear::MAX_EDABITS;
-    int buffer_size = edabitvec<inputShare>::MAX_SIZE;
-    (void)buffer_size;
-
-    typedef typename inputShare::bit_type bt;
 
     Timer timer_adders;
     timer_adders.start();
-    stats = P.total_comm();
+    auto stats = P.total_comm();
 
-    BitAdder bit_adder;
-    // dim 0: n_bits, dim 1: (x,y), dim 2; element?
-    vector<vector<vector<bt> > > summands_one(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
-    vector<vector<bt>> sums_one(input_size);
-    for (int i = 0; i < n_bits_per_input; i++) {
-        for (int j = 0; j < input_size; j++) {
-            summands_one[i][0][j] = bt::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
-            summands_one[i][1][j] = edabits_in[j].second[i];
-        }
-    }
-
-    // TODO: Fix this OOM issue, its likely released when this gets deconstructed
     typename bt::LivePrep bit_prep(usage);
     SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), bit_prep, P);
     int begin = 0;
@@ -191,15 +175,36 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     bit_adder.add(sums_one, summands_one, begin, end, bit_proc,
                   dl, 0);
 
+
     // Now we add the second masking bits
+//    vector<vector<vector<bt> > > summands_two(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
+//    for (int i = 0; i < n_bits_per_input; i++) {
+//        for (int j = 0; j < input_size; j++) {
+////            std::cout << "numbits " << i << " " << j << ": " << bigint(cs[j]) << " " << Integer(bigint(cs[j])).get_bit(i) << endl;
+//            summands_two[i][0][j] = sums_one[j][i];
+//
+//
+//
+//            summands_two[i][1][j] = edabit_out[j].second[i];
+//        }
+//    }
+    // rewrite the above loop
+    vector <outputShare> edabits_out_a;
+    edabitvec <outputShare> buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
     vector<vector<vector<bt> > > summands_two(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
-    for (int i = 0; i < n_bits_per_input; i++) {
-        for (int j = 0; j < input_size; j++) {
-//            std::cout << "numbits " << i << " " << j << ": " << bigint(cs[j]) << " " << Integer(bigint(cs[j])).get_bit(i) << endl;
+
+    for (int j = 0; j < input_size; j++) {
+        if (buffer_out.empty()) {
+            buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
+        }
+        auto edabit_out = buffer_out.next();
+        edabits_out_a.push_back(edabit_out.first);
+        for (int i = 0; i < n_bits_per_input; i++) {
             summands_two[i][0][j] = sums_one[j][i];
-            summands_two[i][1][j] = edabits_out[j].second[i];
+            summands_two[i][1][j] = edabit_out.second[i];
         }
     }
+
     vector<vector<bt>> sums_two(input_size);
     bit_adder.add(sums_two, summands_two, begin, end, bit_proc,
                   bt::default_length, 0);
@@ -279,7 +284,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
 //        }
 //        cout << std::endl;
 //        result.push_back(outputShare::constant(open_mask[i], P.my_num()) - edabits_out[i].first);
-        result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - edabits_out[i].first);
+        result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - edabits_out_a[i]);
     }
 
     // open for debug
