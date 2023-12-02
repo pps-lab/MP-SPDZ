@@ -374,7 +374,7 @@ libff: deps/libff
 else
 libff: deps/libff
 	cd deps/libff; \
-	mkdir -p build && cd build && cmake .. -DCMAKE_INSTALL_PREFIX=$(CURDIR)/local && \
+	mkdir -p build && cd build && cmake .. -DCMAKE_INSTALL_PREFIX=$(CURDIR)/local -DWITH_PROCPS=0 && \
 	make && make install
 endif
 
