@@ -329,11 +329,15 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     for (unsigned long i = 0; i < inputs_format.size(); i++) {
         if ((int)i == P.my_num()) {
             for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
-                input.add_mine(inputs[j]);
+                for (int k = 0; k < inputs_format[i][j].length; k++) {
+                    input.add_mine(inputs[j]);
+                }
             }
         } else {
             for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
-                input.add_other(i);
+                for (int k = 0; k < inputs_format[i][j].length; k++) {
+                    input.add_other(i);
+                }
             }
         }
     }
@@ -343,7 +347,9 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     // put shares in order of players
     for (unsigned long i = 0; i < inputs_format.size(); i++) {
         for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
-            result.push_back(input.finalize(i));
+            for (int k = 0; k < inputs_format[i][j].length; k++) {
+                result.push_back(input.finalize(i));
+            }
         }
     }
 

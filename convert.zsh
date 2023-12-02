@@ -25,7 +25,7 @@ N_BITS=32
 
 $BIN -p 0 -N 3 -i f60000 -i f60000 -i 0 -b $N_BITS & ; pid0=$!
 $BIN -p 1 -N 3 -i f60000 -i f60000 -i 0 -b $N_BITS & ; pid1=$!
-#$BIN -p 2 -N 3 -i f60000 -i f60000 -i 0 -b $N_BITS & ; pid2=$!
+$BIN -p 2 -N 3 -i f60000 -i f60000 -i 0 -b $N_BITS & ; pid2=$!
 wait $pid0 $pid1 $pid2
 #
 echo "====================";
