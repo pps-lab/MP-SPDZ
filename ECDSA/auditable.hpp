@@ -45,9 +45,6 @@ std::string auditable_inference(
         Player& P,
         PCOptions& opts)
 {
-    Timer timer;
-    timer.start();
-    auto stats = P.total_comm();
     SeededPRNG G;
     G.SeedGlobally(P);
 
@@ -58,6 +55,10 @@ std::string auditable_inference(
     std::vector<int> commitment_sizes(commitment_sizes_arr, commitment_sizes_arr + 3);
     int n_parameters = max_element(commitment_sizes.begin(), commitment_sizes.end()).operator*();
     KZGPublicParameters publicParameters = get_public_parameters(n_parameters, G);
+
+    Timer timer;
+    timer.start();
+    auto stats = P.total_comm();
 
     int start = opts.start;
     for (int size : commitment_sizes) {
