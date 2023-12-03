@@ -136,7 +136,10 @@ T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::S
 
     std::cout << bases.size() << " and " << multipliers.size() << " and " << share1.size() << std::endl;
 
-    const size_t parts = 36; // TODO: Make this configurable
+    size_t parts = 1; // TODO: Make this configurable
+    if (multipliers.size() > 100000) {
+        parts = 8; // something like this?
+    }
 
     P377Element::G1 sum1 = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
                                                                                                      share1.begin(), share1.end(), parts);

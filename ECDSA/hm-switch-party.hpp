@@ -45,7 +45,8 @@
 #include <assert.h>
 
 template<class inputShare, class outputShare>
-vector<outputShare> convert_shares(vector<inputShare>& input_shares,
+vector<outputShare> convert_shares(const typename vector<inputShare>::iterator input_shares_begin,
+                                   const typename vector<inputShare>::iterator input_shares_end,
                                    MixedProtocolSet<inputShare>& set_input,
                                    ProtocolSet<outputShare>& set_output,
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
@@ -54,7 +55,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     const bool debug = false;
 
     // for now we need to use all the bits;
-    const int input_size = input_shares.size();
+    const int input_size = std::distance(input_shares_begin, input_shares_end);
     int n_bits_per_input = prime_length;
 
     bool strict = true;
@@ -67,7 +68,6 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     // compose
 
     DataPositions usage;
-    OnlineOptions::singleton.batch_size = input_size;
 
 //    edabitvec<inputShare> buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
 //    edabitvec<outputShare> buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
@@ -111,8 +111,8 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         // open for debug
         if (debug) {
             set_input.output.init_open(P, input_size);
-            for (size_t i = 0; i < input_shares.size(); i++) {
-                inputShare c = input_shares[i];
+            for (auto iterator = input_shares_begin; iterator != input_shares_end; iterator++) {
+                inputShare c = *iterator;
                 set_input.output.prepare_open(c);
             }
             set_input.output.exchange(P);
@@ -127,14 +127,14 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         // end debug
 
         set_input.output.init_open(P, input_size);
-        for (size_t i = 0; i < input_shares.size(); i++) {
+        for (auto iterator = input_shares_begin; iterator != input_shares_end; iterator++) {
             if (buffer_in.empty()) {
                 buffer_in = set_input.preprocessing.get_edabitvec(strict, n_bits_per_input);
             }
             auto edabit_in = buffer_in.next();
             edabits_in.push_back(edabit_in.second);
 
-            inputShare c = input_shares[i] - edabit_in.first;
+            inputShare c = *iterator - edabit_in.first;
 
             set_input.output.prepare_open(c);
         }
@@ -163,6 +163,9 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
             }
         }
     }
+
+    // TODO: Properly account for usage?
+//    this->usage.count_edabit(strict, n_bits);
 
     Timer timer_adders;
     timer_adders.start();
@@ -196,6 +199,7 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
     for (int j = 0; j < input_size; j++) {
         if (buffer_out.empty()) {
             buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
+//            std::cout << "Buffering more " << buffer_out.size() << std::endl;
         }
         auto edabit_out = buffer_out.next();
         edabits_out_a.push_back(edabit_out.first);
@@ -306,10 +310,6 @@ vector<outputShare> convert_shares(vector<inputShare>& input_shares,
         std::cout << "output_1" << " = " << outputs[1] << endl;
     }
     // end debug
-
-    set_input.check();
-    set_output.check();
-
     cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - overall_stats).print(true);
 
@@ -440,16 +440,36 @@ void run(int argc, const char** argv)
         exit(1);
     }
 
+    OnlineOptions::singleton.batch_size = max((unsigned long)10000, input_shares.size() * 64);
+//    OnlineOptions::singleton.batch_size = input_shares.size();
+    OnlineOptions::singleton.verbose = true;
+
     int n_bits_per_input = bit_length;
     if (opts.n_bits_per_input != -1) {
         n_bits_per_input = opts.n_bits_per_input;
     }
 
+    const int mem_cutoff = 5000000;
+    const int n_chunks = DIV_CEIL(input_shares.size(), mem_cutoff);
+    std::cout << "Processing in " << n_chunks << " chunks" << std::endl;
+
     Timer timer;
     timer.start();
     auto stats = P.total_comm();
 
-    vector<outputShare> result = convert_shares(input_shares, set_input, set_output, setup_input.binary.get_mac_key(), setup_output.get_mac_key(), P, n_bits_per_input);
+    vector<outputShare> result(input_shares.size());
+    for (int i = 0; i < n_chunks; i++) {
+        int begin = i * mem_cutoff;
+        int end = min((i + 1) * mem_cutoff, (int)input_shares.size());
+
+        vector <outputShare> res = convert_shares(input_shares.begin() + begin, input_shares.begin() + end, set_input, set_output, setup_input.binary.get_mac_key(), setup_output.get_mac_key(), P, n_bits_per_input);
+        result.insert(result.end(), res.begin(), res.end());
+        std::cout << "Done with chunk " << i << std::endl;
+    }
+
+    set_input.check();
+    set_output.check();
+
 
     std::cout << "Share 0 " << result[0] << std::endl;
 
