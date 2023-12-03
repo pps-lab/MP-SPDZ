@@ -440,7 +440,7 @@ void run(int argc, const char** argv)
         exit(1);
     }
 
-    OnlineOptions::singleton.batch_size = max((unsigned long)10000, input_shares.size() * 64);
+    OnlineOptions::singleton.batch_size = min((unsigned long)10000, input_shares.size() * 64);
 //    OnlineOptions::singleton.batch_size = input_shares.size();
     OnlineOptions::singleton.verbose = true;
 
