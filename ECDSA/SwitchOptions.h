@@ -16,6 +16,7 @@ public:
     int n_bits_per_input;
     std::vector<std::vector<std::string> > inputs_format;
     int output_start;
+    int n_threads;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -73,6 +74,15 @@ public:
                 "-o", // Flag token.
                 "--out_start" // Flag token.
         );
+        opt.add(
+                "1",
+                0,
+                1,
+                0,
+                "Number of parallel threads",
+                "-t",
+                "--n_threads"
+                );
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
@@ -80,6 +90,7 @@ public:
         opt.get("-b")->getInt(n_bits_per_input);
         opt.get("-i")->getMultiStrings(inputs_format);
         opt.get("-o")->getInt(output_start);
+        opt.get("-t")->getInt(n_threads);
 
         opt.resetArgs();
     }

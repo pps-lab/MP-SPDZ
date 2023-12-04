@@ -31,7 +31,7 @@ N_BITS=32
 ##
 #echo "====================";
 
-#$BIN -p 0 -N 3 --n_bits 34 --n_shares 92 --out_start 0 & ; pid0=$!
+$BIN -p 0 -N 3 --n_bits 34 --n_shares 92 --out_start 0 & ; pid0=$!
 $BIN -p 1 -N 3 --n_bits 34 --n_shares 92 --out_start 0 & ; pid1=$!
 $BIN -p 2 -N 3 --n_bits 34 --n_shares 92 --out_start 0 & ; pid2=$!
 wait $pid0 $pid1 $pid2
