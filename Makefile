@@ -143,9 +143,14 @@ $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER
 CFLAGS += -fPIC
 ifneq ($(OS), Darwin)
 CFLAGS += -fopenmp
+else
+CFLAGS += -Xpreprocessor -fopenmp
 endif
 
 LDLIBS += -Wl,-rpath -Wl,$(CURDIR)
+ifeq ($(OS), Darwin)
+LDLIBS += -lomp
+endif
 
 $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
 	$(CXX) $(CFLAGS) -shared -o $@ $^ $(LDLIBS)
@@ -265,6 +270,8 @@ rep4-ring-party.x: GC/Rep4Secret.o
 no-party.x: Protocols/ShareInterface.o
 semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
+mascot-pe-party.x: $(OT) $(LIBSIMPLEOT)
+lowgear-pe-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 emulate.x: GC/FakeSecret.o
 semi-bmr-party.x: $(GC_SEMI) $(OT)
