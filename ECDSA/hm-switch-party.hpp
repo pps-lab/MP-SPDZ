@@ -498,7 +498,7 @@ void run(int argc, const char** argv)
                                                      setup_output_i.get_mac_key(), P_j, n_bits_per_input);
 
 //            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
-            for (int k = 0; k < res.size(); k++) {
+            for (int k = 0; k < (int)res.size(); k++) {
                 result[begin_chunk + k] = res[k];
             }
             std::cout << "Thread " << j << " done with chunk " << i << std::endl;
