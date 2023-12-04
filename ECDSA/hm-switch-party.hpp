@@ -467,6 +467,7 @@ void run(int argc, const char** argv)
     const int n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
     const int mem_cutoff = 500000;
 
+    std::cout << "Running in " << opts.n_threads << " threads";
 
 #pragma omp parallel for
     for (int j = 0; j < opts.n_threads; j++) {
@@ -474,14 +475,15 @@ void run(int argc, const char** argv)
         const int end_thread = min((j + 1) * n_chunks_per_thread, (int) input_shares.size());
 
         const int n_chunks = DIV_CEIL(end_thread - begin_thread, mem_cutoff);
-        std::cout << "Thread " << j << " processing in " << n_chunks << " chunks" << std::endl;
+        std::cout << "Thread " << j << " processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
 
         for (int i = 0; i < n_chunks; i++) {
             const int begin_chunk = begin_thread + i * mem_cutoff;
             const int end_chunk = min(begin_chunk + mem_cutoff, end_thread);
             // each thread in parallel
 
-            CryptoPlayer P_i(N, i * 3);
+
+            CryptoPlayer P_i(N, j * 3);
 
             MixedProtocolSetup<inputShare> setup_input_i(P_i, bit_length);
             MixedProtocolSet<inputShare> set_input_i(P_i, setup_input_i);
