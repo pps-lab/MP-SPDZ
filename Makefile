@@ -271,6 +271,7 @@ no-party.x: Protocols/ShareInterface.o
 semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-pe-party.x: $(OT) $(LIBSIMPLEOT)
+mascot-pc-party.x: $(OT) $(LIBSIMPLEOT)
 lowgear-pe-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 emulate.x: GC/FakeSecret.o

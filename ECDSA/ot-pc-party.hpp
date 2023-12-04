@@ -134,10 +134,18 @@ void run(int argc, const char** argv)
     Names N(opt, argc, argv, 2);
 
     PlainPlayer P(N, "pc");
-    P256Element::init();
-    P256Element::Scalar::next::init_field(P256Element::Scalar::pr(), false);
 
-    P377Element::init();
+    typedef T<P377Element::Scalar> inputShare;
+    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
+    std::cout << "Loading mac from " << prefix << endl;
+
+
+    libff::bls12_377_pp::init_public_params();
+    mpz_t t;
+    mpz_init(t);
+    P377Element::G1::order().to_mpz(t);
+
+    P377Element::Scalar::init_field(bigint(t), true);
     if (opts.prime.length() > 0) {
         P377Element::Scalar::next::init_field(bigint(opts.prime), false);
         std::cout << "Setting prime to " << bigint(opts.prime) << endl;
@@ -147,16 +155,15 @@ void run(int argc, const char** argv)
     std::cout << "Prime length " << P377Element::Scalar::pr() << endl;
 //    test_arith();
 
-    P256Element::Scalar keyp;
-    SeededPRNG G;
-    keyp.randomize(G);
 
     DataPositions usage;
 
-    typedef T<P377Element::Scalar> inputShare;
+    typename inputShare::mac_key_type mac_key;
+    inputShare::read_or_generate_mac_key(prefix, P, mac_key);
+
     inputShare::MAC_Check::setup(P);
     T<P377Element>::MAC_Check::setup(P);
-    typename inputShare::Direct_MC inputMCp(keyp);
+    typename inputShare::Direct_MC inputMCp(mac_key);
 
     typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
     string message = auditable_inference<T>(inputMCc, P, opts);
@@ -165,8 +172,16 @@ void run(int argc, const char** argv)
     T<P377Element>::MAC_Check::teardown();
     P377Element::finish();
 
+    std::cout<< "Signing now" << std::endl;
+
 //    string message = "Hello";
     // Now onto signing
+    P256Element::init();
+    P256Element::Scalar::next::init_field(P256Element::Scalar::pr(), false);
+
+    P256Element::Scalar keyp;
+    SeededPRNG G;
+    keyp.randomize(G);
 
     // p256 domain
     typedef T<P256Element::Scalar> pShare;

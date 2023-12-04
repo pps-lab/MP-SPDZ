@@ -60,6 +60,7 @@ std::string auditable_inference(
     timer.start();
     auto stats = P.total_comm();
 
+    std::vector<T<P377Element>> commitment_shares;
     int start = opts.start;
     for (int size : commitment_sizes) {
         // Proof for each size poly commitment
@@ -77,8 +78,19 @@ std::string auditable_inference(
 
         assert(polynomial.coeffs.size() <= publicParameters.powers_of_g.size());
 
-        commitments.push_back(commit_and_open(polynomial, publicParameters, MCc, P));
+        commitment_shares.push_back(commit_and_open(polynomial, publicParameters));
         start = start + size;
+    }
+
+    vector<P377Element> commitment_elements;
+    MCc.POpen_Begin(commitment_elements, commitment_shares, P);
+    MCc.POpen_End(commitment_elements, commitment_shares, P);
+
+    // We do this once for all the commitments, because of the protocol
+    MCc.Check(P);
+
+    for (int i = 0; i < (int)commitment_elements.size(); i++) {
+        commitments.push_back(KZGCommitment { commitment_elements[i] });
     }
 
     auto diff = (P.total_comm() - stats);

@@ -40,14 +40,14 @@ P377Element::P377Element(const Scalar& other) :
 {
     // Convert other
     auto fr = libff::bls12_377_Fr(bigint(other).get_str().c_str());
-    point = fr * G1::one();
+    point = fr * G1::zero();
 }
 
 P377Element::P377Element(word other) :
         P377Element()
 {
     auto fr = libff::bls12_377_Fr(to_string(other).c_str());
-    point = fr * G1::one();
+    point = fr * G1::zero();
 }
 P377Element::P377Element(P377Element::G1 p) {
     point = p;

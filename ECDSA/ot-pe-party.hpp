@@ -26,7 +26,7 @@
 #include "Protocols/MaliciousRepMC.hpp"
 #include "Protocols/Beaver.hpp"
 #include "Protocols/fake-stuff.hpp"
-#include "Protocols/MaliciousRepPrep.hpp"
+#include "Protocols/MascotPrep.hpp"
 #include "Processor/Input.hpp"
 #include "Processor/Processor.hpp"
 #include "Processor/Data_Files.hpp"
@@ -34,9 +34,10 @@
 #include "GC/RepPrep.hpp"
 #include "GC/ThreadMaster.hpp"
 #include "GC/Secret.hpp"
-#include "Machines/ShamirMachine.hpp"
-#include "Machines/MalRep.hpp"
-#include "Machines/Rep.hpp"
+
+#include "GC/TinyPrep.hpp"
+#include "GC/VectorProtocol.hpp"
+#include "GC/CcdPrep.hpp"
 
 #include <assert.h>
 
@@ -48,7 +49,7 @@ void run(int argc, const char** argv)
     PEOptions opts(opt, argc, argv);
 
     Names N(opt, argc, argv,
-            3 + is_same<T<P256Element>, Rep4Share<P256Element>>::value);
+            2);
 
     CryptoPlayer P(N, "pc");
 
@@ -57,17 +58,26 @@ void run(int argc, const char** argv)
     mpz_init(t);
     P377Element::G1::order().to_mpz(t);
 
+
     typedef T<P377Element::Scalar> inputShare;
 
-    ProtocolSetup< inputShare > setup(bigint(t), P);
+    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
+    std::cout << "Loading mac from " << prefix << endl;
+
+    ProtocolSetup< inputShare > setup(bigint(t), P, prefix);
 //    ProtocolSetup< inputShare > setup(bigint(t), P);
     ProtocolSet< inputShare> set(P, setup);
-//    inputShare::clear::init_field(bigint(t));
-//    inputShare::clear::next::init_field(bigint(t), false);
+
+    OnlineOptions::singleton.batch_size = 1;
 
     std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
-    T<P377Element::Scalar> beta_share = set.protocol.get_random();
+//    typename pShare::TriplePrep sk_prep(0, usage);
+    // TODO here: fix so we actually sample a random point
+//    inputShare beta_share = inputShare::constant(4757838273, P.my_num(), setup.get_mac_key());
+    inputShare beta_share,__;
+
+    set.preprocessing.get_two(DATA_INVERSE, beta_share, __);
     set.output.init_open(P);
     set.output.prepare_open(beta_share);
     set.output.exchange(P);

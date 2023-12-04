@@ -41,6 +41,7 @@ inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
 
 template<template<class U> class T>
 void eval_point(
+        P377Element::Scalar beta,
         ProtocolSet< T<P377Element::Scalar>> &set,
         Player& P,
         PEOptions& opts) {
@@ -67,14 +68,6 @@ void eval_point(
 //        cout << "input_" << i << " = " << input << endl;
 //    }
 
-    // generate random point
-    T<P377Element::Scalar> beta_share = set.protocol.get_random();
-    set.output.init_open(P);
-    set.output.prepare_open(beta_share);
-    set.output.exchange(P);
-    set.check();
-    P377Element::Scalar beta = set.output.finalize_open();
-//    beta = P377Element::Scalar(1);
 
     P377Element::Scalar current_beta = 1;
 

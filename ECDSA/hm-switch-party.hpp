@@ -174,8 +174,11 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    timer_adders.start();
     auto stats = P.total_comm();
 
-//    typename bt::LivePrep bit_prep(usage);
+    // TODO: look into this for SPDZ conversion
+//    auto bit_MC = bt::MAC_Check(set_input.binary.thread.MC.get_alphai());
+//    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
     SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
+
     int begin = 0;
     int end = input_size;
     bit_adder.add(sums_one, summands_one, begin, end, bit_proc,

@@ -150,42 +150,49 @@ T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::S
     return T<P377Element>(result_shares);
 }
 
-//Share<P377Element> msm(std::vector<P377Element>& bases, std::vector<Share<P377Element::Scalar>> & multipliers){
-//
-//    std::vector<P377Element::Fr> multiplier_shares(multipliers.size());
-//    std::vector<P377Element::Fr> multiplier_macs(multipliers.size());
-//    for (unsigned long i = 0; i < multipliers.size(); i++) {
-//        multiplier_shares[i] = libff::bls12_377_Fr(bigint(multipliers[i].get_share().).get_str().c_str());
-//        multiplier_macs[i] = libff::bls12_377_Fr(bigint(multipliers[i].get_mac()).get_str().c_str());
-//    }
-//
-//    std::vector<P377Element::G1> bases_format(bases.size());
-//    for (unsigned long i = 0; i < bases.size(); i++) {
-//        bases_format[i] = bases[i].get_point();
-//    }
-//
-//    const size_t parts = 36; // TODO: Make this configurable
-//
-//    P377Element::G1 result_share = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
-//                                                                                                              multiplier_shares.begin(), multiplier_shares.end(), parts);
-//    P377Element::G1 result_mac = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
-//                                                                                                              multiplier_macs.begin(), multiplier_macs.end(), parts);
-//
-//    return Share(SemiShare(P377Element(result_share)), SemiShare(P377Element(result_mac)));
-//}
+Share<P377Element> msm(std::vector<P377Element>& bases, std::vector<Share<P377Element::Scalar>> & multipliers){
+
+    std::vector<P377Element::Fr> multiplier_shares(multipliers.size());
+    std::vector<P377Element::Fr> multiplier_macs(multipliers.size());
+    for (unsigned long i = 0; i < multipliers.size(); i++) {
+        P377Element::Scalar sh = multipliers[i].get_share();
+        P377Element::Scalar m = multipliers[i].get_mac();
+        multiplier_shares[i] = libff::bls12_377_Fr(bigint(sh).get_str().c_str());
+        multiplier_macs[i] = libff::bls12_377_Fr(bigint(m).get_str().c_str());
+    }
+
+    std::vector<P377Element::G1> bases_format(bases.size());
+    for (unsigned long i = 0; i < bases.size(); i++) {
+        bases_format[i] = bases[i].get_point();
+    }
+
+    size_t parts = 1; // TODO: Make this configurable
+    if (multipliers.size() > 100000) {
+        parts = 8; // something like this?
+    }
+    P377Element::G1 result_share = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+                                                                                                              multiplier_shares.begin(), multiplier_shares.end(), parts);
+    P377Element::G1 result_mac = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+                                                                                                              multiplier_macs.begin(), multiplier_macs.end(), parts);
+
+    auto semi_sh = SemiShare<P377Element>(P377Element(result_share));
+    auto semi_mac = SemiShare<P377Element>(P377Element(result_mac));
+
+    return Share(semi_sh, semi_mac);
+}
 
 
 
 template<template<class U> class T>
-KZGCommitment commit_and_open(
+T<P377Element> commit_and_open(
         InputPolynomial<T> tuple,
-        KZGPublicParameters kzgPublicParameters,
-        typename T<P377Element>::MAC_Check& MCc,
-        Player& P)
+        KZGPublicParameters kzgPublicParameters)
+//        typename T<P377Element>::MAC_Check& MCc,
+//        Player& P)
 {
-    Timer timer;
-    timer.start();
-    auto stats = P.total_comm();
+//    Timer timer;
+//    timer.start();
+//    auto stats = P.total_comm();
     KZGCommitment signature;
 
     assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
@@ -221,24 +228,23 @@ KZGCommitment commit_and_open(
     cout << "MSM took " << diff_msm * 1e3 << " ms" << endl;
     // optimize with MSM
 
+    return sum;
 
-    vector<T<P377Element> > commitment_share = { sum };
 
-    vector<P377Element> commitment_element;
-    MCc.POpen_Begin(commitment_element, commitment_share, P);
-    MCc.POpen_End(commitment_element, commitment_share, P);
-
-    MCc.Check(P);
-
+//    vector<T<P377Element> > commitment_share = { sum };
+//
+//    vector<P377Element> commitment_element;
+//    MCc.POpen_Begin(commitment_element, commitment_share, P);
+//    MCc.POpen_End(commitment_element, commitment_share, P);
 
 //    std::cout << "After open " << commitment_element[0] << endl;
 
-    auto diff = (P.total_comm() - stats);
-    cout << "Commitment took " << timer.elapsed() * 1e3 << " ms and sending "
-         << diff.sent << " bytes" << endl;
-    diff.print(true);
+//    auto diff = (P.total_comm() - stats);
+//    cout << "Commitment took " << timer.elapsed() * 1e3 << " ms and sending "
+//         << diff.sent << " bytes" << endl;
+//    diff.print(true);
 
-    return KZGCommitment { commitment_element[0] };
+//    return KZGCommitment { commitment_element[0] };
 }
 
 //template<template<class U> class T>
