@@ -58,7 +58,7 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
   check_file_signature<T>(inf, filename).get_length();
   auto data_start = inf.tellg();
 
-  int size_in_bytes = T::size() * buffer.size();
+  long size_in_bytes = T::size() * buffer.size();
   int n_read = 0;
 
   // this char array is causing issues
