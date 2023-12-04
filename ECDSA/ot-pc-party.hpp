@@ -156,6 +156,11 @@ void run(int argc, const char** argv)
 //    test_arith();
 
 
+
+    Timer timer_all;
+    timer_all.start();
+    auto stats_all = P.total_comm();
+
     DataPositions usage;
 
     typename inputShare::mac_key_type mac_key;
@@ -171,6 +176,11 @@ void run(int argc, const char** argv)
     inputShare::MAC_Check::teardown();
     T<P377Element>::MAC_Check::teardown();
     P377Element::finish();
+
+    auto diff_all = P.total_comm() - stats_all;
+    print_timer("commit_with_gen", timer_all.elapsed());
+    print_stat("commit_with_gen", diff_all);
+    print_global("commit_with_gen", P, diff_all);
 
     std::cout<< "Signing now" << std::endl;
 
@@ -198,12 +208,22 @@ void run(int argc, const char** argv)
     // synchronize
     Bundle<octetStream> bundle(P);
     P.unchecked_broadcast(bundle);
+
     Timer timer;
     timer.start();
     auto stats = P.total_comm();
     sk_prep.get_two(DATA_INVERSE, sk, __);
     cout << "Secret key generation took " << timer.elapsed() * 1e3 << " ms" << endl;
-    (P.total_comm() - stats).print(true);
+
+
+    auto diff_sk = P.total_comm() - stats;
+    print_timer("sign_sk", timer.elapsed());
+    print_stat("sign_sk", diff_sk);
+    print_global("sign_sk", P, diff_sk);
+
+    Timer timer_sign;
+    timer_sign.start();
+    auto stats_sign = P.total_comm();
 
     // Calculation: 1 + 1 triple per signature
     int n_signatures = 1;
@@ -234,16 +254,21 @@ void run(int argc, const char** argv)
     bool prep_mul = not opt.isSet("-D");
     auto sig = sign((const unsigned char *)message.c_str(), message.length(), tuples[0], MCp, MCc, P, opts, pk, sk, prep_mul ? 0 : &proc);
 
-    Timer timer_sig;
-    timer_sig.start();
-    auto& check_player = MCp.get_check_player(P);
-    stats = check_player.total_comm();
-    MCp.Check(P);
-    MCc.Check(P);
-    auto diff = (check_player.total_comm() - stats);
-    cout << "Online checking took " << timer_sig.elapsed() * 1e3 << " ms and sending "
-         << diff.sent << " bytes" << endl;
-    diff.print();
+//    Timer timer_sig;
+//    timer_sig.start();
+//    auto& check_player = MCp.get_check_player(P);
+//    stats = check_player.total_comm();
+//    MCp.Check(P);
+//    MCc.Check(P);
+//    auto diff = (check_player.total_comm() - stats);
+//    cout << "Online checking took " << timer_sig.elapsed() * 1e3 << " ms and sending "
+//         << diff.sent << " bytes" << endl;
+//    diff.print();
+
+    auto diff_sign = P.total_comm() - stats_sign;
+    print_timer("sign", timer_sign.elapsed());
+    print_stat("sign", diff_sign);
+    print_global("sign", P, diff_sign);
 
     check(sig, (const unsigned char *)message.c_str(), message.length(), pk);
 
