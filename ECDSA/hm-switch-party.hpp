@@ -54,7 +54,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
                                    typename outputShare::mac_key_type out_arithmetic_mac_key,
                                    Player &P, const int prime_length) {
-    const bool debug = true;
+    const bool debug = false;
 
     // for now we need to use all the bits;
     const int input_size = std::distance(input_shares_begin, input_shares_end);
