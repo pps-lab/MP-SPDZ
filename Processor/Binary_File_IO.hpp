@@ -37,7 +37,7 @@ void Binary_File_IO::write_to_file(const string filename,
       outf.seekp(write_pos);
     }
 
-  for (unsigned int i = 0; i < buffer.size(); i++)
+  for (unsigned long i = 0; i < buffer.size(); i++)
   {
     buffer[i].output(outf, false);
   }
