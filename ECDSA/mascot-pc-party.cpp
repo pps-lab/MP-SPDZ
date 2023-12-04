@@ -3,7 +3,7 @@
  *
  */
 
-
+#define NO_MIXED_CIRCUITS
 
 #include "GC/TinierSecret.h"
 #include "GC/TinyMC.h"

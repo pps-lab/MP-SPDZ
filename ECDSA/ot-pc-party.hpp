@@ -272,8 +272,8 @@ void run(int argc, const char** argv)
 
     check(sig, (const unsigned char *)message.c_str(), message.length(), pk);
 
-    pShare::MAC_Check::teardown();
-    T<P256Element>::MAC_Check::teardown();
+//    pShare::MAC_Check::teardown();
+//    T<P256Element>::MAC_Check::teardown();
 
     P256Element::finish();
 }

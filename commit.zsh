@@ -32,13 +32,18 @@ echo "====================";
 #wait $pid0 $pid1 $pid2
 
 BIN=./mascot-pc-party.x
-
+#
 #$BIN -p 0 -N 2 -x 89 -y 3 -s 0 & ; pid0=$!
 $BIN -p 1 -N 2 -x 89 -y 3 -s 0 &> /dev/null & ; pid1=$!
-#$BIN -p 2 -N 3 -x 91 -y 1 -s 0 & ; pid2=$!
+##$BIN -p 2 -N 3 -x 91 -y 1 -s 0 & ; pid2=$!
 wait $pid0 $pid1 $pid2
 
+#BIN=./semi-pc-party.x
 
+#$BIN -p 0 -N 2 -x 89 -y 3 -s 0 & ; pid0=$!
+#$BIN -p 1 -N 2 -x 89 -y 3 -s 0 &> /dev/null & ; pid1=$!
+##$BIN -p 2 -N 3 -x 91 -y 1 -s 0 & ; pid2=$!
+#wait $pid0 $pid1 $pid2
 
 
 #BIN=./rep-pe-party.x

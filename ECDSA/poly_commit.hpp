@@ -181,6 +181,34 @@ Share<P377Element> msm(std::vector<P377Element>& bases, std::vector<Share<P377El
     return Share(semi_sh, semi_mac);
 }
 
+SemiShare<P377Element> msm(std::vector<P377Element>& bases, std::vector<SemiShare<P377Element::Scalar>> & multipliers){
+
+    std::vector<P377Element::Fr> multiplier_shares(multipliers.size());
+//    std::vector<P377Element::Fr> multiplier_macs(multipliers.size());
+    for (unsigned long i = 0; i < multipliers.size(); i++) {
+        P377Element::Scalar sh = multipliers[i];
+        multiplier_shares[i] = libff::bls12_377_Fr(bigint(sh).get_str().c_str());
+    }
+
+    std::vector<P377Element::G1> bases_format(bases.size());
+    for (unsigned long i = 0; i < bases.size(); i++) {
+        bases_format[i] = bases[i].get_point();
+    }
+
+    size_t parts = 1; // TODO: Make this configurable
+    if (multipliers.size() > 100000) {
+        parts = 8; // something like this?
+    }
+    P377Element::G1 result_share = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+                                                                                                                      multiplier_shares.begin(), multiplier_shares.end(), parts);
+//    P377Element::G1 result_mac = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+//                                                                                                                    multiplier_macs.begin(), multiplier_macs.end(), parts);
+
+    auto semi_sh = SemiShare<P377Element>(P377Element(result_share));
+//    auto semi_mac = SemiShare<P377Element>(P377Element(result_mac));
+
+    return semi_sh;
+}
 
 
 template<template<class U> class T>
