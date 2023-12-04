@@ -456,8 +456,8 @@ void run(int argc, const char** argv)
 
 //    const int mem_cutoff = 8;
 
-//    Timer timer;
-//    timer.start();
+    Timer timer;
+    timer.start();
     auto stats = P.total_comm();
 
     vector<outputShare> result(input_shares.size());
@@ -514,7 +514,7 @@ void run(int argc, const char** argv)
     write_shares<outputShare>(P, result, KZG_SUFFIX, overwrite, opts.output_start);
 
     auto diff = P.total_comm() - stats;
-//    print_timer(log_name, timer.elapsed());
+    print_timer(log_name, timer.elapsed());
     print_stat(log_name, diff);
     print_global(log_name, P, diff);
 

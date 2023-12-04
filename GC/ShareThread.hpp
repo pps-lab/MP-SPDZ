@@ -51,6 +51,8 @@ ShareThread<T>::~ShareThread()
         delete MC;
     if (protocol)
         delete protocol;
+    if (singleton)
+        singleton = 0;
 }
 
 template<class T>
