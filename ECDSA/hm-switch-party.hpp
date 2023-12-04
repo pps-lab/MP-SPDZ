@@ -89,8 +89,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    std::cout << "Total edabits out " << set_output.preprocessing.proc->DataF.usage.total_edabits(n_bits_per_input) << endl;
 
 
-    Timer timer_all;
-    timer_all.start();
+//    Timer timer_all;
+//    timer_all.start();
     auto overall_stats = P.total_comm();
 
     BitAdder bit_adder;
@@ -139,14 +139,15 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             set_input.output.prepare_open(c);
         }
 
-        Timer timer_open_c;
-        timer_open_c.start();
+
+//        Timer timer_open_c;
+//        timer_open_c.start();
         auto stats = P.total_comm();
 
         set_input.output.exchange(P);
         set_input.check();
 
-        cout << "Opening " << input_size << " masked input values " << timer_open_c.elapsed() * 1e3 << " ms" << endl;
+//        cout << "Opening " << input_size << " masked input values " << timer_open_c.elapsed() * 1e3 << " ms" << endl;
         (P.total_comm() - stats).print(true);
 
         vector<typename inputShare::clear> cs;
@@ -167,8 +168,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     // TODO: Properly account for usage?
 //    this->usage.count_edabit(strict, n_bits);
 
-    Timer timer_adders;
-    timer_adders.start();
+//    Timer timer_adders;
+//    timer_adders.start();
     auto stats = P.total_comm();
 
     typename bt::LivePrep bit_prep(usage);
@@ -213,7 +214,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     bit_adder.add(sums_two, summands_two, begin, end, bit_proc,
                   bt::default_length, 0);
 
-    cout << "Adding " << input_size * n_bits_per_input << " bits: " << timer_adders.elapsed() * 1e3 << " ms" << endl;
+//    cout << "Adding " << input_size * n_bits_per_input << " bits: " << timer_adders.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - stats).print(true);
 
 
@@ -246,8 +247,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //        }
     }
 
-    Timer timer_bits;
-    timer_bits.start();
+//    Timer timer_bits;
+//    timer_bits.start();
     stats = P.total_comm();
 
     set_input.binary.output.init_open(P, n_bits_per_input * input_size);
@@ -276,7 +277,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         }
     }
 
-    cout << "Opening " << input_size * n_bits_per_input << " masked bits: " << timer_bits.elapsed() * 1e3 << " ms" << endl;
+//    cout << "Opening " << input_size * n_bits_per_input << " masked bits: " << timer_bits.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - stats).print(true);
 
     // now everyone subtracts c_prime from the mask
@@ -310,7 +311,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         std::cout << "output_1" << " = " << outputs[1] << endl;
     }
     // end debug
-    cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
+//    cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - overall_stats).print(true);
 
     return result;
@@ -407,11 +408,6 @@ void run(int argc, const char** argv)
     P377Element::G1::order().to_mpz(t);
 
     int bit_length = 64;
-    MixedProtocolSetup<inputShare> setup_input(P, bit_length);
-    MixedProtocolSet<inputShare> set_input(P, setup_input);
-
-    ProtocolSetup<outputShare> setup_output(bigint(t), P);
-    ProtocolSet<outputShare> set_output(P, setup_output);
 
     std::cout << "inputs format" << endl;
     for(unsigned long i = 0; i < opts.inputs_format.size(); i++) {
@@ -432,6 +428,13 @@ void run(int argc, const char** argv)
         input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
         log_name = "share_switch_output";
     } else if (opts.inputs_format.size() > 0) {
+
+        MixedProtocolSetup<inputShare> setup_input(P, bit_length);
+        MixedProtocolSet<inputShare> set_input(P, setup_input);
+
+        ProtocolSetup<outputShare> setup_output(bigint(t), P);
+        ProtocolSet<outputShare> set_output(P, setup_output);
+
         input_shares = distribute_inputs(P, set_input, opts.inputs_format);
         std::cout << "Done reading inputs" << endl;
         log_name = "share_switch_input";
@@ -449,26 +452,41 @@ void run(int argc, const char** argv)
         n_bits_per_input = opts.n_bits_per_input;
     }
 
-    const int mem_cutoff = 5000000;
+//    const int mem_cutoff = 5000000;
+    const int mem_cutoff = 8;
     const int n_chunks = DIV_CEIL(input_shares.size(), mem_cutoff);
     std::cout << "Processing in " << n_chunks << " chunks" << std::endl;
 
-    Timer timer;
-    timer.start();
+//    Timer timer;
+//    timer.start();
     auto stats = P.total_comm();
 
     vector<outputShare> result(input_shares.size());
+
+#pragma omp parallel for
     for (int i = 0; i < n_chunks; i++) {
         int begin = i * mem_cutoff;
         int end = min((i + 1) * mem_cutoff, (int)input_shares.size());
 
-        vector <outputShare> res = convert_shares(input_shares.begin() + begin, input_shares.begin() + end, set_input, set_output, setup_input.binary.get_mac_key(), setup_output.get_mac_key(), P, n_bits_per_input);
+        CryptoPlayer P_i(N, i * 3);
+
+        MixedProtocolSetup<inputShare> setup_input_i(P_i, bit_length);
+        MixedProtocolSet<inputShare> set_input_i(P_i, setup_input_i);
+
+        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_i);
+        ProtocolSet<outputShare> set_output_i(P_i, setup_output_i);
+
+        vector <outputShare> res = convert_shares(input_shares.begin() + begin, input_shares.begin() + end, set_input_i, set_output_i, setup_input_i.binary.get_mac_key(), setup_output_i.get_mac_key(), P, n_bits_per_input);
         result.insert(result.end(), res.begin(), res.end());
         std::cout << "Done with chunk " << i << std::endl;
+
+        set_input_i.check();
+        set_output_i.check();
+
     }
 
-    set_input.check();
-    set_output.check();
+//    set_input.check();
+//    set_output.check();
 
 
     std::cout << "Share 0 " << result[0] << std::endl;
@@ -477,7 +495,7 @@ void run(int argc, const char** argv)
     write_shares<outputShare>(P, result, KZG_SUFFIX, overwrite, opts.output_start);
 
     auto diff = P.total_comm() - stats;
-    print_timer(log_name, timer.elapsed());
+//    print_timer(log_name, timer.elapsed());
     print_stat(log_name, diff);
     print_global(log_name, P, diff);
 
