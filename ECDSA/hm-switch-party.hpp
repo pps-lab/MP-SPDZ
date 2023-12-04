@@ -467,7 +467,7 @@ void run(int argc, const char** argv)
 //        players.push_back(CryptoPlayer(N, i * 3));
 //    }
     const int n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
-    const int mem_cutoff = 2;
+    const int mem_cutoff = 500000;
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
