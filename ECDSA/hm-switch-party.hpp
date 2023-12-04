@@ -467,9 +467,9 @@ void run(int argc, const char** argv)
 //        players.push_back(CryptoPlayer(N, i * 3));
 //    }
     const int n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
-    const int mem_cutoff = 500000;
+    const int mem_cutoff = 2;
 
-    std::cout << "Running in " << opts.n_threads << " threads";
+    std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
 #pragma omp parallel for
     for (int j = 0; j < opts.n_threads; j++) {
@@ -480,22 +480,22 @@ void run(int argc, const char** argv)
 
         std::cout << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
 
+        CryptoPlayer P_j(N, j * 3);
+
+        MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length);
+        MixedProtocolSet<inputShare> set_input_i(P_j, setup_input_i);
+
+        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j);
+        ProtocolSet<outputShare> set_output_i(P_j, setup_output_i);
+
         for (int i = 0; i < n_chunks; i++) {
             const int begin_chunk = begin_thread + i * mem_cutoff;
             const int end_chunk = min(begin_chunk + mem_cutoff, end_thread);
             // each thread in parallel
 
-            CryptoPlayer P_i(N, j * 3);
-
-            MixedProtocolSetup<inputShare> setup_input_i(P_i, bit_length);
-            MixedProtocolSet<inputShare> set_input_i(P_i, setup_input_i);
-
-            ProtocolSetup<outputShare> setup_output_i(bigint(t), P_i);
-            ProtocolSet<outputShare> set_output_i(P_i, setup_output_i);
-
             vector<outputShare> res = convert_shares(input_shares.begin() + begin_chunk, input_shares.begin() + end_chunk,
                                                      set_input_i, set_output_i, setup_input_i.binary.get_mac_key(),
-                                                     setup_output_i.get_mac_key(), P_i, n_bits_per_input);
+                                                     setup_output_i.get_mac_key(), P_j, n_bits_per_input);
             result.insert(result.begin() + begin_chunk, res.begin(), res.end());
             std::cout << "Thread " << j << " done with chunk " << i << std::endl;
 
