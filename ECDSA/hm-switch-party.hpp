@@ -42,6 +42,8 @@
 #include "ECDSA/share_utils.hpp"
 #include "ECDSA/SwitchOptions.h"
 
+#include "omp.h"
+
 #include <assert.h>
 
 template<class inputShare, class outputShare>
@@ -172,8 +174,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    timer_adders.start();
     auto stats = P.total_comm();
 
-    typename bt::LivePrep bit_prep(usage);
-    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), bit_prep, P);
+//    typename bt::LivePrep bit_prep(usage);
+    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
     int begin = 0;
     int end = input_size;
     bit_adder.add(sums_one, summands_one, begin, end, bit_proc,
@@ -305,7 +307,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         for (int i = 0; i < input_size; i++) {
             typename outputShare::clear c = set_output.output.finalize_open();
             if (debug)
-                assert(c == reals[i]);
+                assert(bigint(c) == bigint(reals[i]));
             outputs.push_back(c);
         }
         std::cout << "output_1" << " = " << outputs[1] << endl;
@@ -475,13 +477,13 @@ void run(int argc, const char** argv)
         const int end_thread = min((j + 1) * n_chunks_per_thread, (int) input_shares.size());
 
         const int n_chunks = DIV_CEIL(end_thread - begin_thread, mem_cutoff);
-        std::cout << "Thread " << j << " processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
+
+        std::cout << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
 
         for (int i = 0; i < n_chunks; i++) {
             const int begin_chunk = begin_thread + i * mem_cutoff;
             const int end_chunk = min(begin_chunk + mem_cutoff, end_thread);
             // each thread in parallel
-
 
             CryptoPlayer P_i(N, j * 3);
 
