@@ -496,7 +496,11 @@ void run(int argc, const char** argv)
             vector<outputShare> res = convert_shares(input_shares.begin() + begin_chunk, input_shares.begin() + end_chunk,
                                                      set_input_i, set_output_i, setup_input_i.binary.get_mac_key(),
                                                      setup_output_i.get_mac_key(), P_j, n_bits_per_input);
-            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
+
+//            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
+            for (int k = 0; k < res.size(); k++) {
+                result[begin_chunk + k] = res[k];
+            }
             std::cout << "Thread " << j << " done with chunk " << i << std::endl;
 
             set_input_i.check();
