@@ -54,8 +54,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
                                    typename inputShare::mac_key_type in_arithmetic_mac_key,
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
                                    typename outputShare::mac_key_type out_arithmetic_mac_key,
-                                   Player &P, const int prime_length) {
-    const bool debug = false;
+                                   Player &P, const int prime_length, const bool debug) {
+
 
     // for now we need to use all the bits;
     const int input_size = std::distance(input_shares_begin, input_shares_end);
@@ -537,7 +537,7 @@ void run(int argc, const char** argv)
 
             vector<outputShare> res = convert_shares(input_shares.begin() + begin_chunk, input_shares.begin() + end_chunk,
                                                      set_input_i, set_output_i, setup_input_i.get_mac_key(), setup_input_i.binary.get_mac_key(),
-                                                     setup_output_i.get_mac_key(), P_j, n_bits_per_input);
+                                                     setup_output_i.get_mac_key(), P_j, n_bits_per_input, opts.debug);
 
 //            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
             for (int k = 0; k < (int)res.size(); k++) {

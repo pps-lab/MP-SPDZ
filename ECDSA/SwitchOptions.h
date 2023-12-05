@@ -18,6 +18,7 @@ public:
     int output_start;
     int n_threads;
     int chunk_size;
+    bool debug;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -93,6 +94,15 @@ public:
                 "-c",
                 "--chunk_size"
                 );
+        opt.add(
+                "",
+                0,
+                0,
+                0,
+                "Debug mode",
+                "-d",
+                "--debug"
+                );
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
@@ -102,6 +112,7 @@ public:
         opt.get("-o")->getInt(output_start);
         opt.get("-t")->getInt(n_threads);
         opt.get("-c")->getInt(chunk_size);
+        debug = opt.isSet("-d");
 
         opt.resetArgs();
     }
