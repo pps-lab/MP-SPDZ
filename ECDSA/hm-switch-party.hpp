@@ -511,7 +511,7 @@ void run(int argc, const char** argv)
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
-//#pragma omp parallel for
+#pragma omp parallel for
     for (int j = 0; j < opts.n_threads; j++) {
         const int begin_thread = j * n_chunks_per_thread;
         const int end_thread = min((j + 1) * n_chunks_per_thread, (int) input_shares.size());
