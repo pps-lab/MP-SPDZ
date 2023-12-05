@@ -17,6 +17,7 @@ public:
     std::vector<std::vector<std::string> > inputs_format;
     int output_start;
     int n_threads;
+    int chunk_size;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -83,6 +84,15 @@ public:
                 "-t",
                 "--n_threads"
                 );
+        opt.add(
+                "250000",
+                0,
+                1,
+                0,
+                "Chunk size",
+                "-c",
+                "--chunk_size"
+                );
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
@@ -91,6 +101,7 @@ public:
         opt.get("-i")->getMultiStrings(inputs_format);
         opt.get("-o")->getInt(output_start);
         opt.get("-t")->getInt(n_threads);
+        opt.get("-c")->getInt(chunk_size);
 
         opt.resetArgs();
     }
