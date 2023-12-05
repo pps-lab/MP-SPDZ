@@ -51,9 +51,14 @@ echo "====================";
 #$BIN -p 2 -N 3 --n_bits 34 -i i8684 -i 0 -i 0 & ; pid2=$!
 #wait $pid0 $pid1 $pid2
 
-$BIN -p 0 -N 3 --n_bits 34 -i i868 -i 0 -i 0 & ; pid0=$!
-$BIN -p 1 -N 3 --n_bits 34 -i i868 -i 0 -i 0 & ; pid1=$!
-$BIN -p 2 -N 3 --n_bits 34 -i i868 -i 0 -i 0 & ; pid2=$!
+#$BIN -p 0 -N 3 --n_bits 34 -i i868 -i 0 -i 0 & ; pid0=$!
+#$BIN -p 1 -N 3 --n_bits 34 -i i868 -i 0 -i 0 & ; pid1=$!
+#$BIN -p 2 -N 3 --n_bits 34 -i i868 -i 0 -i 0 & ; pid2=$!
+#wait $pid0 $pid1 $pid2
+
+$BIN -p 0 -N 3 --n_shares 2977 --n_bits 64 --n_threads 1 --out_start 2396508 & ; pid0=$!
+$BIN -p 1 -N 3 --n_shares 2977 --n_bits 64 --n_threads 1 --out_start 2396508 & ; pid1=$!
+$BIN -p 2 -N 3 --n_shares 2977 --n_bits 64 --n_threads 1 --out_start 2396508 & ; pid2=$!
 wait $pid0 $pid1 $pid2
 
 #$BIN -p 0 -N 3 --n_bits 33 --n_shares 92 --n_bits 33 --out_start 0 & ; pid0=$!

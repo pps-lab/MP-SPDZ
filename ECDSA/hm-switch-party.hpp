@@ -51,6 +51,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
                                    const typename vector<inputShare>::iterator input_shares_end,
                                    MixedProtocolSet<inputShare>& set_input,
                                    ProtocolSet<outputShare>& set_output,
+                                   typename inputShare::mac_key_type in_arithmetic_mac_key,
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
                                    typename outputShare::mac_key_type out_arithmetic_mac_key,
                                    Player &P, const int prime_length) {
@@ -95,6 +96,20 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    timer_all.start();
     auto overall_stats = P.total_comm();
 
+    const bigint shift_in = bigint(1) << (inputShare::clear::n_bits() - 1);
+    const bigint shift_out = bigint(1) << (inputShare::clear::n_bits() - 1 );
+//    const bigint shift_out = outputShare::clear::pr() / 2;
+    const typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
+    const typename outputShare::clear shift_out_t = typename outputShare::clear(bigint(1)) << (inputShare::clear::n_bits() - 1);
+
+    const inputShare shift_in_share = inputShare::constant(shift_int_t, P.my_num(), in_arithmetic_mac_key);
+    const outputShare shift_out_share = outputShare::constant(shift_out_t, P.my_num(), out_arithmetic_mac_key);
+
+    (void)shift_in_share;
+
+    const int bit_overflow_one = 1;
+    const int bit_overflow_two = bit_overflow_one;
+
     BitAdder bit_adder;
     typedef typename inputShare::bit_type bt;
     int dl = inputShare::clear::MAX_EDABITS;
@@ -136,7 +151,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             auto edabit_in = buffer_in.next();
             edabits_in.push_back(edabit_in.second);
 
-            inputShare c = *iterator - edabit_in.first;
+            inputShare c = *iterator + shift_in_share - edabit_in.first;
+//            inputShare c = *iterator + shift_in_share;
 
             set_input.output.prepare_open(c);
         }
@@ -163,6 +179,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             for (int j = 0; j < input_size; j++) {
                 summands_one[i][0][j] = bt::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
                 summands_one[i][1][j] = edabits_in[j][i];
+//                summands_one[i][1][j] = 0;
             }
         }
     }
@@ -177,26 +194,16 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     // TODO: look into this for SPDZ conversion
 //    auto bit_MC = bt::MAC_Check(set_input.binary.thread.MC.get_alphai());
 //    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
-    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
+//    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
+
+    typename bt::LivePrep bit_prep(usage);
+    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), bit_prep, P);
 
     int begin = 0;
     int end = input_size;
     bit_adder.add(sums_one, summands_one, begin, end, bit_proc,
                   dl, 0);
 
-
-    // Now we add the second masking bits
-//    vector<vector<vector<bt> > > summands_two(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
-//    for (int i = 0; i < n_bits_per_input; i++) {
-//        for (int j = 0; j < input_size; j++) {
-////            std::cout << "numbits " << i << " " << j << ": " << bigint(cs[j]) << " " << Integer(bigint(cs[j])).get_bit(i) << endl;
-//            summands_two[i][0][j] = sums_one[j][i];
-//
-//
-//
-//            summands_two[i][1][j] = edabit_out[j].second[i];
-//        }
-//    }
     // rewrite the above loop
     vector <outputShare> edabits_out_a;
     edabitvec <outputShare> buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
@@ -212,6 +219,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         for (int i = 0; i < n_bits_per_input; i++) {
             summands_two[i][0][j] = sums_one[j][i];
             summands_two[i][1][j] = edabit_out.second[i];
+//            summands_two[i][1][j] = 0;
         }
     }
 
@@ -222,42 +230,42 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    cout << "Adding " << input_size * n_bits_per_input << " bits: " << timer_adders.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - stats).print(true);
 
-
 //    // now we open each bit
     if (debug) {
-//        set_input.binary.output.init_open(P, n_bits_per_input * input_size);
-//        for (int i = 0; i < n_bits_per_input; i++) {
-//            for (int j = 0; j < input_size; j++) {
-//                set_input.binary.output.prepare_open(sums_one[j][i]);
-//            }
-//        }
-//        set_input.binary.output.exchange(P);
-//
-//        vector <vector<typename bt::clear>> open_bits(n_bits_per_input, vector<typename bt::clear>(input_size));
-//        std::cout << "open bits type " << typeid(open_bits).name() << endl;
-//        for (int i = 0; i < (int) n_bits_per_input; i++) {
-//            for (int j = 0; j < (int) input_size; j++) {
-//                open_bits[i][j] = set_input.binary.output.finalize_open();
-//            }
-//        }
-//        for (int i = 0; i < (int) input_size; i++) {
-//            std::cout << open_bits[0][i].get_bit(0) << " ";
-//            std::cout << n_bits_per_input << " Number " << cs[i]
-//                      << " has bits (these should be the original, unmasked value): ";
-//            for (int j = 0; j < (int) n_bits_per_input; j++) {
-////            std::cout << " j" << j << " " << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
-//                std::cout << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
-//            }
-//            std::cout << endl;
-//        }
+        set_input.binary.output.init_open(P, (n_bits_per_input + bit_overflow_two) * input_size);
+        for (int i = 0; i < n_bits_per_input + bit_overflow_two; i++) {
+            for (int j = 0; j < input_size; j++) {
+                set_input.binary.output.prepare_open(sums_one[j][i]);
+            }
+        }
+        set_input.binary.output.exchange(P);
+
+        vector <vector<typename bt::clear>> open_bits(n_bits_per_input + bit_overflow_two, vector<typename bt::clear>(input_size));
+        std::cout << "open bits type " << typeid(open_bits).name() << endl;
+        for (int i = 0; i < (int) n_bits_per_input + bit_overflow_two; i++) {
+            for (int j = 0; j < (int) input_size; j++) {
+                open_bits[i][j] = set_input.binary.output.finalize_open();
+            }
+        }
+        for (int i = 0; i < (int) input_size; i++) {
+            std::cout << open_bits[0][i].get_bit(0) << " ";
+            std::cout << n_bits_per_input << " Number "
+                      << " has bits (these should be the original, unmasked value): ";
+            for (int j = 0; j < (int) n_bits_per_input + bit_overflow_two; j++) {
+//            std::cout << " j" << j << " " << open_bits[n_bits_per_input - j - 1][i].get_bit(0);
+                std::cout << open_bits[(n_bits_per_input + bit_overflow_two) - j - 1][i].get_bit(0);
+            }
+            std::cout << endl;
+        }
     }
 
 //    Timer timer_bits;
 //    timer_bits.start();
     stats = P.total_comm();
 
-    set_input.binary.output.init_open(P, n_bits_per_input * input_size);
-    for (int i = 0; i < (int)n_bits_per_input; i++) {
+
+    set_input.binary.output.init_open(P, (n_bits_per_input + bit_overflow_two) * input_size);
+    for (int i = 0; i < (int)n_bits_per_input + bit_overflow_two; i++) {
         for (int j = 0; j < (int)input_size; j++) {
             set_input.binary.output.prepare_open(sums_two[j][i]);
         }
@@ -270,10 +278,10 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    std::cout << open_bits[0][0].get_bit(0) << " open " << open_bits[1][0].get_bit(0) << endl;
 //    std::cout << open_bits[0][2].get_bit(0) << " open " << open_bits[1][2].get_bit(0) << endl;
 
-    vector<vector<bool> > open_bits_bool(n_bits_per_input, vector<bool>(input_size));
+    vector<vector<bool> > open_bits_bool(n_bits_per_input + bit_overflow_two, vector<bool>(input_size));
 
     // now we compose the bits into a c_prime of type output_type
-    for (int i = 0; i < (int)n_bits_per_input; i++) {
+    for (int i = 0; i < (int)n_bits_per_input + bit_overflow_two; i++) {
         for (int j = 0; j < (int)input_size; j++) {
             auto bv = set_input.binary.output.finalize_open();
             open_mask[j] = open_mask[j] | typename outputShare::clear(bv.get_bit(0)) << i;
@@ -286,16 +294,18 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     (P.total_comm() - stats).print(true);
 
     // now everyone subtracts c_prime from the mask
+
     vector<outputShare > result;
     for (int i = 0; i < (int)input_size; i++) {
-//        std::cout << open_mask[i] << " ";
-//        for (int j = 0; j < (int)n_bits_per_input; j++) {
-//            std::cout << open_bits_bool[n_bits_per_input - j - 1][i];
-//        }
-//        cout << std::endl;
-//        result.push_back(outputShare::constant(open_mask[i], P.my_num()) - edabits_out[i].first);
-        result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - edabits_out_a[i]);
+        result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - shift_out_share - edabits_out_a[i]);
+
     }
+
+//    std::cout << "custom calc " << bigint(-(typename outputShare::clear((1 << (inputShare::clear::n_bits() - 1))))).get_str(2) << " (" << -(typename outputShare::clear((1 << (inputShare::clear::n_bits() - 1)))) << ")" << endl;
+//    std::cout << "custom cal3 " << bigint(-(typename outputShare::clear(1) << (inputShare::clear::n_bits() - 1))).get_str(2) << " (" << -(typename outputShare::clear(1) << (inputShare::clear::n_bits() - 1)) << ")" << endl;
+
+    (void)shift_out_share;
+    (void)shift_out_t;
 
     // open for debug
     if (debug) {
@@ -309,8 +319,33 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         vector <typename outputShare::clear> outputs;
         for (int i = 0; i < input_size; i++) {
             typename outputShare::clear c = set_output.output.finalize_open();
-            if (debug)
-                assert(bigint(c) == bigint(reals[i]));
+            if (debug) {
+//                if (bigint(c) != bigint(reals[i])) {
+                if (bigint(typename outputShare::clear(c - reals[i])) != 0) {
+                    //                    std::cout << reals[i] << " " << c << reals[i] - c << std::endl;
+//                    std::cout << bigint(c).get_str(2) << " != "
+//                              << bigint(typename inputShare::clear(reals[i])).get_str(2)
+//                              << std::endl; //base 2 representation
+//
+//                    std::cout << "Error: " << i << " " << bigint(c) << " != " << bigint(reals[i]) << endl;
+
+//                    std::cout << "What I want: " << bigint(typename outputShare::clear(reals[i])).get_str(2) << " ("
+//                              << bigint(typename outputShare::clear(reals[i])) << ")" << endl;
+//                    std::cout << "What I have: " << bigint(c).get_str(2) << endl;
+                    std::cout << c << " !=  "<< reals[i] << " Need shift   " << bigint(typename outputShare::clear(c - reals[i])).get_str(2) << "(" << typename outputShare::clear(c - reals[i]) << ")" << endl;
+                    std::cout << bigint(c) << " !=bg " << bigint(reals[i]) << endl;
+//                    std::cout << "Shift (inv)  " << bigint(typename outputShare::clear(reals[i] - c)).get_str(2) << "(" << bigint(typename outputShare::clear(reals[i] - c)) << ")" << endl;
+//                    std::cout << "Shift of minu" << bigint(shift_out_t).get_str(2) << " (" << bigint(shift_out_t) << ")"
+//                              << endl;
+//                    std::cout << "Then we get  " << bigint(c - (c - typename outputShare::clear(reals[i]))).get_str(2) << "(" << bigint(c - (c - typename outputShare::clear(reals[i]))) << ")"
+//                              << endl;
+
+                    assert(false);
+                } else {
+                    std::cout << "Correct: " << i << " " << bigint(c) << " == " << bigint(reals[i]) << endl;
+                }
+            }
+
             outputs.push_back(c);
         }
         std::cout << "output_1" << " = " << outputs[1] << endl;
@@ -319,10 +354,12 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - overall_stats).print(true);
 
+
     return result;
 }
 
-
+//11111111111111111111111111111111111111111111111100000000000000000
+//                                              -100000000000000000
 
 template<class inputShare>
 std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare>& set, std::vector<std::vector<std::string> >& inputs_format_str) {
@@ -474,14 +511,16 @@ void run(int argc, const char** argv)
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
-#pragma omp parallel for
+//#pragma omp parallel for
     for (int j = 0; j < opts.n_threads; j++) {
         const int begin_thread = j * n_chunks_per_thread;
         const int end_thread = min((j + 1) * n_chunks_per_thread, (int) input_shares.size());
 
         const int n_chunks = DIV_CEIL(end_thread - begin_thread, mem_cutoff);
 
-        std::cout << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
+        stringstream stream;
+        stream << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
+        cout << stream.str();
 
         CryptoPlayer P_j(N, j * 3);
 
@@ -497,14 +536,17 @@ void run(int argc, const char** argv)
             // each thread in parallel
 
             vector<outputShare> res = convert_shares(input_shares.begin() + begin_chunk, input_shares.begin() + end_chunk,
-                                                     set_input_i, set_output_i, setup_input_i.binary.get_mac_key(),
+                                                     set_input_i, set_output_i, setup_input_i.get_mac_key(), setup_input_i.binary.get_mac_key(),
                                                      setup_output_i.get_mac_key(), P_j, n_bits_per_input);
 
 //            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
             for (int k = 0; k < (int)res.size(); k++) {
                 result[begin_chunk + k] = res[k];
             }
-            std::cout << "Thread " << j << " done with chunk " << i << std::endl;
+
+            stringstream stream2;
+            stream2 << "Thread " << j << " done with chunk " << i << std::endl;
+            cout << stream2.str();
 
             set_input_i.check();
             set_output_i.check();
