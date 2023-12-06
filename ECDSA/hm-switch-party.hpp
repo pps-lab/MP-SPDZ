@@ -341,6 +341,9 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
                     std::cout << "Bits were " << open_mask[i] << endl;
                     std::cout << "Masking was " << edabits_out_a[i] << endl;
                     std::cout << "Shift out was " << shift_out_t << endl;
+                    std::cout << "n bits were " << n_bits_per_input << endl;
+                    std::cout << "input size was " << input_size << endl;
+                    std::cout << "thread number was " << omp_get_thread_num() << endl;
 //                    std::cout << "Shift (inv)  " << bigint(typename outputShare::clear(reals[i] - c)).get_str(2) << "(" << bigint(typename outputShare::clear(reals[i] - c)) << ")" << endl;
 //                    std::cout << "Shift of minu" << bigint(shift_out_t).get_str(2) << " (" << bigint(shift_out_t) << ")"
 //                              << endl;
@@ -487,6 +490,7 @@ void run(int argc, const char** argv)
                 inputShare::constant(typename inputShare::clear(bigint("1073741823")), P.my_num(), typename inputShare::mac_key_type()),
                 inputShare::constant(typename inputShare::clear(bigint("-1073741823")), P.my_num(), typename inputShare::mac_key_type()),
         };
+        log_name = "test";
     } else if (opts.n_shares > 0) {
         input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
         log_name = "share_switch_output";
