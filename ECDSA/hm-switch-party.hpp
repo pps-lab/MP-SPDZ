@@ -557,7 +557,7 @@ void run(int argc, const char** argv)
 
     OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_chunks_per_thread, mem_cutoff));
     OnlineOptions::singleton.verbose = true;
-    std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << endl;
+    std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << ". Would have needed " << min(n_chunks_per_thread, mem_cutoff) << endl;
 
     const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
     typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
