@@ -100,6 +100,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     const typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
     const typename outputShare::clear shift_out_t = typename outputShare::clear(bigint(1)) << (n_bits_per_input - 1);
 
+    std::cout << "shift_out_t initially " << shift_out_t << endl;
+
     const inputShare shift_in_share = inputShare::constant(shift_int_t, P.my_num(), in_arithmetic_mac_key);
     const outputShare shift_out_share = outputShare::constant(shift_out_t, P.my_num(), out_arithmetic_mac_key);
 
