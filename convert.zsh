@@ -33,10 +33,10 @@ N_BITS=32
 
 #BIN=./mascot-switch-party.x
 
-#$BIN -p 0 -N 3 --n_bits 34 --n_shares 92 --out_start 0 --n_threads 4 & ; pid0=$!
-#$BIN -p 1 -N 3 --n_bits 34 --n_shares 92 --out_start 0 --n_threads 4 & ; pid1=$!
-#$BIN -p 2 -N 3 --n_bits 34 --n_shares 92 --out_start 0 --n_threads 4 & ; pid2=$!
-#wait $pid0 $pid1 $pid2
+$BIN -p 0 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --n_threads 36 & ; pid0=$!
+$BIN -p 1 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --n_threads 36 & ; pid1=$!
+$BIN -p 2 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --n_threads 36 & ; pid2=$!
+wait $pid0 $pid1 $pid2
 
 ##
 echo "====================";
@@ -51,10 +51,10 @@ echo "====================";
 #$BIN -p 2 -N 3 --n_bits 64 --chunk_size 250000 -i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i 0 -i 0 -d --n_threads 2 & ; pid2=$!
 #wait $pid0 $pid1 $pid2
 
-$BIN -p 0 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 36 -d & ; pid0=$!
-$BIN -p 1 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 36 -d & ; pid1=$!
-$BIN -p 2 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 36 -d & ; pid2=$!
-wait $pid0 $pid1 $pid2
+#$BIN -p 0 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 8 -d & ; pid0=$!
+#$BIN -p 1 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 8 -d & ; pid1=$!
+#$BIN -p 2 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 8 -d & ; pid2=$!
+#wait $pid0 $pid1 $pid2
 
 #$BIN -p 0 -N 3 --n_bits 64 -i i868 -i 0 -i 0 & ; pid0=$!
 #$BIN -p 1 -N 3 --n_bits 64 -i i868 -i 0 -i 0 & ; pid1=$!

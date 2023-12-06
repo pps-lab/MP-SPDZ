@@ -118,7 +118,9 @@ public:
         opt.get("-n")->getInt(n_shares);
         opt.get("-s")->getInt(start);
         opt.get("-b")->getInt(n_bits_per_input);
-        opt.get("-i")->getMultiStrings(inputs_format);
+        if (opt.isSet("-i")) {
+            opt.get("-i")->getMultiStrings(inputs_format);
+        }
         opt.get("-o")->getInt(output_start);
         opt.get("-t")->getInt(n_threads);
         opt.get("-c")->getInt(chunk_size);

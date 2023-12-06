@@ -476,6 +476,7 @@ void run(int argc, const char** argv)
     mpz_t t;
     mpz_init(t);
     P377Element::G1::order().to_mpz(t);
+    bigint t_big(t);
 
     int bit_length = inputShare::clear::n_bits();
 
@@ -496,6 +497,11 @@ void run(int argc, const char** argv)
     vector <inputShare> input_shares;
     std::cout << "Test " << opts.test << endl;
     if (opts.test) {
+        inputShare::clear::init_default(bit_length);
+        inputShare::clear::next::init_default(bit_length, false);
+        outputShare::clear::init_field(t_big);
+        outputShare::clear::next::init_field(t_big, false);
+
         input_shares = {
                 inputShare::constant(typename inputShare::clear(bigint("0")), P.my_num(), typename inputShare::mac_key_type()),
                 inputShare::constant(typename inputShare::clear(bigint("1")), P.my_num(), typename inputShare::mac_key_type()),
@@ -506,6 +512,11 @@ void run(int argc, const char** argv)
         };
         log_name = "test";
     } else if (opts.n_shares > 0) {
+        inputShare::clear::init_default(bit_length);
+        inputShare::clear::next::init_default(bit_length, false);
+        outputShare::clear::init_field(t_big);
+        outputShare::clear::next::init_field(t_big, false);
+
         input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
         log_name = "share_switch_output";
     } else if (opts.inputs_format.size() > 0) {
@@ -513,7 +524,7 @@ void run(int argc, const char** argv)
         MixedProtocolSetup<inputShare> setup_input(P, bit_length);
         MixedProtocolSet<inputShare> set_input(P, setup_input);
 
-        ProtocolSetup<outputShare> setup_output(bigint(t), P);
+        ProtocolSetup<outputShare> setup_output(t_big, P);
         ProtocolSet<outputShare> set_output(P, setup_output);
 
         input_shares = distribute_inputs(P, set_input, opts.inputs_format, opts.n_bits_per_input);
@@ -548,9 +559,12 @@ void run(int argc, const char** argv)
     const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
     const unsigned long mem_cutoff = opts.chunk_size;
 
+    std::cout << bigint("1") << endl;
+    std::cout << typename outputShare::clear(bigint("1") << (n_bits_per_input - 1)) <<endl;
+
     const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
-    const typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
-    const typename outputShare::clear shift_out_t = typename outputShare::clear(bigint(1)) << (n_bits_per_input - 1);
+    typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
+    typename outputShare::clear shift_out_t = typename outputShare::clear(bigint("1") << (n_bits_per_input - 1));
 
     std::cout << "shift_in " << shift_in << " " << n_bits_per_input << " " << inputShare::clear::n_bits() << endl;
     std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
@@ -559,6 +573,8 @@ void run(int argc, const char** argv)
 
 #pragma omp parallel for num_threads(opts.n_threads)
     for (int j = 0; j < opts.n_threads; j++) {
+        bigint::init_thread();
+
         const unsigned long begin_thread = j * n_chunks_per_thread;
         const unsigned long end_thread = min(((unsigned long) (j + 1) * n_chunks_per_thread), input_shares.size());
         assert(begin_thread < end_thread);
