@@ -535,10 +535,6 @@ void run(int argc, const char** argv)
         exit(1);
     }
 
-    OnlineOptions::singleton.batch_size = min((unsigned long)10000, input_shares.size() * 64);
-//    OnlineOptions::singleton.batch_size = input_shares.size();
-    OnlineOptions::singleton.verbose = true;
-
     int n_bits_per_input = bit_length;
     if (opts.n_bits_per_input != -1) {
         n_bits_per_input = opts.n_bits_per_input;
@@ -559,15 +555,16 @@ void run(int argc, const char** argv)
     const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
     const unsigned long mem_cutoff = opts.chunk_size;
 
-    std::cout << bigint("1") << endl;
-    std::cout << typename outputShare::clear(bigint("1") << (n_bits_per_input - 1)) <<endl;
+    OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_chunks_per_thread, mem_cutoff));
+    OnlineOptions::singleton.verbose = true;
+    std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << endl;
 
     const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
     typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
     typename outputShare::clear shift_out_t = typename outputShare::clear(bigint("1") << (n_bits_per_input - 1));
 
-    std::cout << "shift_in " << shift_in << " " << n_bits_per_input << " " << inputShare::clear::n_bits() << endl;
-    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
+//    std::cout << "shift_in " << shift_in << " " << n_bits_per_input << " " << inputShare::clear::n_bits() << endl;
+//    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
