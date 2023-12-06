@@ -4,7 +4,7 @@
 PATH="/usr/local/opt/openssl@3/bin:$PATH"
 
 n=${1:-4}
-ssl_dir=${2:-"Player-SSL-Data"}
+ssl_dir=${2:-"Player-Data"}
 
 test -e $ssl_dir || mkdir $ssl_dir
 

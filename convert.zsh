@@ -51,9 +51,9 @@ echo "====================";
 #$BIN -p 2 -N 3 --n_bits 64 --chunk_size 250000 -i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i 0 -i 0 -d --n_threads 2 & ; pid2=$!
 #wait $pid0 $pid1 $pid2
 
-$BIN -p 0 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 18 -d & ; pid0=$!
-$BIN -p 1 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 18 -d & ; pid1=$!
-$BIN -p 2 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 18 -d & ; pid2=$!
+$BIN -p 0 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 36 -d & ; pid0=$!
+$BIN -p 1 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 36 -d & ; pid1=$!
+$BIN -p 2 -N 3 --n_bits 31 -i i8684 -i 0 -i 0 --n_threads 36 -d & ; pid2=$!
 wait $pid0 $pid1 $pid2
 
 #$BIN -p 0 -N 3 --n_bits 64 -i i868 -i 0 -i 0 & ; pid0=$!

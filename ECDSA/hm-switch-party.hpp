@@ -54,7 +54,10 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
                                    typename inputShare::mac_key_type in_arithmetic_mac_key,
                                    typename inputShare::bit_type::mac_key_type binary_mac_key,
                                    typename outputShare::mac_key_type out_arithmetic_mac_key,
-                                   Player &P, const int n_bits_per_input, const bool debug) {
+                                   Player &P, const int n_bits_per_input,
+                                   const typename inputShare::clear shift_int_t,
+                                   const typename outputShare::clear shift_out_t,
+                                   const bool debug) {
 
 
     // for now we need to use all the bits;
@@ -96,11 +99,20 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    timer_all.start();
     auto overall_stats = P.total_comm();
 
-    const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
-    const typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
-    const typename outputShare::clear shift_out_t = typename outputShare::clear(bigint(1)) << (n_bits_per_input - 1);
+//    const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
+//    const typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
+//    const typename outputShare::clear shift_out_t = typename outputShare::clear(bigint(1)) << (n_bits_per_input - 1);
 
-    std::cout << "shift_out_t initially " << shift_out_t << endl;
+//    typename outputShare::clear out_one;
+//    out_one.assign_one();
+
+    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << " t" << omp_get_thread_num() << endl;
+//    std::cout << "recomp " << (out_one << (n_bits_per_input - 1)) << " " << outputShare::clear::pr() << endl;
+
+    if (shift_out_t == bigint("0")) {
+        std::cout << "shift_out_t is zero " << endl;
+        assert(false);
+    }
 
     const inputShare shift_in_share = inputShare::constant(shift_int_t, P.my_num(), in_arithmetic_mac_key);
     const outputShare shift_out_share = outputShare::constant(shift_out_t, P.my_num(), out_arithmetic_mac_key);
@@ -533,15 +545,23 @@ void run(int argc, const char** argv)
 //    for (int i = 0; i < n_chunks; i++) {
 //        players.push_back(CryptoPlayer(N, i * 3));
 //    }
-    const int n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
-    const int mem_cutoff = opts.chunk_size;
+    const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
+    const unsigned long mem_cutoff = opts.chunk_size;
+
+    const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
+    const typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
+    const typename outputShare::clear shift_out_t = typename outputShare::clear(bigint(1)) << (n_bits_per_input - 1);
+
+    std::cout << "shift_in " << shift_in << " " << n_bits_per_input << " " << inputShare::clear::n_bits() << endl;
+    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
-#pragma omp parallel for
+#pragma omp parallel for num_threads(opts.n_threads)
     for (int j = 0; j < opts.n_threads; j++) {
-        const int begin_thread = j * n_chunks_per_thread;
-        const int end_thread = min((j + 1) * n_chunks_per_thread, (int) input_shares.size());
+        const unsigned long begin_thread = j * n_chunks_per_thread;
+        const unsigned long end_thread = min(((unsigned long) (j + 1) * n_chunks_per_thread), input_shares.size());
+        assert(begin_thread < end_thread);
 
         const int n_chunks = DIV_CEIL(end_thread - begin_thread, mem_cutoff);
 
@@ -549,7 +569,7 @@ void run(int argc, const char** argv)
         stream << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
         cout << stream.str();
 
-        CryptoPlayer P_j(N, j * 3);
+        CryptoPlayer P_j(N, j * opts.n_threads);
 
         MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length);
         MixedProtocolSet<inputShare> set_input_i(P_j, setup_input_i);
@@ -558,16 +578,18 @@ void run(int argc, const char** argv)
         ProtocolSet<outputShare> set_output_i(P_j, setup_output_i);
 
         for (int i = 0; i < n_chunks; i++) {
-            const int begin_chunk = begin_thread + i * mem_cutoff;
-            const int end_chunk = min(begin_chunk + mem_cutoff, end_thread);
+            const unsigned long begin_chunk = begin_thread + i * mem_cutoff;
+            const unsigned long end_chunk = min(begin_chunk + mem_cutoff, end_thread);
             // each thread in parallel
 
             vector<outputShare> res = convert_shares(input_shares.begin() + begin_chunk, input_shares.begin() + end_chunk,
                                                      set_input_i, set_output_i, setup_input_i.get_mac_key(), setup_input_i.binary.get_mac_key(),
-                                                     setup_output_i.get_mac_key(), P_j, n_bits_per_input, opts.debug);
+                                                     setup_output_i.get_mac_key(), P_j, n_bits_per_input,
+                                                     shift_int_t, shift_out_t,
+                                                     opts.debug);
 
 //            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
-            for (int k = 0; k < (int)res.size(); k++) {
+            for (unsigned long k = 0; k < res.size(); k++) {
                 result[begin_chunk + k] = res[k];
             }
 
