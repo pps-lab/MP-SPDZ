@@ -338,6 +338,9 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //                    std::cout << "What I have: " << bigint(c).get_str(2) << endl;
                     std::cout << c << " !=  "<< reals[i] << " Need shift   " << bigint(typename outputShare::clear(c - reals[i])).get_str(2) << "(" << typename outputShare::clear(c - reals[i]) << ")" << endl;
                     std::cout << bigint(c) << " !=bg " << bigint(reals[i]) << endl;
+                    std::cout << "Bits were " << open_mask[i] << endl;
+                    std::cout << "Masking was " << edabits_out_a[i] << endl;
+                    std::cout << "Shift out was " << shift_out_t << endl;
 //                    std::cout << "Shift (inv)  " << bigint(typename outputShare::clear(reals[i] - c)).get_str(2) << "(" << bigint(typename outputShare::clear(reals[i] - c)) << ")" << endl;
 //                    std::cout << "Shift of minu" << bigint(shift_out_t).get_str(2) << " (" << bigint(shift_out_t) << ")"
 //                              << endl;
@@ -480,6 +483,7 @@ void run(int argc, const char** argv)
                 inputShare::constant(typename inputShare::clear(bigint("0")), P.my_num(), typename inputShare::mac_key_type()),
                 inputShare::constant(typename inputShare::clear(bigint("1")), P.my_num(), typename inputShare::mac_key_type()),
                 inputShare::constant(typename inputShare::clear(bigint("-5")), P.my_num(), typename inputShare::mac_key_type()),
+                inputShare::constant(typename inputShare::clear(bigint("229539328")), P.my_num(), typename inputShare::mac_key_type()),
                 inputShare::constant(typename inputShare::clear(bigint("1073741823")), P.my_num(), typename inputShare::mac_key_type()),
                 inputShare::constant(typename inputShare::clear(bigint("-1073741823")), P.my_num(), typename inputShare::mac_key_type()),
         };
