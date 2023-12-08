@@ -31,11 +31,16 @@ N_BITS=32
 ##
 #echo "====================";
 
-#BIN=./mascot-switch-party.x
+BIN=./mascot-switch-party.x
 
-$BIN -p 0 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --n_threads 36 & ; pid0=$!
-$BIN -p 1 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --n_threads 36 & ; pid1=$!
-$BIN -p 2 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --n_threads 36 & ; pid2=$!
+#$BIN -p 0 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --chunk_size 250000 --n_threads 18 -pr 128 & ; pid0=$!
+#$BIN -p 1 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --chunk_size 250000 --n_threads 18 -pr 128 & ; pid1=$!
+#$BIN -p 2 -N 3 --n_bits 31 --n_shares 2977 --out_start 0 --chunk_size 250000 --n_threads 18 -pr 128 & ; pid2=$!
+#wait $pid0 $pid1 $pid2
+
+#$BIN -p 0 -N 2 --n_bits 31 --n_shares 92 --out_start 0 --chunk_size 250000 --n_threads 18 -pr 128 & ; pid0=$!
+$BIN -p 1 -N 2 --n_bits 31 --n_shares 8 --out_start 0 --chunk_size 250000 --n_threads 1 -pr 128 & ; pid1=$!
+#$BIN -p 2 -N 2 --n_bits 31 --n_shares 92 --out_start 0 --chunk_size 250000 --n_threads 1 -pr 128 & ; pid2=$!
 wait $pid0 $pid1 $pid2
 
 ##

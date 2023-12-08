@@ -99,9 +99,9 @@ public:
 template<class T>
 class MixedProtocolSet
 {
-    ProtocolSet<T> arithmetic;
 
 public:
+    ProtocolSet<T> arithmetic;
     BinaryProtocolSet<typename T::bit_type> binary;
 
     typename T::MAC_Check& output;

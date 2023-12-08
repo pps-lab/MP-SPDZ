@@ -91,7 +91,7 @@ void run(int argc, const char** argv)
     typename inputShare::MAC_Check inputMCp(input_mac_key);
 
     typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
-    string message = auditable_inference<T>(inputMCc, P, opts);
+    string message = generate_commitments<T>(inputMCc, P, opts);
 
     auto diff_all = P.total_comm() - stats_all;
     print_timer("commit_with_gen", timer_all.elapsed());

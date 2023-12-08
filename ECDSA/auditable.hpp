@@ -40,7 +40,7 @@ inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
 
 
 template<template<class U> class T>
-std::string auditable_inference(
+std::string generate_commitments(
         typename T<P377Element>::MAC_Check& MCc,
         Player& P,
         PCOptions& opts)

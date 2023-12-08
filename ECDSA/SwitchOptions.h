@@ -18,8 +18,10 @@ public:
     int output_start;
     int n_threads;
     int chunk_size;
+    int input_prime_length;
     bool debug;
     bool test;
+    bool only_distribute_inputs;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -113,6 +115,24 @@ public:
                 "-te",
                 "--test"
                 );
+        opt.add(
+                "",
+                0,
+                1,
+                0,
+                "Input prime length",
+                "-pr",
+                "--prime_length"
+                );
+        opt.add(
+                "",
+                0,
+                0,
+                0,
+                "Only distribute inputs without converting shares",
+                "-nc",
+                "--no_conversion"
+                );
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
@@ -124,8 +144,10 @@ public:
         opt.get("-o")->getInt(output_start);
         opt.get("-t")->getInt(n_threads);
         opt.get("-c")->getInt(chunk_size);
+        opt.get("-pr")->getInt(input_prime_length);
         debug = opt.isSet("-d");
         test = opt.isSet("-te");
+        only_distribute_inputs = opt.isSet("-nc");
 
         opt.resetArgs();
     }

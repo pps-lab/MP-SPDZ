@@ -491,6 +491,9 @@ void run(int argc, const char** argv)
 //    OnlineOptions::singleton.batch_size = opts.n_shares;
 //    OnlineOptions::singleton.verbose = true;
 
+    // only only_distribute_inputs can be enabled if we are not reading shares
+    assert(not (opts.n_shares > 0 and opts.only_distribute_inputs));
+
     // we either read shares or re-share input
     std::string log_name;
 
@@ -512,6 +515,7 @@ void run(int argc, const char** argv)
         };
         log_name = "test";
     } else if (opts.n_shares > 0) {
+        std::cout << "Initializing with bit length " << bit_length << std::endl;
         inputShare::clear::init_default(bit_length);
         inputShare::clear::next::init_default(bit_length, false);
         outputShare::clear::init_field(t_big);
@@ -530,6 +534,9 @@ void run(int argc, const char** argv)
         input_shares = distribute_inputs(P, set_input, opts.inputs_format, opts.n_bits_per_input);
         std::cout << "Done reading inputs" << endl;
         log_name = "share_switch_input";
+
+        set_input.check();
+        set_output.check();
     } else {
         std::cerr << "Must specify either n_shares or inputs_format," << std::endl;
         exit(1);
