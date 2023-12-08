@@ -150,10 +150,10 @@ std::vector<T> read_private_input(Player &P, std::vector<input_format_item> form
             long cnt = format[i].length;
             std::cout << "Parsing " << cnt << " integers" << std::endl;
             for (int j = 0; j < cnt; j++) {
-                uint64_t x;
+                int64_t x;
                 binary_input.read((char*) &x, sizeof(x));
-                // assert x is smaller than 2^32
-                assert(x < (((uint64_t)1) << 32));
+                // assert x is within range
+                assert(x < (((int64_t)1) << 31));
                 inputs.push_back(T((int64_t)x));
             }
         } else if (format[i].type == 'f') {
