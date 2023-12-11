@@ -53,8 +53,14 @@ echo "====================";
 #$BIN -p 2 -N 3 --n_bits 64 -i i8684,f790244,i1,f91 -i i8746,f795886 -i i8618,f784238 -d --n_threads 2 & ; pid2=$!
 #wait $pid0 $pid1 $pid2
 #$BIN -p 0 -N 3 --n_bits 31 -i i167090,f51330048,i1,f3072 -i 0 -i 0 -d --n_threads 1 & ; pid0=$!
-$BIN -p 1 -N 3 --n_bits 31 -i i167090,f51330048,i1,f3072 -i 0 -i 0 -d --n_threads 1 & ; pid1=$!
-$BIN -p 2 -N 3 --n_bits 31 -i i167090,f51330048,i1,f3072 -i 0 -i 0 -d --n_threads 1 & ; pid2=$!
+
+#$BIN -p 0 -N 3 --n_bits 31 -i i167090,f5130048 -i 0 -i 0 -d --n_threads 1 & ; pid0=$!
+#$BIN -p 1 -N 3 --n_bits 31 -i i167090,f5130048 -i 0 -i 0 -d --n_threads 1 & ; pid1=$!
+#$BIN -p 2 -N 3 --n_bits 31 -i i167090,f5130048 -i 0 -i 0 -d --n_threads 1 & ; pid2=$!
+#wait $pid0 $pid1 $pid2
+$BIN -p 0 -N 3 --n_bits 31 -i i167090 -i 0 -i 0 -d --n_threads 1 & ; pid0=$!
+$BIN -p 1 -N 3 --n_bits 31 -i i167090 -i 0 -i 0 -d --n_threads 1 & ; pid1=$!
+$BIN -p 2 -N 3 --n_bits 31 -i i167090 -i 0 -i 0 -d --n_threads 1 & ; pid2=$!
 wait $pid0 $pid1 $pid2
 
 #$BIN -p 0 -N 3 --n_bits 64 --chunk_size 250000 -i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i 0 -i 0 -d --n_threads 2 & ; pid0=$!

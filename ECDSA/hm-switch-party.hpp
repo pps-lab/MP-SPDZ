@@ -597,6 +597,8 @@ void run(int argc, const char** argv)
         ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j);
         ProtocolSet<outputShare> set_output_i(P_j, setup_output_i);
 
+        auto thread_local_stats = P.total_comm();
+
         for (int i = 0; i < n_chunks; i++) {
             const unsigned long begin_chunk = begin_thread + i * mem_cutoff;
             const unsigned long end_chunk = min(begin_chunk + mem_cutoff, end_thread);
@@ -621,6 +623,13 @@ void run(int argc, const char** argv)
             set_output_i.check();
 
         }
+
+        set_input_i.check();
+//        set_input_i.binary.thread.MC->get_part_MC().Check(P);
+        set_output_i.check();
+
+        auto thread_local_diff = P.total_comm() - thread_local_stats;
+        thread_local_diffs[j] = thread_local_diff;
     }
 //    set_input.check();
 //    set_output.check();
@@ -632,6 +641,11 @@ void run(int argc, const char** argv)
     write_shares<outputShare>(P, result, KZG_SUFFIX, overwrite, opts.output_start);
 
     auto diff = P.total_comm() - stats;
+
+    for (int j = 0; j < (int)thread_local_diffs.size(); j++) {
+        diff = diff + thread_local_diffs[j];
+    }
+
     print_timer(log_name, timer.elapsed());
     print_stat(log_name, diff);
     print_global(log_name, P, diff);
