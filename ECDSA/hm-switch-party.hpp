@@ -575,6 +575,8 @@ void run(int argc, const char** argv)
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
+    std::vector<NamedCommStats> thread_local_diffs(opts.n_threads);
+
 #pragma omp parallel for num_threads(opts.n_threads)
     for (int j = 0; j < opts.n_threads; j++) {
         bigint::init_thread();
