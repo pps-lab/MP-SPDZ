@@ -153,8 +153,12 @@ std::vector<T> read_private_input(Player &P, std::vector<input_format_item> form
                 int64_t x;
                 binary_input.read((char*) &x, sizeof(x));
                 // assert x is within range
-                assert(x < (((int64_t)1) << 31));
-                inputs.push_back(T((int64_t)x));
+                int64_t two_l_minus_one = (((int64_t)1) << (31 - 1));
+                if (x < 0) {
+                    std::cout << "Negative " << x << endl;
+                }
+                assert(x < two_l_minus_one and x > -two_l_minus_one);
+                inputs.push_back(T(x));
             }
         } else if (format[i].type == 'f') {
             long cnt = format[i].length;

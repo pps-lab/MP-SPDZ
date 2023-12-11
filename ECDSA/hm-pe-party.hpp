@@ -73,6 +73,13 @@ void run(int argc, const char** argv)
     set.output.exchange(P);
     set.check();
     P377Element::Scalar beta = set.output.finalize_open();
+//    beta = P377Element::Scalar(bigint("6578911705820052831726078019867999857858229676316950877123218490548071891330"));
+
+    if (opts.eval_point.length() > 0) {
+        std::cout << "Evaluating at fixed point " << opts.eval_point << std::endl;
+        beta = P377Element::Scalar(bigint(opts.eval_point));
+        std::cout << "Parsed beta: " << beta << std::endl;
+    }
 
     eval_point<T>(beta, set, P, opts);
 

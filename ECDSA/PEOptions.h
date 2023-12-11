@@ -14,6 +14,7 @@ public:
     int n_shares;
     int start;
     int input_party_i;
+    string eval_point;
 
     PEOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -44,12 +45,26 @@ public:
                 "-i", // Flag token.
                 "--input_party_i" // Flag token.
         );
+        opt.add(
+                "",
+                0,
+                1,
+                0,
+                "Evaluation point",
+                "-e",
+                "--eval_point"
+                );
 
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
         opt.get("-s")->getInt(start);
         opt.get("-i")->getInt(input_party_i);
+
+        if (opt.isSet("-e")) {
+            opt.get("-e")->getString(eval_point);
+        }
+
         opt.resetArgs();
 
         if (input_party_i < 0) {
