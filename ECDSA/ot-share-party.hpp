@@ -117,7 +117,8 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     P377Element::G1::order().to_mpz(t);
     bigint t_big(t);
 
-    string prefix = get_prep_sub_dir<inputShare>("Player-Data", n_players, inputShare::clear::length());
+//    string prefix = get_prep_sub_dir<inputShare>("Player-Data", n_players, inputShare::clear::length());
+    string prefix = "2-p-253";
     std::cout << "Loading mac from " << prefix << endl;
 
     if (bit_length == -1) {
@@ -136,7 +137,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     timer.start();
     auto stats = P.total_comm();
 
-    MixedProtocolSetup<inputShare> setup_input(P, bit_length);
+    MixedProtocolSetup<inputShare> setup_input(P, bit_length, prefix);
     MixedProtocolSet<inputShare> set_input(P, setup_input);
 
     ProtocolSetup<outputShare> setup_output(t_big, P);

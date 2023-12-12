@@ -43,8 +43,8 @@ BIN=./semi-share-party.x
 #$BIN -p 2 -N 2 --n_bits 31 --n_shares 92 --out_start 0 --chunk_size 250000 --n_threads 1 -pr 128 & ; pid2=$!
 #wait $pid0 $pid1 $pid2
 
-$BIN -p 0 -N 2 --n_bits 31 -i i92 -i 0 --out_start 0 --chunk_size 250000 --n_threads 1 -pr 128 & ; pid1=$!
-$BIN -p 1 -N 2 --n_bits 31 -i i92 -i 0 --out_start 0 --chunk_size 250000 --n_threads 1 -pr 128 & ; pid1=$!
+#$BIN -p 0 -N 2 --n_bits 31 -i i92 -i 0 --out_start 0 --chunk_size 250000 --n_threads 1 & ; pid1=$!
+$BIN -p 1 -N 2 --n_bits 31 -i i92 -i 0 --out_start 0 --chunk_size 250000 --n_threads 1 & ; pid1=$!
 wait $pid1
 ##
 echo "====================";
