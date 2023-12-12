@@ -31,7 +31,7 @@ N_BITS=32
 ##
 #echo "====================";
 
-BIN=./mascot-share-party.x
+BIN=./semi-share-party.x
 
 #$BIN -p 0 -N 3 --n_bits 31 --n_shares 431080 --out_start 0 --chunk_size 250000 & ; pid0=$!
 #$BIN -p 1 -N 3 --n_bits 31 --n_shares 431080 --out_start 0 --chunk_size 250000 & ; pid1=$!

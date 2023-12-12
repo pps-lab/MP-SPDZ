@@ -274,9 +274,11 @@ semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-pe-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-pc-party.x: $(OT) $(LIBSIMPLEOT)
+mascot-switch-party.x: $(OT) $(LIBSIMPLEOT) $(SPDZ) $(TINIER)
 mascot-share-party.x: $(OT) $(LIBSIMPLEOT) $(SPDZ) $(TINIER)
 semi-pe-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 semi-pc-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
+semi-share-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 lowgear-pe-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 emulate.x: GC/FakeSecret.o
