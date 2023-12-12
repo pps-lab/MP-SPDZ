@@ -28,7 +28,7 @@ void Binary_File_IO::write_to_file(const string filename,
 
   if (start_pos != -1)
     {
-      long write_pos = file_signature<T>().get_total_length() + start_pos * T::size();
+      long write_pos = ((long)file_signature<T>().get_total_length()) + start_pos * (long)T::size();
       // fill with zeros if needed
       for (long i = outf.tellp(); i < write_pos; i++) {
         outf.put(0);
@@ -58,12 +58,12 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
   check_file_signature<T>(inf, filename).get_length();
   auto data_start = inf.tellg();
 
-  unsigned long size_in_bytes = T::size() * buffer.size();
+  unsigned long size_in_bytes = ((unsigned long)T::size()) * buffer.size();
   unsigned long n_read = 0;
 
   // this char array is causing issues
   char *read_buffer = new char[size_in_bytes];
-  inf.seekg(((unsigned long)start_posn) * T::size(), iostream::cur);
+  inf.seekg(((unsigned long)start_posn) * ((unsigned long)T::size()), iostream::cur);
   do
   {
       inf.read(read_buffer + n_read, size_in_bytes - n_read);
@@ -106,7 +106,7 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
   inf.close();
 
   for (unsigned int i = 0; i < buffer.size(); i++)
-    buffer[i].assign(&read_buffer[i*T::size()]);
+    buffer[i].assign(&read_buffer[((unsigned long)i)*((unsigned long)T::size())]);
 
   delete[] read_buffer;
 }

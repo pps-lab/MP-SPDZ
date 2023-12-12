@@ -71,11 +71,11 @@ void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwri
         ofstream outf;
         outf.open(filename_suffix, ios::out | ios::binary | ios::trunc);
         outf.close();
-        std::cout << "truncating value" << std::endl;
+        std::cout << "truncating output file to start from the beginning" << std::endl;
     }
 
     checkSignature<T>(filename_suffix);
-    std::cout << "Writing " << shares.size() << " shares at position " << start_pos << " with " << file_signature<T>() << " signature." << std::endl;
+    std::cout << "Writing " << shares.size() << " shares " << " with " << file_signature<T>() << " signature. (appending to the end of the file)" << std::endl;
 
     // should append at the end!
     (void)start_pos;

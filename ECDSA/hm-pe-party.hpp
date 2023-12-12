@@ -59,7 +59,10 @@ void run(int argc, const char** argv)
 
     typedef T<P377Element::Scalar> inputShare;
 
-    ProtocolSetup< inputShare > setup(bigint(t), P);
+    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
+    std::cout << "Loading mac from " << prefix << endl;
+
+    ProtocolSetup< inputShare > setup(bigint(t), P, prefix);
 //    ProtocolSetup< inputShare > setup(bigint(t), P);
     ProtocolSet< inputShare> set(P, setup);
 //    inputShare::clear::init_field(bigint(t));
