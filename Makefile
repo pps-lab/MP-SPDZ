@@ -229,6 +229,8 @@ Fake-Offline.x: Utils/Fake-Offline.o $(VM)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
 %-switch-party.x: ECDSA/%-switch-party.o ECDSA/P256Element.o ECDSA/P377Element.o Protocols/MalRepRingOptions.o $(VM) $(BLS)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
+%-share-party.x: ECDSA/%-share-party.o Protocols/MalRepRingOptions.o $(VM) $(BLS)
+	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
 
 replicated-bin-party.x: GC/square64.o
 replicated-ring-party.x: GC/square64.o
@@ -272,6 +274,7 @@ semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-pe-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-pc-party.x: $(OT) $(LIBSIMPLEOT)
+mascot-share-party.x: $(OT) $(LIBSIMPLEOT) $(SPDZ) $(TINIER)
 semi-pe-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 semi-pc-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 lowgear-pe-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
