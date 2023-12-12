@@ -138,7 +138,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     timer.start();
     auto stats = P.total_comm();
 
-    MixedProtocolSetup<inputShare> setup_input(P, bit_length, prefix);
+    MixedProtocolSetup<inputShare> setup_input(t_big, P, prefix);
     MixedProtocolSet<inputShare> set_input(P, setup_input);
 
     auto input_shares = distribute_inputs(P, set_input, opts.inputs_format, opts.n_bits_per_input);
