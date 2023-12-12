@@ -135,7 +135,7 @@ sy: sy-rep-field-party.x sy-rep-ring-party.x sy-shamir-party.x
 ecdsa: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-ecdsa-party.cpp)) Fake-ECDSA.x
 ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ecdsa-party.cpp))
 
-poly_commit: libff $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pe-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-switch-party.cpp)) Fake-ECDSA.x $(BLS)
+poly_commit: libff $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pe-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-switch-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-share-party.cpp)) Fake-ECDSA.x $(BLS)
 
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
