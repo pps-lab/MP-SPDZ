@@ -56,16 +56,32 @@ void eval_point(
 
     std::cout << "Share 0 " << inputs[0] << std::endl;
 
-    // debug reconstruct
+//    // debug reconstruct
+//    vector< vector< string > > inputs_format_str;
+//    vector<string> str_zero = { "i167090", "f41330048" };
+//    inputs_format_str.push_back(str_zero);
+//
+//    input_format_type inputs_format = process_format(inputs_format_str);
+//    std::vector<P377Element::Scalar> private_inputs;
+//    int pid_to_check = 0;
+//    if (P.my_num() == pid_to_check and inputs_format[P.my_num()].size() > 0) {
+//        private_inputs = read_private_input<P377Element::Scalar>(P, inputs_format[P.my_num()]);
+//    }
 //    set.output.init_open(P, inputs.size());
 //    for (unsigned long i = 0; i < inputs.size(); i++) {
 //        set.output.prepare_open(inputs[i]);
 //    }
 //    set.output.exchange(P);
 //    set.check();
+//    std::cout << "Starting opening" << std::endl;
 //    for (unsigned long i = 0; i < inputs.size(); i++) {
 //        P377Element::Scalar input = set.output.finalize_open();
-//        cout << "input_" << i << " = " << input << endl;
+//        if (P.my_num() == pid_to_check) {
+//            if (input != private_inputs[i]) {
+//                std::cout << "Input " << i << " does not match" << std::endl;
+//                std::cout << "Expected " << private_inputs[i] << " but got " << input << std::endl;
+//            }
+//        }
 //    }
 
 
