@@ -98,7 +98,7 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     return result;
 }
 
-template<class inputShare, class outputShare>
+template<class inputShare>
 void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 {
     bigint::init_thread();
@@ -122,7 +122,8 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     std::cout << "Loading mac from " << prefix << endl;
 
     if (bit_length == -1) {
-        bit_length = inputShare::clear::n_bits();
+//        bit_length = inputShare::clear::n_bits();
+        bit_length = 253;
     }
 
     std::cout << "inputs format" << endl;
@@ -140,15 +141,11 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     MixedProtocolSetup<inputShare> setup_input(P, bit_length, prefix);
     MixedProtocolSet<inputShare> set_input(P, setup_input);
 
-    ProtocolSetup<outputShare> setup_output(t_big, P);
-    ProtocolSet<outputShare> set_output(P, setup_output);
-
     auto input_shares = distribute_inputs(P, set_input, opts.inputs_format, opts.n_bits_per_input);
     std::cout << "Done reading inputs" << endl;
     string log_name = "share_switch_input";
 
     set_input.check();
-    set_output.check();
 
     // save those to file
     std::cout << "Saving unconverted shares " << endl;
@@ -160,7 +157,6 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     print_stat(log_name, diff);
     print_global(log_name, P, diff);
 
-//    vector<outputShare> check_shares = read_inputs<outputShare>(P, 2, KZG_SUFFIX);
 //
 //    std::cout << "Share 0 after reading " << check_shares[0] << std::endl;
 //    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
