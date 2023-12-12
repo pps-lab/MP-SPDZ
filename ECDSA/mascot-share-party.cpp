@@ -17,5 +17,5 @@
 
 int main(int argc, const char** argv)
 {
-    run<Share, Share<P377Element::Scalar>>(argc, argv);
+    run<Share<P377Element::Scalar>, Share<P377Element::Scalar>>(argc, argv, -1, 2);
 }

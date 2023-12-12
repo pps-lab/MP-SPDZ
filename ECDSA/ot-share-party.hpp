@@ -166,35 +166,3 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 
     P377Element::finish();
 }
-
-
-template< template<class T> class inputShare, class outputShare>
-void run(int argc, const char** argv) {
-    ez::ezOptionParser opt;
-    SwitchOptions opts(opt, argc, argv);
-
-    // assume we are in a prime field
-    assert(opts.input_prime_length > 0);
-    const int n_limbs = DIV_CEIL(opts.input_prime_length, 64);
-
-    // TODO: down here, dont hardcode num players to 2
-
-    switch (n_limbs)
-    {
-#undef X
-#define X(L) \
-    case L: \
-        run<inputShare<gfp_<0, L>>, outputShare>(argc, argv, opts.input_prime_length, 2); \
-        break;
-#ifndef FEWER_PRIMES
-//        X(1) X(2) X(3) X(4)
-        X(2)
-#endif
-#undef X
-        default:
-            cerr << "Not compiled for " << opts.input_prime_length << "-bit primes" << endl;
-            cerr << "Compile with -DGFP_MOD_SZ=" << n_limbs << endl;
-            exit(1);
-    }
-
-}
