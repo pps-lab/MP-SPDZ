@@ -61,7 +61,8 @@ void run(int argc, const char** argv)
 
     typedef T<P377Element::Scalar> inputShare;
 
-    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
+    // TODO: this is fixed to BLS12
+    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, 253);
     std::cout << "Loading mac from " << prefix << endl;
 
     ProtocolSetup< inputShare > setup(bigint(t), P, prefix);
