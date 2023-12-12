@@ -150,7 +150,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     // save those to file
     std::cout << "Saving unconverted shares " << endl;
     bool overwrite = opts.output_start == 0;
-    write_shares<inputShare>(P, input_shares, "", overwrite, opts.output_start);
+    write_shares<inputShare>(P, input_shares, KZG_SUFFIX, overwrite, opts.output_start);
 
     auto diff = P.total_comm() - stats;
     print_timer(log_name, timer.elapsed());
