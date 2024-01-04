@@ -47,8 +47,10 @@ void run(int argc, const char** argv)
     ez::ezOptionParser opt;
     PEOptions opts(opt, argc, argv);
 
+    const int n_parties = 3 + is_same<T<P256Element>, Rep4Share<P256Element>>::value;
     Names N(opt, argc, argv,
-            3 + is_same<T<P256Element>, Rep4Share<P256Element>>::value);
+            n_parties);
+
 
     CryptoPlayer P(N, "pc");
 
@@ -70,18 +72,20 @@ void run(int argc, const char** argv)
 
     std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
-    T<P377Element::Scalar> beta_share = set.protocol.get_random();
-    set.output.init_open(P);
-    set.output.prepare_open(beta_share);
-    set.output.exchange(P);
-    set.check();
-    P377Element::Scalar beta = set.output.finalize_open();
 //    beta = P377Element::Scalar(bigint("6578911705820052831726078019867999857858229676316950877123218490548071891330"));
 
+    P377Element::Scalar beta;
     if (opts.eval_point.length() > 0) {
         std::cout << "Evaluating at fixed point " << opts.eval_point << std::endl;
         beta = P377Element::Scalar(bigint(opts.eval_point));
         std::cout << "Parsed beta: " << beta << std::endl;
+    } else {
+        T<P377Element::Scalar> beta_share = set.protocol.get_random();
+        set.output.init_open(P);
+        set.output.prepare_open(beta_share);
+        set.output.exchange(P);
+        set.check();
+        beta = set.output.finalize_open();
     }
 
     eval_point<T>(beta, set, P, opts);

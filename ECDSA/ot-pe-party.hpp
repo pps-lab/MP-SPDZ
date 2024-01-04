@@ -78,15 +78,21 @@ void run(int argc, const char** argv)
 //    inputShare beta_share = inputShare::constant(4757838273, P.my_num(), setup.get_mac_key());
     inputShare beta_share,__;
 
-    set.preprocessing.get_two(DATA_INVERSE, beta_share, __);
-    set.output.init_open(P);
-    set.output.prepare_open(beta_share);
-    set.output.exchange(P);
-    set.check();
-    P377Element::Scalar beta = set.output.finalize_open();
+    P377Element::Scalar beta;
+    if (opts.eval_point.length() > 0) {
+        std::cout << "Evaluating at fixed point " << opts.eval_point << std::endl;
+        beta = P377Element::Scalar(bigint(opts.eval_point));
+        std::cout << "Parsed beta: " << beta << std::endl;
+    } else {
+        set.preprocessing.get_two(DATA_INVERSE, beta_share, __);
+        set.output.init_open(P);
+        set.output.prepare_open(beta_share);
+        set.output.exchange(P);
+        set.check();
+        beta = set.output.finalize_open();
+    }
 
     eval_point<T>(beta, set, P, opts);
 
     P377Element::finish();
-
 }

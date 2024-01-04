@@ -84,11 +84,24 @@ void eval_point(
 //        }
 //    }
 
-
-    P377Element::Scalar current_beta = 1;
+    P377Element::Scalar r;
+    r.randomize(G);
+    set.input.reset_all(P);
+    if (opts.input_party_i == P.my_num()) {
+        set.input.add_mine(r);
+        std::cout << "input_consistency_random_value_" << opts.input_party_i << "=" << to_string(bigint(r)) << endl;
+    } else {
+        set.input.add_other(opts.input_party_i);
+    }
+    set.input.exchange();
+//    set.check();
+    T<P377Element::Scalar> r_share = set.input.finalize(0);
 
     // Evaluate polynomial defined by inputs at beta
     T<P377Element::Scalar> result;
+    result += r_share;
+
+    P377Element::Scalar current_beta = beta;
     for (int i = 0; i < opts.n_shares; i++) { // can we parallelize this?
         result += inputs[i] * current_beta;
         current_beta = current_beta * beta;
