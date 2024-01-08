@@ -278,6 +278,7 @@ mascot-switch-party.x: $(OT) $(LIBSIMPLEOT) $(SPDZ) $(TINIER)
 mascot-share-party.x: $(OT) $(LIBSIMPLEOT) $(SPDZ) $(TINIER)
 semi-pe-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 semi-pc-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
+semi-switch-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 semi-share-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 lowgear-pe-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)

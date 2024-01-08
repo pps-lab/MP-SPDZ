@@ -73,9 +73,6 @@ void run(int argc, const char** argv)
 
     std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
-//    typename pShare::TriplePrep sk_prep(0, usage);
-    // TODO here: fix so we actually sample a random point
-//    inputShare beta_share = inputShare::constant(4757838273, P.my_num(), setup.get_mac_key());
     inputShare beta_share,__;
 
     P377Element::Scalar beta;

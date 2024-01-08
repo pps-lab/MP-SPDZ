@@ -123,7 +123,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     BitAdder bit_adder;
     typedef typename inputShare::bit_type bt;
     typedef typename inputShare::bit_type::part_type BT;
-    int dl = inputShare::clear::MAX_EDABITS;
+    int dl = BT::default_length;
     vector <vector<BT>> sums_one(input_size);
     vector<vector<vector<BT> > > summands_one(n_bits_per_input, vector<vector<BT> >(2, vector<BT>(input_size)));
 
