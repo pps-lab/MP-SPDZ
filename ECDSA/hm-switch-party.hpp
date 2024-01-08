@@ -589,6 +589,11 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     string prefix_output = get_prep_sub_dir<outputShare>("Player-Data", n_players, outputShare::clear::length());
     std::cout << "Loading output mac from " << prefix_output << " " << outputShare::clear::length() << endl;
 
+    if (outputShare::has_mac) {
+        typename outputShare::mac_key_type temp_mac = read_generate_write_mac_key<outputShare>(P, prefix_output);
+        (void)temp_mac;
+    }
+
     int n_bits_per_input = bit_length;
     if (opts.n_bits_per_input != -1) {
         n_bits_per_input = opts.n_bits_per_input;
@@ -648,7 +653,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
         MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length, prefix_input);
         MixedProtocolSet<inputShare> set_input_i(P_j, setup_input_i);
 
-        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j, prefix_output);
+        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j);
         ProtocolSet<outputShare> set_output_i(P_j, setup_output_i);
 
         auto thread_local_stats = P_j.total_comm();
