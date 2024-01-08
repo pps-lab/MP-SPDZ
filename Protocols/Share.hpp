@@ -3,6 +3,7 @@
 
 #include "Share.h"
 
+#define VERBOSE 1
 
 template<class T, class V>
 template<class U>

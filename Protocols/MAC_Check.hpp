@@ -34,7 +34,7 @@ template<class U>
 void Tree_MAC_Check<U>::setup(Player& P)
 {
   assert(coordinator == 0);
-  coordinator = new Coordinator(P.N, U::type_string() + to_string(U::clear::length()));
+  coordinator = new Coordinator(P.N, P.get_id() + U::type_string() + to_string(U::clear::length()));
   U::prep_type::MAC_Check::coordinator = coordinator;
   U::prep_check_type::MAC_Check::coordinator = coordinator;
   U::bit_prep_type::MAC_Check::coordinator = coordinator;

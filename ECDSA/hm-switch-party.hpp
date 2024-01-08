@@ -122,9 +122,10 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 
     BitAdder bit_adder;
     typedef typename inputShare::bit_type bt;
+    typedef typename inputShare::bit_type::part_type BT;
     int dl = inputShare::clear::MAX_EDABITS;
-    vector <vector<bt>> sums_one(input_size);
-    vector<vector<vector<bt> > > summands_one(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
+    vector <vector<BT>> sums_one(input_size);
+    vector<vector<vector<BT> > > summands_one(n_bits_per_input, vector<vector<BT> >(2, vector<BT>(input_size)));
 
     vector<typename inputShare::clear> reals;
 
@@ -193,7 +194,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         // dim 0: n_bits, dim 1: (x,y), dim 2; element?
         for (int i = 0; i < n_bits_per_input; i++) {
             for (int j = 0; j < input_size; j++) {
-                summands_one[i][0][j] = bt::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
+                summands_one[i][0][j] = BT::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
                 summands_one[i][1][j] = edabits_in[j][i];
 //                summands_one[i][1][j] = 0;
             }
@@ -212,8 +213,10 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
 //    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.binary.prep, P);
 
-    typename bt::LivePrep bit_prep(usage);
-    SubProcessor<bt> bit_proc(set_input.binary.thread.MC->get_part_MC(), bit_prep, P);
+//    typename bt::LivePrep bit_prep(usage);
+//    auto &party = GC::ShareThread<bt>::s();
+
+    SubProcessor<BT> bit_proc(set_input.binary.thread.MC->get_part_MC(), set_input.arithmetic.processor.bit_prep, P);
 
     int begin = 0;
     int end = input_size;
@@ -223,7 +226,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     // rewrite the above loop
     vector <outputShare> edabits_out_a;
     edabitvec <outputShare> buffer_out = set_output.preprocessing.get_edabitvec(strict, n_bits_per_input);
-    vector<vector<vector<bt> > > summands_two(n_bits_per_input, vector<vector<bt> >(2, vector<bt>(input_size)));
+    vector<vector<vector<BT> > > summands_two(n_bits_per_input, vector<vector<BT> >(2, vector<BT>(input_size)));
 
     for (int j = 0; j < input_size; j++) {
         if (buffer_out.empty()) {
@@ -241,7 +244,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
         }
     }
 
-    vector<vector<bt>> sums_two(input_size);
+    vector<vector<BT>> sums_two(input_size);
     bit_adder.add(sums_two, summands_two, begin, end, bit_proc,
                   bt::default_length, 0);
 
@@ -339,7 +342,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             typename outputShare::clear c = set_output.output.finalize_open();
             if (debug) {
 //                if (bigint(c) != bigint(reals[i])) {
-                if (bigint(typename outputShare::clear(c - reals[i])) != 0) {
+                if (bigint(typename outputShare::clear(bigint(c) - bigint(reals[i]))) != 0) {
                     //                    std::cout << reals[i] << " " << c << reals[i] - c << std::endl;
 //                    std::cout << bigint(c).get_str(2) << " != "
 //                              << bigint(typename inputShare::clear(reals[i])).get_str(2)
@@ -350,7 +353,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //                    std::cout << "What I want: " << bigint(typename outputShare::clear(reals[i])).get_str(2) << " ("
 //                              << bigint(typename outputShare::clear(reals[i])) << ")" << endl;
 //                    std::cout << "What I have: " << bigint(c).get_str(2) << endl;
-                    std::cout << c << " !=  "<< reals[i] << " Need shift   " << bigint(typename outputShare::clear(c - reals[i])).get_str(2) << "(" << typename outputShare::clear(c - reals[i]) << ")" << endl;
+// it may be that some of these comparison outputs are invalid now because we switch to bigint
+                    std::cout << c << " !=  "<< reals[i] << " Need shift   " << bigint(typename outputShare::clear(bigint(c) - bigint(reals[i]))).get_str(2) << "(" << typename outputShare::clear(bigint(c) - bigint(reals[i])) << ")" << endl;
                     std::cout << bigint(c) << " !=bg " << bigint(reals[i]) << endl;
                     std::cout << "Bits were " << open_mask[i] << endl;
                     std::cout << "Masking was " << edabits_out_a[i] << endl;
@@ -378,6 +382,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //    cout << "Overall conversion of " << input_size << " input values " << timer_all.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - overall_stats).print(true);
 
+    bit_proc.check();
 
     return result;
 }
@@ -394,6 +399,22 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     if (inputs_format[P.my_num()].size() > 0) {
         inputs = read_private_input<typename inputShare::clear>(P, inputs_format[P.my_num()]);
     }
+
+//    {
+//        // DEBUG: Eval point
+//        P377Element::Scalar beta = bigint("3090174033069088738712039487548204773548520248725210634374129034378083167182");
+//        P377Element::Scalar current_beta = 1;
+//
+//        // Evaluate polynomial defined by inputs at beta
+//        P377Element::Scalar result;
+//        for (int i = 0; i < (int)inputs.size(); i++) { // can we parallelize this?
+//            auto output_f = P377Element::Scalar(bigint(inputs[i]));
+//            result += output_f * current_beta;
+//            current_beta = current_beta * beta;
+//        }
+//        std::cout << "Eval at point beta " << beta << " is " << result << std::endl;
+//        // DEBUG: Eval point
+//    }
 
 //    for (unsigned long i = 0; i < inputs.size(); i++) {
 //        std::cout << "Input " << i << " " << inputs[i] << std::endl;
@@ -459,7 +480,7 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
 }
 
 template<class inputShare, class outputShare>
-void run(int argc, const char** argv)
+void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 {
     bigint::init_thread();
     ez::ezOptionParser opt;
@@ -467,9 +488,21 @@ void run(int argc, const char** argv)
     assert(opts.inputs_format.size() == 0 or opts.n_shares == 0); // can only specify one
 
 //    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
-    Names N(opt, argc, argv, 3);
+
+//    int n_players = 3;
+//    if (opt.isSet("-N")) {
+//        opt.get("-N")->getInt(n_players);
+//        std::cout << "N " << n_players << endl;
+//    }
+    Names N(opt, argc, argv, n_players);
 
     CryptoPlayer P(N, "pc");
+
+    string prefix_input = get_prep_sub_dir<inputShare>("Player-Data", n_players, bit_length);
+    std::cout << "Loading input mac from " << prefix_input << endl;
+
+//    typename inputShare::mac_key_type mac_key;
+//    inputShare::read_or_generate_mac_key(prefix, P, mac_key);
 
     // protocol setup (domain, MAC key if needed etc)
     libff::bls12_377_pp::init_public_params();
@@ -478,7 +511,9 @@ void run(int argc, const char** argv)
     P377Element::G1::order().to_mpz(t);
     bigint t_big(t);
 
-    int bit_length = inputShare::clear::n_bits();
+    if (bit_length == -1) {
+        bit_length = inputShare::clear::n_bits();
+    }
 
     std::cout << "inputs format" << endl;
     for(unsigned long i = 0; i < opts.inputs_format.size(); i++) {
@@ -525,22 +560,34 @@ void run(int argc, const char** argv)
         log_name = "share_switch_output";
     } else if (opts.inputs_format.size() > 0) {
 
-        MixedProtocolSetup<inputShare> setup_input(P, bit_length);
+        MixedProtocolSetup<inputShare> setup_input(P, bit_length, prefix_input);
         MixedProtocolSet<inputShare> set_input(P, setup_input);
 
-        ProtocolSetup<outputShare> setup_output(t_big, P);
-        ProtocolSet<outputShare> set_output(P, setup_output);
+//        ProtocolSetup<outputShare> setup_output(t_big, P);
+//        ProtocolSet<outputShare> set_output(P, setup_output);
+        outputShare::clear::init_field(t_big);
+        outputShare::clear::next::init_field(t_big, false);
 
         input_shares = distribute_inputs(P, set_input, opts.inputs_format, opts.n_bits_per_input);
         std::cout << "Done reading inputs" << endl;
         log_name = "share_switch_input";
 
         set_input.check();
-        set_output.check();
+
+        if (opts.only_distribute_inputs) {
+            // save those to file
+            std::cout << "Saving unconverted shares " << endl;
+            bool overwrite = opts.output_start == 0;
+            write_shares<inputShare>(P, input_shares, "", overwrite, opts.output_start);
+            return;
+        }
     } else {
         std::cerr << "Must specify either n_shares or inputs_format," << std::endl;
         exit(1);
     }
+
+    string prefix_output = get_prep_sub_dir<outputShare>("Player-Data", n_players, outputShare::clear::length());
+    std::cout << "Loading output mac from " << prefix_output << " " << outputShare::clear::length() << endl;
 
     int n_bits_per_input = bit_length;
     if (opts.n_bits_per_input != -1) {
@@ -577,6 +624,11 @@ void run(int argc, const char** argv)
 
     std::vector<NamedCommStats> thread_local_diffs(opts.n_threads);
 
+    // If we reach until here, we cannot have the same input as output because of networking,
+    // but in any case it doesnt make sense to do this.
+    auto has_same_types = is_same<inputShare, outputShare>::value;
+    assert(not has_same_types);
+
 #pragma omp parallel for num_threads(opts.n_threads)
     for (int j = 0; j < opts.n_threads; j++) {
         bigint::init_thread();
@@ -591,12 +643,12 @@ void run(int argc, const char** argv)
         stream << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
         cout << stream.str();
 
-        CryptoPlayer P_j(N, j * opts.n_threads);
+        CryptoPlayer P_j(N, j * opts.n_threads + 202);
 
-        MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length);
+        MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length, prefix_input);
         MixedProtocolSet<inputShare> set_input_i(P_j, setup_input_i);
 
-        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j);
+        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j, prefix_output);
         ProtocolSet<outputShare> set_output_i(P_j, setup_output_i);
 
         auto thread_local_stats = P_j.total_comm();
@@ -620,10 +672,6 @@ void run(int argc, const char** argv)
             stringstream stream2;
             stream2 << "Thread " << j << " done with chunk " << i << std::endl;
             cout << stream2.str();
-
-            set_input_i.check();
-            set_output_i.check();
-
         }
 
         set_input_i.check();
@@ -658,4 +706,36 @@ void run(int argc, const char** argv)
 //    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
     P377Element::finish();
+}
+
+
+template< template<class T> class inputShare, class outputShare>
+void run(int argc, const char** argv) {
+    ez::ezOptionParser opt;
+    SwitchOptions opts(opt, argc, argv);
+
+    // assume we are in a prime field
+    assert(opts.input_prime_length > 0);
+    const int n_limbs = DIV_CEIL(opts.input_prime_length, 64);
+
+    // TODO: down here, dont hardcode num players to 2
+
+    switch (n_limbs)
+    {
+#undef X
+#define X(L) \
+    case L: \
+        run<inputShare<gfp_<0, L>>, outputShare>(argc, argv, opts.input_prime_length, 2); \
+        break;
+#ifndef FEWER_PRIMES
+//        X(1) X(2) X(3) X(4)
+        X(2)
+#endif
+#undef X
+        default:
+            cerr << "Not compiled for " << opts.input_prime_length << "-bit primes" << endl;
+            cerr << "Compile with -DGFP_MOD_SZ=" << n_limbs << endl;
+            exit(1);
+    }
+
 }

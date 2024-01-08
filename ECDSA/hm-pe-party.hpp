@@ -47,7 +47,7 @@ void run(int argc, const char** argv)
     ez::ezOptionParser opt;
     PEOptions opts(opt, argc, argv);
 
-    const int n_parties = 3 + is_same<T<P256Element>, Rep4Share<P256Element>>::value;
+    const int n_parties = 3;
     Names N(opt, argc, argv,
             n_parties);
 
@@ -61,7 +61,7 @@ void run(int argc, const char** argv)
 
     typedef T<P377Element::Scalar> inputShare;
 
-    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
+    string prefix = get_prep_sub_dir<inputShare>("Player-Data", n_parties, 253);
     std::cout << "Loading mac from " << prefix << endl;
 
     ProtocolSetup< inputShare > setup(bigint(t), P, prefix);

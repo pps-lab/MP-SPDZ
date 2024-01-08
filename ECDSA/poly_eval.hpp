@@ -95,11 +95,12 @@ void eval_point(
     }
     set.input.exchange();
 //    set.check();
-    T<P377Element::Scalar> r_share = set.input.finalize(0);
+    T<P377Element::Scalar> r_share = set.input.finalize(opts.input_party_i);
 
     // Evaluate polynomial defined by inputs at beta
     T<P377Element::Scalar> result;
     result += r_share;
+//    (void)r_share;
 
     P377Element::Scalar current_beta = beta;
     for (int i = 0; i < opts.n_shares; i++) { // can we parallelize this?
