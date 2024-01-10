@@ -221,6 +221,29 @@ def sha3_256(x):
             S = unflatten(Keccak_f(flatten(S)))
     return sbitvec.from_vec(Z[:256])
 
+def sha3_256_approx(n_rounds):
+    """
+    This function implements approximates the runtime of sha3-256 to reduce compile time overhead
+    """
+
+    global Keccak_f
+    if Keccak_f is None:
+        # only one instance
+        Keccak_f = Circuit('Keccak_f')
+
+    unsqueeze_times = 11
+
+    sbn = sbits.get_type(1)
+    S = [sbn(0)] * 1600
+
+    print(f"Running {unsqueeze_times + n_rounds} times")
+
+    @library.for_range_opt(0, unsqueeze_times + n_rounds)
+    def _(i):
+        Keccak_f(S)
+
+    library.print_ln("Done running %s times!", unsqueeze_times + n_rounds)
+
 class ieee_float:
     """
     This gives access IEEE754 floating-point operations using Bristol
