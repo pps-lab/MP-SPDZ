@@ -158,28 +158,23 @@ def sha3_256(x):
 
     # whole bytes
     assert len(x.v) % 8 == 0
-    # only one block
+    # rate
     r = 1088
-    assert len(x.v) < 1088
+    # round up to be multiple of rate
+    n_blocks = math.ceil(len(x.v) / r)
+    upper_block_length = n_blocks * r
+
     if x.v:
         n = x.v[0].n
     else:
         n = 1
     d = sbitvec([sbits.get_type(8)(0x06)] * n)
     sbn = sbits.get_type(n)
-    padding = [sbn(0)] * (r - 8 - len(x.v))
-    P_flat = x.v + d.v + padding
-    assert len(P_flat) == r
-    P_flat[-1] = ~P_flat[-1]
-    w = 64
-    P1 = [P_flat[i * w:(i + 1) * w] for i in range(r // w)]
+    padding = [sbn(0)] * (upper_block_length - 8 - len(x.v))
 
-    S = [[[sbn(0) for i in range(w)] for i in range(5)] for i in range(5)]
-    for x in range(5):
-        for y in range(5):
-            if x + 5 * y < r // w:
-                for i in range(w):
-                    S[x][y][i] ^= P1[x + 5 * y][i]
+    P_flat = x.v + d.v + padding
+    assert len(P_flat) == upper_block_length
+    P_flat[-1] = ~P_flat[-1] # set last bit to 1
 
     def flatten(S):
         res = [None] * 1600
@@ -195,164 +190,33 @@ def sha3_256(x):
         for y in range(5):
             for x in range(5):
                 for i in range(w):
-                    j = (5 * x + y) * w + i // 8 * 8 + 7 - i % 8
+                    j = (5 * y + x) * w + i // 8 * 8 + 7 - i % 8
                     res[x][y][i] = S_flat[1600 - 1 -j]
         return res
-
-    S = unflatten(Keccak_f(flatten(S)))
-
-    Z = []
-    while len(Z) <= 256:
-        for y in range(5):
-            for x in range(5):
-                if x + 5 * y < r // w:
-                    Z += S[y][x]
-        if len(Z) <= 256:
-            S = unflatten(Keccak_f(flatten(S)))
-    return sbitvec.from_vec(Z[:256])
-
-def sha3_256_multi(x):
-    """
-    This function implements SHA3-256 for inputs of up to 1080 bits::
-
-        from circuit import sha3_256
-        a = sbitvec.from_vec([])
-        b = sbitvec.from_hex('cc')
-        c = sbitvec.from_hex('41fb')
-        d = sbitvec.from_hex('1f877c')
-        e = sbitvec.from_vec([sbit(0)] * 8)
-        for x in a, b, c, d, e:
-            sha3_256(x).reveal_print_hex()
-
-    This should output the `test vectors
-    <https://github.com/XKCP/XKCP/blob/master/tests/TestVectors/ShortMsgKAT_SHA3-256.txt>`_
-    of SHA3-256 for 0, 8, 16, and 24 bits as well as the hash of the
-    0 byte::
-
-        Reg[0] = 0xa7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a #
-        Reg[0] = 0x677035391cd3701293d385f037ba32796252bb7ce180b00b582dd9b20aaad7f0 #
-        Reg[0] = 0x39f31b6e653dfcd9caed2602fd87f61b6254f581312fb6eeec4d7148fa2e72aa #
-        Reg[0] = 0xbc22345e4bd3f792a341cf18ac0789f1c9c966712a501b19d1b6632ccd408ec5 #
-        Reg[0] = 0x5d53469f20fef4f8eab52b88044ede69c77a6a68a60728609fc4a65ff531e7d0 #
-
-    """
-
-    global Keccak_f
-    if Keccak_f is None:
-        # only one instance
-        Keccak_f = Circuit('Keccak_f')
-
-    # whole bytes
-    assert len(x.v) % 8 == 0
-    # only one block
-    r = 1088
-    # round up to be multiple of 1088
-    n_blocks = math.ceil(len(x.v) / r)
-    upper_block_length = n_blocks * r
-    message_length = len(x.v)
-    print(upper_block_length)
-
-    # assert len(x.v) < 1088
-
-    if x.v:
-        n = x.v[0].n
-    else:
-        n = 1
-    d = sbitvec([sbits.get_type(8)(0x06)] * n)
-    sbn = sbits.get_type(n)
-
-    padding = [sbn(0)] * (upper_block_length - 8 - len(x.v))
-
-    P_flat = x.v + d.v + padding
-    library.print_ln("pad %s", [x.v[i].reveal() for i in range(len(x.v))])
-    library.print_ln("pad %s", [d.v[i].reveal() for i in range(len(d.v))])
-
-    assert len(P_flat) == upper_block_length
-    P_flat[-1] = ~P_flat[-1] # set last bit to 1
-
-    library.print_ln("pflat %s", [P_flat[i].reveal() for i in range(len(P_flat))])
 
     w = 64
     # Initial state
     S = [[[sbn(0) for i in range(w)] for i in range(5)] for i in range(5)]
+    def insert_block(local_S, local_P):
+        assert len(local_P) == r
+        P1 = [local_P[i * w:(i + 1) * w] for i in range(r // w)]
+        for x in range(5):
+            for y in range(5):
+                if x + 5 * y < r // w:
+                    for i in range(w):
+                        local_S[x][y][i] ^= P1[x + 5 * y][i]
 
-    def flatten(S):
-        res = [None] * 1600
-        for y in range(5):
-            for x in range(5):
-                for i in range(w):
-                    j = (5 * y + x) * w + i // 8 * 8 + 7 - i % 8
-                    res[1600 - 1 - j] = S[x][y][i]
-        return res
-
-    def unflatten(S_flat):
-        res = [[[None] * w for j in range(5)] for i in range(5)]
-        for y in range(5):
-            for x in range(5):
-                for i in range(w):
-                    j = (5 * x + y) * w + i // 8 * 8 + 7 - i % 8
-                    # print("Debug", x, y, i, j, 1600 - 1 - j, len(S_flat))
-                    res[x][y][i] = S_flat[1600 - 1 -j]
-        return res
-
-    # l1 = list(range(1600))
-    # print(l1)
-    # print(flatten(unflatten(l1)))
-    # assert l1 == flatten(unflatten(l1))
-
-    # put in lanes
-    flats = sbitvec.from_vec(flatten(S))
-    inputOffset = 0
-    blockLen = 0
-    while inputOffset < message_length:
-        blockLen = min(message_length - inputOffset, r)
-        for i in range(blockLen):
-            flats.v[i] ^= P_flat[inputOffset + i]
-        inputOffset += blockLen
-        if blockLen == r:
-            library.print_ln("Ruond of keccak %s", blockLen)
-            flats = Keccak_f(flats)
-            blockLen = 0
-
-    # do padding here
-    print("Padding blockLen", blockLen)
-    for i in range(8):
-        flats.v[blockLen + i] ^= d.v[i]
-
-    hex = sbitvec.from_hex('80')
-    print(len(hex.v))
-    for i in range(8):
-        library.print_ln("Setting %s to %s", r - 1 - 8 + i, hex[i].reveal())
-        flats.v[r - 8 + i] ^= hex[i]
-
-    library.print_ln("pad %s", [flats[i].reveal() for i in range(len(flats))])
-
-    S = unflatten(Keccak_f(flats))
-
-    # S_c = flatten(unflatten(flatten(S)))
-    # S_c1 = flatten(S)
-    # for i in range(len(S_c)):
-    #     library.print_ln("%s == %s", S_c[i].reveal(), S_c1[i].reveal())
-
-    # for block_id in range(n_blocks):
-    #     offset = block_id * r
-    #     P1 = [P_flat[offset + (i * w):offset + ((i + 1) * w)] for i in range(r // w)]
-    #
-    #     for x in range(5):
-    #         for y in range(5):
-    #             if x + 5 * y < r // w:
-    #                 for i in range(w):
-    #                     S[x][y][i] ^= P1[x + 5 * y][i]
-    #
-    #     # apply keccak f
-    #     S = unflatten(Keccak_f(flatten(S)))
+    for block_id in range(n_blocks):
+        block = P_flat[block_id * r:(block_id + 1) * r]
+        insert_block(S, block)
+        S = unflatten(Keccak_f(flatten(S)))
 
     Z = []
     while len(Z) <= 256:
         for y in range(5):
             for x in range(5):
                 if x + 5 * y < r // w:
-                    Z += S[y][x]
+                    Z += S[x][y]
         if len(Z) <= 256:
             S = unflatten(Keccak_f(flatten(S)))
     return sbitvec.from_vec(Z[:256])
