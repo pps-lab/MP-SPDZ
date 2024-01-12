@@ -32,7 +32,7 @@ public:
 
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;
-    const static bool expensive = false;
+    const static bool expensive = true;
 
     static int threshold(int)
     {
