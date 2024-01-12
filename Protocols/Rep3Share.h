@@ -32,7 +32,7 @@ public:
 
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;
-    const static bool expensive = true;
+    const static bool expensive = false;
 
     static int threshold(int)
     {
@@ -122,7 +122,7 @@ public:
 
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;
-    const static bool expensive = false;
+    const static bool expensive = true;
     const static bool variable_players = false;
     static const bool has_trunc_pr = true;
     static const bool malicious = false;
