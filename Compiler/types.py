@@ -633,7 +633,7 @@ class _secret_structure(_structure):
                     t = numpy.int64
                 if one_hot:
                     content = numpy.eye(content.max() + 1)[content]
-                content = content.astype(t)
+                content = numpy.absolute(content).astype(t) # // HOTFIX
                 f = program.get_binary_input_file(player)
                 f.write(content.tobytes())
                 f.flush()
