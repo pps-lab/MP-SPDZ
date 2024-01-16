@@ -128,6 +128,8 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     vector<vector<vector<BT> > > summands_one(n_bits_per_input, vector<vector<BT> >(2, vector<BT>(input_size)));
 
     vector<typename inputShare::clear> reals;
+    vector<typename inputShare::clear> cs_debug;
+    (void)cs_debug;
 
     {
 //        vector <edabit<inputShare>> edabits_in;
@@ -169,7 +171,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             edabits_in.push_back(edabit_in.second);
 
             inputShare c = *iterator + shift_in_share - edabit_in.first;
-//            inputShare c = *iterator + shift_in_share;
+//            inputShare c = *iterator + shift_in_share; // X
 
             set_input.output.prepare_open(c);
         }
@@ -184,11 +186,13 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 
 //        cout << "Opening " << input_size << " masked input values " << timer_open_c.elapsed() * 1e3 << " ms" << endl;
         (P.total_comm() - stats).print(true);
-
         vector<typename inputShare::clear> cs;
         for (int i = 0; i < input_size; i++) {
             typename inputShare::clear c = set_input.output.finalize_open();
             cs.push_back(c);
+            if (debug) {
+                cs_debug.push_back(c);
+            }
         }
 
         // dim 0: n_bits, dim 1: (x,y), dim 2; element?
@@ -196,7 +200,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             for (int j = 0; j < input_size; j++) {
                 summands_one[i][0][j] = BT::constant(Integer(bigint(cs[j])).get_bit(i), P.my_num(), binary_mac_key);
                 summands_one[i][1][j] = edabits_in[j][i];
-//                summands_one[i][1][j] = 0;
+//                summands_one[i][1][j] = 0; // X
             }
         }
     }
@@ -240,7 +244,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             summands_two[i][1][j] = edabit_out.second[i];
 
 //            summands_two[i][1][j] = edabit_out.second[i];
-//            summands_two[i][1][j] = 0;
+//            summands_two[i][1][j] = 0; // X
         }
     }
 
@@ -319,6 +323,7 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
     vector<outputShare > result;
     for (int i = 0; i < (int)input_size; i++) {
         result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - shift_out_share - edabits_out_a[i]);
+//        result.push_back(outputShare::constant(open_mask[i], P.my_num(), out_arithmetic_mac_key) - shift_out_share); // X
 
     }
 
@@ -342,7 +347,10 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
             typename outputShare::clear c = set_output.output.finalize_open();
             if (debug) {
 //                if (bigint(c) != bigint(reals[i])) {
-                if (bigint(typename outputShare::clear(bigint(c) - bigint(reals[i]))) != 0) {
+                if (bigint(typename outputShare::clear(bigint(c + shift_out_t) - bigint(reals[i] + shift_int_t))) != 0) {
+//                auto str1 = to_string(bigint(c));
+//                auto str2 = to_string(bigint(reals[i]));
+//                if (str1 != str2) {
                     //                    std::cout << reals[i] << " " << c << reals[i] - c << std::endl;
 //                    std::cout << bigint(c).get_str(2) << " != "
 //                              << bigint(typename inputShare::clear(reals[i])).get_str(2)
@@ -354,14 +362,17 @@ vector<outputShare> convert_shares(const typename vector<inputShare>::iterator i
 //                              << bigint(typename outputShare::clear(reals[i])) << ")" << endl;
 //                    std::cout << "What I have: " << bigint(c).get_str(2) << endl;
 // it may be that some of these comparison outputs are invalid now because we switch to bigint
-                    std::cout << c << " !=  "<< reals[i] << " Need shift   " << bigint(typename outputShare::clear(bigint(c) - bigint(reals[i]))).get_str(2) << "(" << typename outputShare::clear(bigint(c) - bigint(reals[i])) << ")" << endl;
+                    std::cout << c << " !=  "<< reals[i] << " Need shift   " << bigint(typename outputShare::clear(bigint(c + shift_out_t) - bigint(reals[i] + shift_int_t))).get_str(2) << "(" << typename outputShare::clear(bigint(c + shift_out_t) - bigint(reals[i] + shift_int_t)) << ")" << endl;
                     std::cout << bigint(c) << " !=bg " << bigint(reals[i]) << endl;
+//                    std::cout << str1 << " !=st " << str2 << endl;
                     std::cout << "Bits were " << open_mask[i] << endl;
+                    std::cout << "Masked open" << cs_debug[i] << endl;
                     std::cout << "Masking was " << edabits_out_a[i] << endl;
                     std::cout << "Shift out was " << shift_out_t << endl;
                     std::cout << "n bits were " << n_bits_per_input << endl;
                     std::cout << "input size was " << input_size << endl;
                     std::cout << "thread number was " << omp_get_thread_num() << endl;
+                    std::cout << "index is " << i << endl;
 //                    std::cout << "Shift (inv)  " << bigint(typename outputShare::clear(reals[i] - c)).get_str(2) << "(" << bigint(typename outputShare::clear(reals[i] - c)) << ")" << endl;
 //                    std::cout << "Shift of minu" << bigint(shift_out_t).get_str(2) << " (" << bigint(shift_out_t) << ")"
 //                              << endl;
@@ -622,8 +633,12 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
     typename outputShare::clear shift_out_t = typename outputShare::clear(bigint("1") << (n_bits_per_input - 1));
 
-//    std::cout << "shift_in " << shift_in << " " << n_bits_per_input << " " << inputShare::clear::n_bits() << endl;
-//    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
+    std::cout << "shift_in " << shift_in << " " << n_bits_per_input << " " << inputShare::clear::n_bits() << endl;
+
+    const typename inputShare::clear shift_in_prime = typename inputShare::clear(bigint(1)) << (n_bits_per_input - 1);
+    std::cout << "shift in prime " << shift_in_prime << endl;
+
+    //    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
 
     std::cout << "Running in " << opts.n_threads << " threads" << endl;
 
