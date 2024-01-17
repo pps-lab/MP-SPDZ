@@ -472,13 +472,14 @@ void Machine<sint, sgf2n>::run(const string& progname)
   
 #ifdef VERBOSE
   cerr << "Memory usage: ";
-  tinfo[0].print_usage(cerr, Mp.MS, "sint");
-  tinfo[0].print_usage(cerr, Mp.MC, "cint");
-  tinfo[0].print_usage(cerr, M2.MS, "sgf2n");
-  tinfo[0].print_usage(cerr, M2.MS, "cgf2n");
-  tinfo[0].print_usage(cerr, bit_memories.MS, "sbits");
-  tinfo[0].print_usage(cerr, bit_memories.MC, "cbits");
-  tinfo[0].print_usage(cerr, Mi.MC, "regint");
+  cerr << "(omitted)";
+//  tinfo[0].print_usage(cerr, Mp.MS, "sint");
+//  tinfo[0].print_usage(cerr, Mp.MC, "cint");
+//  tinfo[0].print_usage(cerr, M2.MS, "sgf2n");
+//  tinfo[0].print_usage(cerr, M2.MS, "cgf2n");
+//  tinfo[0].print_usage(cerr, bit_memories.MS, "sbits");
+//  tinfo[0].print_usage(cerr, bit_memories.MC, "cbits");
+//  tinfo[0].print_usage(cerr, Mi.MC, "regint");
   cerr << endl;
 
   for (unsigned int i = 0; i < join_timer.size(); i++)
