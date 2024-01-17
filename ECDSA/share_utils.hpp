@@ -169,6 +169,9 @@ std::vector<T> read_private_input(Player &P, std::vector<input_format_item> form
 
                 const double f = 16;
                 long tmp = round(x * exp2(f));
+
+                std::cout << "Float " << j << " " << x << " " << tmp << endl;
+
                 inputs.push_back(T(tmp));
             }
         } else {
