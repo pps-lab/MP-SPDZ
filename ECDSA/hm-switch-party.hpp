@@ -660,7 +660,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 
         const unsigned long begin_thread = j * n_chunks_per_thread;
         const unsigned long end_thread = min(((unsigned long) (j + 1) * n_chunks_per_thread), input_shares.size());
-        if (begin_thread < end_thread) {
+        if (begin_thread >= end_thread) {
             stringstream stream;
             stream << "Thread " << j << "(" << omp_get_thread_num() << ") will skip processing because not enough shares" << std::endl;
             cout << stream.str();
