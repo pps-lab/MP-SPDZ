@@ -625,6 +625,11 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
     const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
     const unsigned long mem_cutoff = opts.chunk_size;
 
+//    if ((opts.n_threads - 1) * n_chunks_per_thread > input_shares.size()) {
+//        std::cout << "Warning: not enough shares to distribute to all threads" << endl;
+//        std::cout << "Setting number of threads to "
+//    }
+
     OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_chunks_per_thread, mem_cutoff));
     OnlineOptions::singleton.verbose = true;
     std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << ". Would have needed " << min(n_chunks_per_thread, mem_cutoff) << endl;
@@ -655,7 +660,12 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 
         const unsigned long begin_thread = j * n_chunks_per_thread;
         const unsigned long end_thread = min(((unsigned long) (j + 1) * n_chunks_per_thread), input_shares.size());
-        assert(begin_thread < end_thread);
+        if (begin_thread < end_thread) {
+            stringstream stream;
+            stream << "Thread " << j << "(" << omp_get_thread_num() << ") will skip processing because not enough shares" << std::endl;
+            cout << stream.str();
+            continue;
+        }
 
         const int n_chunks = DIV_CEIL(end_thread - begin_thread, mem_cutoff);
 
