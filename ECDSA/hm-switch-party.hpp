@@ -624,13 +624,13 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 //    }
 
     int n_threads = opts.n_threads;
-    if (input_shares.size() < 1000) {
-        n_threads = 1;
-        std::cout << "Using single thread because only " << input_shares.size() << " shares" << endl;
-    }
     if (input_shares.size() < 10000) {
         n_threads = 18;
         std::cout << "Using 18 threads because only " << input_shares.size() << " shares" << endl;
+    }
+    if (input_shares.size() < 1000) {
+        n_threads = 1;
+        std::cout << "Using single thread because only " << input_shares.size() << " shares" << endl;
     }
 
     const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), n_threads);
