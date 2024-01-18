@@ -622,7 +622,18 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 //    for (int i = 0; i < n_chunks; i++) {
 //        players.push_back(CryptoPlayer(N, i * 3));
 //    }
-    const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), opts.n_threads);
+
+    int n_threads = opts.n_threads;
+    if (input_shares.size() < 1000) {
+        n_threads = 1;
+        std::cout << "Using single thread because only " << input_shares.size() << " shares" << endl;
+    }
+    if (input_shares.size() < 10000) {
+        n_threads = 18;
+        std::cout << "Using 18 threads because only " << input_shares.size() << " shares" << endl;
+    }
+
+    const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), n_threads);
     const unsigned long mem_cutoff = opts.chunk_size;
 
 //    if ((opts.n_threads - 1) * n_chunks_per_thread > input_shares.size()) {
@@ -645,17 +656,17 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
 
     //    std::cout << "shift_out_t initially " << shift_out_t << " " << n_bits_per_input << " " << outputShare::clear::n_bits() << endl;
 
-    std::cout << "Running in " << opts.n_threads << " threads" << endl;
+    std::cout << "Running in " << n_threads << " threads" << endl;
 
-    std::vector<NamedCommStats> thread_local_diffs(opts.n_threads);
+    std::vector<NamedCommStats> thread_local_diffs(n_threads);
 
     // If we reach until here, we cannot have the same input as output because of networking,
     // but in any case it doesnt make sense to do this.
     auto has_same_types = is_same<inputShare, outputShare>::value;
     assert(not has_same_types);
 
-#pragma omp parallel for num_threads(opts.n_threads)
-    for (int j = 0; j < opts.n_threads; j++) {
+#pragma omp parallel for num_threads(n_threads)
+    for (int j = 0; j < n_threads; j++) {
         bigint::init_thread();
 
         const unsigned long begin_thread = j * n_chunks_per_thread;
@@ -673,7 +684,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
         stream << "Thread " << j << "(" << omp_get_thread_num() << ") processing items (" << begin_thread << "-" << end_thread << ") in " << n_chunks << " chunks" << std::endl;
         cout << stream.str();
 
-        CryptoPlayer P_j(N, j * opts.n_threads + 202);
+        CryptoPlayer P_j(N, j * n_threads + 202);
 
         MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length, prefix_input);
         MixedProtocolSet<inputShare> set_input_i(P_j, setup_input_i);
