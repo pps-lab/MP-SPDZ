@@ -412,7 +412,6 @@ vector<outputShare> convert_shares_field(const typename vector<inputShare>::iter
                                         const typename outputShare::clear shift_out_t,
                                         const bool debug) {
 
-
     // for now we need to use all the bits;
     const int input_size = std::distance(input_shares_begin, input_shares_end);
 //    int n_bits_per_input = prime_length;
@@ -830,7 +829,7 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
 }
 
 template<class inputShare, class outputShare>
-void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
+void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bool input_is_field = false)
 {
     bigint::init_thread();
     ez::ezOptionParser opt;
@@ -1038,13 +1037,24 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3)
             const unsigned long end_chunk = min(begin_chunk + mem_cutoff, end_thread);
             // each thread in parallel
 
-            vector<outputShare> res = convert_shares_field(input_shares.begin() + begin_chunk,
-                                                          input_shares.begin() + end_chunk,
-                                                          set_input_i, set_output_i, setup_input_i.get_mac_key(),
-                                                          setup_input_i.binary.get_mac_key(),
-                                                          setup_output_i.get_mac_key(), P_j, n_bits_per_input,
-                                                          shift_int_t, shift_out_t,
-                                                          opts.debug);
+            vector<outputShare> res;
+            if (input_is_field) {
+                 res = convert_shares_field(input_shares.begin() + begin_chunk,
+                                                               input_shares.begin() + end_chunk,
+                                                               set_input_i, set_output_i, setup_input_i.get_mac_key(),
+                                                               setup_input_i.binary.get_mac_key(),
+                                                               setup_output_i.get_mac_key(), P_j, n_bits_per_input,
+                                                               shift_int_t, shift_out_t,
+                                                               opts.debug);
+            } else {
+                res = convert_shares_ring(input_shares.begin() + begin_chunk,
+                                                               input_shares.begin() + end_chunk,
+                                                               set_input_i, set_output_i, setup_input_i.get_mac_key(),
+                                                               setup_input_i.binary.get_mac_key(),
+                                                               setup_output_i.get_mac_key(), P_j, n_bits_per_input,
+                                                               shift_int_t, shift_out_t,
+                                                               opts.debug);
+            }
 
 //            result.insert(result.begin() + begin_chunk, res.begin(), res.end());
             for (unsigned long k = 0; k < res.size(); k++) {
@@ -1107,7 +1117,7 @@ void run(int argc, const char** argv) {
 #undef X
 #define X(L) \
     case L: \
-        run<inputShare<gfp_<0, L>>, outputShare>(argc, argv, opts.input_prime_length, 2); \
+        run<inputShare<gfp_<0, L>>, outputShare>(argc, argv, opts.input_prime_length, 2, true); \
         break;
 #ifndef FEWER_PRIMES
 //        X(1) X(2) X(3) X(4)
