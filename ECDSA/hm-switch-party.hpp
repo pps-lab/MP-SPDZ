@@ -507,7 +507,7 @@ vector<outputShare> convert_shares_field(const typename vector<inputShare>::iter
 
             // we don't need power_two_n_bits_share and (power_two_n_bits * edabit_in_rprimeprime.first) terms for correctness,
             // but maybe for security so that c' doesnt reveal anything?
-            inputShare c = power_two_n_bits_share + power_two_full_share + *iterator + shift_in_share - edabit_in.first - (power_two_n_bits * edabit_in_rprimeprime.first);
+            inputShare c = power_two_n_bits_share + power_two_full_share + *iterator + shift_in_share - edabit_in.first - (edabit_in_rprimeprime.first * power_two_n_bits);
 //            inputShare c = power_two_n_bits_share + power_two_full_share + *iterator + shift_in_share - edabit_in.first - (power_two_n_bits * edabit_in_rprimeprime.first);
 //            inputShare c = *iterator + shift_in_share; // X
 
