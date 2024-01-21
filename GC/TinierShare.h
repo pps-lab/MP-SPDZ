@@ -135,6 +135,12 @@ public:
         assert(i == 0);
         return lsb();
     }
+
+    void xor_bit(int i, const This& bit)
+    {
+        assert(i == 0);
+        *this ^= bit;
+    }
 };
 
 } /* namespace GC */
