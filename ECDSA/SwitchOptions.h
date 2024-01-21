@@ -22,6 +22,7 @@ public:
     bool debug;
     bool test;
     bool only_distribute_inputs;
+    bool use_share_split;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -133,6 +134,15 @@ public:
                 "-nc",
                 "--no_conversion"
                 );
+        opt.add(
+                "",
+                0,
+                0,
+                0,
+                "Use share split",
+                "-sp",
+                "--split"
+        );
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
@@ -148,6 +158,7 @@ public:
         debug = opt.isSet("-d");
         test = opt.isSet("-te");
         only_distribute_inputs = opt.isSet("-nc");
+        use_share_split = opt.isSet("-sp");
 
         opt.resetArgs();
     }
