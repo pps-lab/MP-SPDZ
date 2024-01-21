@@ -4,10 +4,10 @@ trap "exit" INT TERM
 trap "kill 0" EXIT
 
 
-BIN=./rep-ring-switch-party.x
+#BIN=./rep-ring-switch-party.x
 #BIN=./sy-rep-ring-switch-party.x
 
-#BIN=./rep-field-switch-party.x
+BIN=./rep-field-switch-party.x
 
 N_BITS=31
 #$BIN -p 0 -N 3 -n 92 & ; pid0=$!
