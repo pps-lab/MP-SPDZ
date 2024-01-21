@@ -5,11 +5,11 @@ trap "kill 0" EXIT
 
 
 BIN=./rep-ring-switch-party.x
-BIN=./sy-rep-ring-switch-party.x
+#BIN=./sy-rep-ring-switch-party.x
 
-#BIN=./sy-rep-field-switch-party.x
+#BIN=./rep-field-switch-party.x
 
-N_BITS=32
+N_BITS=31
 #$BIN -p 0 -N 3 -n 92 & ; pid0=$!
 #$BIN -p 1 -N 3 -n 92 & ; pid1=$!
 #$BIN -p 2 -N 3 -n 92 & ; pid2=$!
@@ -27,9 +27,9 @@ N_BITS=32
 
 #-i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i i8746,f795886 -i i8618,f784238
 
-$BIN -p 0 -N 3 -i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i 0 -i 0 -b $N_BITS -o 0 -pr 128 --n_threads 12 & ; pid0=$!
-$BIN -p 1 -N 3 -i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i 0 -i 0 -b $N_BITS -o 0 -pr 128 --n_threads 12 & ; pid1=$!
-$BIN -p 2 -N 3 -i i8684,f790244,i1,f91,f2912,f32,f32,f1 -i 0 -i 0 -b $N_BITS -o 0 -pr 128 --n_threads 12 & ; pid2=$!
+$BIN -p 0 -N 3 -i f1280 -i 0 -i 0 -b $N_BITS -o 0 -pr 128 --n_threads 1 -d & ; pid0=$!
+$BIN -p 1 -N 3 -i f1280 -i 0 -i 0 -b $N_BITS -o 0 -pr 128 --n_threads 1 -d & ; pid1=$!
+$BIN -p 2 -N 3 -i f1280 -i 0 -i 0 -b $N_BITS -o 0 -pr 128 --n_threads 1 -d & ; pid2=$!
 wait $pid0 $pid1 $pid2
 ##
 #echo "====================";
