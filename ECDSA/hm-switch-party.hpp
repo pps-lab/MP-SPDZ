@@ -1002,7 +1002,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 //    }
 
     std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << ". Would have needed " << min(n_samples_per_thread, mem_cutoff) << endl;
-    OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_samples_per_thread, mem_cutoff));
+    OnlineOptions::singleton.batch_size = min((unsigned long)150000, min(n_samples_per_thread, mem_cutoff));
     OnlineOptions::singleton.verbose = true;
 
     const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
