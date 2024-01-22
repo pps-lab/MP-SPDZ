@@ -536,7 +536,7 @@ vector<outputShare> convert_shares_ring_split(const typename vector<inputShare>:
 
     // print overall stats until this point
     auto diff = (P.total_comm() - overall_stats);
-    print_global("share_switch_split", P, diff);
+//    print_global("share_switch_split", P, diff);
 
 
 //    if (debug) {
