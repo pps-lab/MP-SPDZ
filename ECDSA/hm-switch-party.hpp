@@ -1001,7 +1001,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 //        std::cout << "Setting number of threads to "
 //    }
 
-    std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << ". Would have needed " << min(n_chunks_per_thread, mem_cutoff) << endl;
+    std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << ". Would have needed " << min(n_samples_per_thread, mem_cutoff) << endl;
     OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_samples_per_thread, mem_cutoff));
     OnlineOptions::singleton.verbose = true;
 
