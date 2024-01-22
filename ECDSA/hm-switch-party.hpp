@@ -73,7 +73,7 @@ vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_
     auto stats = P.total_comm();
 
     // Now we are at output
-    std::cout << "Composing bits" << std::endl;
+    std::cout << "Composing bits " << buffer_size << std::endl;
 
     // rewrite the above loop
     vector <outputShare> edabits_out_a;
@@ -969,6 +969,13 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 //        players.push_back(CryptoPlayer(N, i * 3));
 //    }
 
+    const bool has_large_edabit_batch_size = inputShare::malicious;
+    // It seems that the large batch size is dynamic...  for now just assume its ~10k
+    unsigned long min_batch_size_per_thread = 1;
+    if (has_large_edabit_batch_size) {
+        min_batch_size_per_thread = 10000;
+    }
+
     int n_threads = opts.n_threads;
     if (n_threads > 1) {
         if (input_shares.size() < 10000 && n_threads > 18) {
@@ -979,9 +986,14 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
             n_threads = 1;
             std::cout << "Using single thread because only " << input_shares.size() << " shares" << endl;
         }
+        const unsigned long n_samples_per_thread = DIV_CEIL(input_shares.size(), n_threads);
+        if (n_samples_per_thread < min_batch_size_per_thread) {
+            n_threads = DIV_CEIL(input_shares.size(), min_batch_size_per_thread);
+            std::cout << "Using " << n_threads << " threads because only " << input_shares.size() << " shares" << endl;
+        }
     }
 
-    const unsigned long n_chunks_per_thread = DIV_CEIL(input_shares.size(), n_threads);
+    const unsigned long n_samples_per_thread = DIV_CEIL(input_shares.size(), n_threads);
     const unsigned long mem_cutoff = opts.chunk_size;
 
 //    if ((opts.n_threads - 1) * n_chunks_per_thread > input_shares.size()) {
@@ -989,9 +1001,9 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 //        std::cout << "Setting number of threads to "
 //    }
 
-    OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_chunks_per_thread, mem_cutoff));
-    OnlineOptions::singleton.verbose = true;
     std::cout << "Edabit batch size " << OnlineOptions::singleton.batch_size << ". Would have needed " << min(n_chunks_per_thread, mem_cutoff) << endl;
+    OnlineOptions::singleton.batch_size = min((unsigned long)50000, min(n_samples_per_thread, mem_cutoff));
+    OnlineOptions::singleton.verbose = true;
 
     const bigint shift_in = bigint(1) << (n_bits_per_input - 1);
     typename inputShare::clear shift_int_t = typename inputShare::clear(shift_in);
@@ -1017,8 +1029,8 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
     for (int j = 0; j < n_threads; j++) {
         bigint::init_thread();
 
-        const unsigned long begin_thread = j * n_chunks_per_thread;
-        const unsigned long end_thread = min(((unsigned long) (j + 1) * n_chunks_per_thread), input_shares.size());
+        const unsigned long begin_thread = j * n_samples_per_thread;
+        const unsigned long end_thread = min(((unsigned long) (j + 1) * n_samples_per_thread), input_shares.size());
         if (begin_thread >= end_thread) {
             stringstream stream;
             stream << "Thread " << j << "(" << omp_get_thread_num() << ") will skip processing because not enough shares" << std::endl;
@@ -1139,8 +1151,8 @@ void run(int argc, const char** argv) {
         run<inputShare<gfp_<0, L>>, outputShare>(argc, argv, opts.input_prime_length, 2, true); \
         break;
 #ifndef FEWER_PRIMES
-//        X(1) X(2) X(3) X(4)
-        X(2)
+        X(1) X(2) X(3) X(4)
+//        X(2)
 #endif
 #undef X
         default:
