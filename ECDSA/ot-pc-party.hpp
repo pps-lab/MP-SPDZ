@@ -171,7 +171,7 @@ void run(int argc, const char** argv)
     typename inputShare::Direct_MC inputMCp(mac_key);
 
     typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
-    string message = generate_commitments<T>(inputMCc, P, opts);
+    string message = generate_kzg_commitments<T>(inputMCc, P, opts);
 
     inputShare::MAC_Check::teardown();
     T<P377Element>::MAC_Check::teardown();

@@ -17,22 +17,23 @@
 
 #include <libff/algebra/scalar_multiplication/multiexp.hpp>
 
+template<class Curve>
 class KZGPublicParameters {
 public:
-    vector<P377Element> powers_of_g;
-    P377Element g2;
-
+    vector<Curve> powers_of_g;
+    Curve g2;
 };
 
-template<template<class U> class T>
+template<class T>
 class InputPolynomial {
 public:
-    vector<T<typename P377Element::Scalar> > coeffs;
+    vector<T> coeffs;
 };
 
+template<class Curve>
 class KZGCommitment {
 public:
-    P377Element c;
+    Curve c;
 };
 
 
@@ -112,27 +113,64 @@ void ecscalarmulshare(P377Element point, Rep3Share<P377Element::Scalar> multipli
     result = Rep3Share<P377Element>(result_shares);
 }
 
-// this is a specific, optimized functino for this set of shares (although the num conversino could be better)
-template <template<class U> class T>
-T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::Scalar>> & multipliers){
+//template <template<class U> class T>
+//T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::Scalar>> & multipliers){
+//
+//    // loop through multipliers and put into separate vector
+//    std::vector<libff::bls12_377_Fr> share1;
+//    std::vector<libff::bls12_377_Fr> share2;
+//    for (unsigned long i = 0; i < multipliers.size(); i++) {
+//        // probably this conversion can be faster
+//        auto ps1 = libff::bls12_377_Fr(bigint(multipliers[i].get()[0]).get_str().c_str());
+//        auto ps2 = libff::bls12_377_Fr(bigint(multipliers[i].get()[1]).get_str().c_str());
+//
+//        share1.push_back(ps1);
+//        share2.push_back(ps2);
+//    }
+//
+//    assert(bases.size() >= multipliers.size());
+//    std::vector<P377Element::G1> bases_format(multipliers.size());
+//    for (unsigned long i = 0; i < multipliers.size(); i++) {
+//        bases_format[i] = bases[i].get_point();
+//    }
+//
+//    std::cout << bases.size() << " and " << multipliers.size() << " and " << share1.size() << std::endl;
+//
+//    size_t parts = 1; // TODO: Make this configurable
+//    if (multipliers.size() > 100000) {
+//        parts = 8; // something like this?
+//    }
+//
+//    P377Element::G1 sum1 = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+//                                                                                                              share1.begin(), share1.end(), parts);
+//    P377Element::G1 sum2 = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+//                                                                                                              share2.begin(), share2.end(), parts);
+//    array<P377Element, 2> result_shares = { P377Element(sum1), P377Element(sum2) };
+//
+//    return T<P377Element>(result_shares);
+//}
+
+// this is a specific, optimized function for this set of shares (although the num conversion could be better)
+template <template<class U> class T, class Curve>
+T<Curve> msm(std::vector<Curve>& bases, std::vector<T<typename Curve::Scalar>> & multipliers){
 
     // loop through multipliers and put into separate vector
-    std::vector<libff::bls12_377_Fr> share1;
-    std::vector<libff::bls12_377_Fr> share2;
+    std::vector<typename Curve::Scalar> share1;
+    std::vector<typename Curve::Scalar> share2;
     for (unsigned long i = 0; i < multipliers.size(); i++) {
         // probably this conversion can be faster
-        auto ps1 = libff::bls12_377_Fr(bigint(multipliers[i].get()[0]).get_str().c_str());
-        auto ps2 = libff::bls12_377_Fr(bigint(multipliers[i].get()[1]).get_str().c_str());
+        auto ps1 = multipliers[i].get()[0];
+        auto ps2 = multipliers[i].get()[1];
 
         share1.push_back(ps1);
         share2.push_back(ps2);
     }
 
     assert(bases.size() >= multipliers.size());
-    std::vector<P377Element::G1> bases_format(multipliers.size());
-    for (unsigned long i = 0; i < multipliers.size(); i++) {
-        bases_format[i] = bases[i].get_point();
-    }
+//    std::vector<P377Element::G1> bases_format(multipliers.size());
+//    for (unsigned long i = 0; i < multipliers.size(); i++) {
+//        bases_format[i] = bases[i].get_point();
+//    }
 
     std::cout << bases.size() << " and " << multipliers.size() << " and " << share1.size() << std::endl;
 
@@ -141,13 +179,13 @@ T<P377Element> msm(std::vector<P377Element>& bases, std::vector<T<P377Element::S
         parts = 8; // something like this?
     }
 
-    P377Element::G1 sum1 = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
-                                                                                                     share1.begin(), share1.end(), parts);
-    P377Element::G1 sum2 = libff::multi_exp<P377Element::G1, P377Element::Fr, libff::multi_exp_method_BDLO12>(bases_format.begin(), bases_format.end(),
+    Curve sum1 = libff::multi_exp<Curve, typename Curve::Scalar, libff::multi_exp_method_BDLO12>(bases.begin(), bases.end(),
+                                                                                      share1.begin(), share1.end(), parts);
+    Curve sum2 = libff::multi_exp<Curve, typename Curve::Scalar, libff::multi_exp_method_BDLO12>(bases.begin(), bases.end(),
                                                                                                       share2.begin(), share2.end(), parts);
-    array<P377Element, 2> result_shares = { P377Element(sum1), P377Element(sum2) };
+    array<Curve, 2> result_shares = { Curve(sum1), Curve(sum2) };
 
-    return T<P377Element>(result_shares);
+    return T<Curve>(result_shares);
 }
 
 Share<P377Element> msm(std::vector<P377Element>& bases, std::vector<Share<P377Element::Scalar>> & multipliers){
@@ -211,18 +249,16 @@ SemiShare<P377Element> msm(std::vector<P377Element>& bases, std::vector<SemiShar
 }
 
 
-template<template<class U> class T>
-T<P377Element> commit_and_open(
-        InputPolynomial<T> tuple,
-        KZGPublicParameters kzgPublicParameters)
+template<template<class U> class T, class Curve>
+T<Curve> commit_and_open(
+        InputPolynomial<T<typename Curve::Scalar>> tuple,
+        KZGPublicParameters<Curve> kzgPublicParameters)
 //        typename T<P377Element>::MAC_Check& MCc,
 //        Player& P)
 {
 //    Timer timer;
 //    timer.start();
 //    auto stats = P.total_comm();
-    KZGCommitment signature;
-
     assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
 
     // Opening tuple coeffs is working
@@ -236,7 +272,7 @@ T<P377Element> commit_and_open(
     Timer msm_timer;
     msm_timer.start();
 
-    T<P377Element> sum = msm(kzgPublicParameters.powers_of_g, tuple.coeffs);
+    T<Curve> sum = msm(kzgPublicParameters.powers_of_g, tuple.coeffs);
 
 //    T<P377Element> sum;
 //    for (unsigned long i = 0; i < tuple.coeffs.size(); ++i) {

@@ -15,6 +15,8 @@ using namespace std;
 
 #include "Math/modp.hpp"
 
+#include <libff/algebra/fields/bigint.hpp>
+
 /* This is a wrapper class for the modp data type
  * It is used to be interface compatible with the gfp
  * type, which then allows us to template the Share
@@ -118,6 +120,17 @@ class gfp_ : public ValueInterface
     { return L;  }
   static Zp_Data& get_ZpD()
     { return ZpD; }
+
+    // Custom functions for compatibility with libff
+    static const int num_limbs = N_LIMBS;
+
+  const libff::bigint<N_LIMBS> as_bigint() const { // This creates a dependency with libff
+      bigint m;
+      to_bigint(m, *this);
+      libff::bigint<N_LIMBS> ans(m.get_mpz_t());
+    return ans;
+  }
+    // End of custom functions
 
   static DataFieldType field_type() { return DATA_INT; }
   static char type_char() { return 'p'; }

@@ -71,6 +71,22 @@ public:
         auto mod = BN_bn2dec(modulus);
         return mod;
     }
+
+
+    // Custom functions for compatibility with libff
+    static P256Element zero() {
+        return P256Element();
+    }
+    static const int num_limbs = Scalar::N_LIMBS;
+    P256Element dbl() {
+        // this should be implemented in openssl?
+        return *this + *this;
+    }
+    P256Element mixed_add(const P256Element &other) {
+        return *this + other;
+    }
+
+    // End of custom functions
 };
 
 P256Element operator*(const P256Element::Scalar& x, const P256Element& y);

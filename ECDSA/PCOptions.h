@@ -18,6 +18,7 @@ public:
     int n_y;
     int start;
     string prime;
+    string curve;
 
     PCOptions(ez::ezOptionParser& opt, int argc, const char** argv): EcdsaOptions(opt, argc, argv)
     {
@@ -85,6 +86,15 @@ public:
                 "-P", // Flag token.
                 "--prime" // Flag token.
         );
+        opt.add(
+                "bls12377",
+                0,
+                1,
+                0,
+                "Curve",
+                "-cu",
+                "--curve"
+        );
 
 
         opt.parse(argc, argv);
@@ -106,6 +116,7 @@ public:
         opt.get("-y")->getInt(n_y);
         opt.get("-s")->getInt(start);
         opt.get("--prime")->getString(prime);
+        opt.get("-cu")->getString(curve);
 
         std::cout << "n_model " << n_model << std::endl;
         std::cout << "n_x " << n_x << std::endl;

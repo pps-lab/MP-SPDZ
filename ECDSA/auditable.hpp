@@ -18,30 +18,32 @@
 
 //#include "sign.hpp"
 
-P377Element random_elem(PRNG& G) {
-    P377Element::Scalar r_scalar;
+template<class Curve>
+Curve random_elem(PRNG& G) {
+    typename Curve::Scalar r_scalar;
     r_scalar.randomize(G);
-    return P377Element(r_scalar);
+    return Curve(r_scalar);
 }
 
-inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
+template<class Curve>
+inline KZGPublicParameters<Curve> get_public_parameters(int n_parameters, PRNG& G) {
     // TODO: Is this consistent across parties?
     // It seems if we call GlobalPRNG is becomes consistent globally across parties, but it is not always called
     // so we call it again in the auditable inference function
 
-    KZGPublicParameters params;
+    KZGPublicParameters<Curve> params;
     for (int i = 0; i < n_parameters; i++) {
-        params.powers_of_g.push_back(random_elem(G));
+        params.powers_of_g.push_back(random_elem<Curve>(G));
     }
 
-    params.g2 = random_elem(G);
+    params.g2 = random_elem<Curve>(G);
     return params;
 }
 
 
-template<template<class U> class T>
-std::string generate_commitments(
-        typename T<P377Element>::MAC_Check& MCc,
+template<template<class U> class T, class Curve>
+std::string generate_kzg_commitments(
+        typename T<Curve>::MAC_Check& MCc,
         Player& P,
         PCOptions& opts)
 {
@@ -49,28 +51,29 @@ std::string generate_commitments(
     G.SeedGlobally(P);
 
 //    test_arith();
-    std::vector<KZGCommitment> commitments;
+    std::vector<KZGCommitment<Curve>> commitments;
 
     int commitment_sizes_arr[] = { opts.n_model, opts.n_x, opts.n_y };
     std::vector<int> commitment_sizes(commitment_sizes_arr, commitment_sizes_arr + 3);
     int n_parameters = max_element(commitment_sizes.begin(), commitment_sizes.end()).operator*();
-    KZGPublicParameters publicParameters = get_public_parameters(n_parameters, G);
+    KZGPublicParameters publicParameters = get_public_parameters<Curve>(n_parameters, G);
 
     Timer timer;
     timer.start();
     auto stats = P.total_comm();
 
-    std::vector<T<P377Element>> commitment_shares;
+    std::vector<T<Curve>> commitment_shares;
     int start = opts.start;
+    typedef T<typename Curve::Scalar> inputShare;
     for (int size : commitment_sizes) {
         // Proof for each size poly commitment
         if (size == 0) {
             continue;
         }
         std::cout << "Committing to polynomial of size " << size << endl;
-        std::vector< T<P377Element::Scalar> > input = read_inputs<T<P377Element::Scalar> >(P, size, start, KZG_SUFFIX);
+        std::vector< inputShare > input = read_inputs<inputShare >(P, size, start, KZG_SUFFIX);
 
-        InputPolynomial<T> polynomial;
+        InputPolynomial<inputShare> polynomial;
         for (int i = 0; i < size; i++)
         {
             polynomial.coeffs.push_back(input[i]);
@@ -78,11 +81,11 @@ std::string generate_commitments(
 
         assert(polynomial.coeffs.size() <= publicParameters.powers_of_g.size());
 
-        commitment_shares.push_back(commit_and_open(polynomial, publicParameters));
+        commitment_shares.push_back(commit_and_open<T, Curve>(polynomial, publicParameters));
         start = start + size;
     }
 
-    vector<P377Element> commitment_elements;
+    vector<Curve> commitment_elements;
     MCc.POpen_Begin(commitment_elements, commitment_shares, P);
     MCc.POpen_End(commitment_elements, commitment_shares, P);
 
@@ -90,7 +93,7 @@ std::string generate_commitments(
     MCc.Check(P);
 
     for (int i = 0; i < (int)commitment_elements.size(); i++) {
-        commitments.push_back(KZGCommitment { commitment_elements[i] });
+        commitments.push_back(KZGCommitment<Curve> { commitment_elements[i] });
     }
 
     auto diff = (P.total_comm() - stats);

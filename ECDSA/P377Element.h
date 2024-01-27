@@ -83,6 +83,21 @@ public:
 //        return a * b;
 //    }
 
+    // Custom functions for compatibility with libff
+    static P377Element zero() {
+        return P377Element();
+    }
+    static const int num_limbs = Scalar::N_LIMBS;
+    P377Element dbl() {
+        // this should be implemented in openssl?
+        return *this + *this;
+    }
+    P377Element mixed_add(const P377Element &other) {
+        return *this + other;
+    }
+
+    // End of custom functions
+
 };
 
 P377Element operator*(const P377Element::Scalar& x, const P377Element& y);

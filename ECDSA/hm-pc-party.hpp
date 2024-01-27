@@ -60,27 +60,23 @@ void ecscalarmulshare(P377Element point, MaliciousRep3Share<P377Element::Scalar>
 }
 
 
-template<template<class U> class T>
-void run(int argc, const char** argv)
+template<template <class U> class T, class Curve>
+void run(int argc, const char** argv, bigint order)
 {
     bigint::init_thread();
     ez::ezOptionParser opt;
     PCOptions opts(opt, argc, argv);
-    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
+//    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
+    opts.R_after_msg = false;
     Names N(opt, argc, argv,
-            3 + is_same<T<P256Element>, Rep4Share<P256Element>>::value);
+            3);
 
     CryptoPlayer P(N, "pc");
 
-    libff::bls12_377_pp::init_public_params();
-    mpz_t t;
-    mpz_init(t);
-    P377Element::G1::order().to_mpz(t);
+    typedef T<typename Curve::Scalar> inputShare;
 
-    typedef T<P377Element::Scalar> inputShare;
-
-    inputShare::clear::init_field(bigint(t));
-    inputShare::clear::next::init_field(bigint(t), false);
+    inputShare::clear::init_field(order);
+    inputShare::clear::next::init_field(order, false);
 
     Timer timer_all;
     timer_all.start();
@@ -90,8 +86,8 @@ void run(int argc, const char** argv)
     inputShare::read_or_generate_mac_key("", P, input_mac_key);
     typename inputShare::MAC_Check inputMCp(input_mac_key);
 
-    typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
-    string message = generate_commitments<T>(inputMCc, P, opts);
+    typename T<Curve>::Direct_MC inputMCc(inputMCp.get_alphai());
+    string message = generate_kzg_commitments<T, Curve>(inputMCc, P, opts);
 
     auto diff_all = P.total_comm() - stats_all;
     print_timer("commit_with_gen", timer_all.elapsed());
@@ -99,7 +95,6 @@ void run(int argc, const char** argv)
     print_global("commit_with_gen", P, diff_all);
 
 //    std::cout << "Message: " << message << endl;
-    P377Element::finish();
 
     // Signing
     P256Element::init();
@@ -174,3 +169,33 @@ void run(int argc, const char** argv)
 
     P256Element::finish();
 }
+
+template<template<class T> class share>
+void run(int argc, const char** argv) {
+    ez::ezOptionParser opt;
+    PCOptions opts(opt, argc, argv);
+
+    if (opts.curve == "bls12377") {
+        libff::bls12_377_pp::init_public_params();
+        mpz_t t;
+        mpz_init(t);
+        P377Element::G1::order().to_mpz(t);
+        bigint t_big(t);
+
+        run<share, P377Element>(argc, argv, t_big);
+
+        P377Element::finish();
+    } else if (opts.curve == "sec256k1") {
+
+        P256Element::init(false);
+
+        bigint order = P256Element::get_order();
+        run<share, P256Element>(argc, argv, order);
+
+        P256Element::finish();
+    } else {
+        std::cerr << "Unknown curve " << opts.curve << endl;
+        exit(1);
+    }
+}
+
