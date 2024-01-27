@@ -39,10 +39,10 @@ inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
 }
 
 
-template<template<class U> class T>
+template<class share>
 void eval_point(
-        P377Element::Scalar beta,
-        ProtocolSet< T<P377Element::Scalar>> &set,
+        typename share::clear beta,
+        ProtocolSet< share> &set,
         Player& P,
         PEOptions& opts) {
     Timer timer;
@@ -52,7 +52,7 @@ void eval_point(
 //    G.SeedGlobally(P);
 
 //    test_arith();
-    std::vector<T<P377Element::Scalar> > inputs = read_inputs<T<P377Element::Scalar> >(P, opts.n_shares, opts.start, KZG_SUFFIX);
+    std::vector<share > inputs = read_inputs<share >(P, opts.n_shares, opts.start, KZG_SUFFIX);
 
     std::cout << "Share 0 " << inputs[0] << std::endl;
 
@@ -62,10 +62,10 @@ void eval_point(
 //    inputs_format_str.push_back(str_zero);
 //
 //    input_format_type inputs_format = process_format(inputs_format_str);
-//    std::vector<P377Element::Scalar> private_inputs;
+//    std::vector<clr> private_inputs;
 //    int pid_to_check = 0;
 //    if (P.my_num() == pid_to_check and inputs_format[P.my_num()].size() > 0) {
-//        private_inputs = read_private_input<P377Element::Scalar>(P, inputs_format[P.my_num()]);
+//        private_inputs = read_private_input<clr>(P, inputs_format[P.my_num()]);
 //    }
 //    set.output.init_open(P, inputs.size());
 //    for (unsigned long i = 0; i < inputs.size(); i++) {
@@ -75,7 +75,7 @@ void eval_point(
 //    set.check();
 //    std::cout << "Starting opening" << std::endl;
 //    for (unsigned long i = 0; i < inputs.size(); i++) {
-//        P377Element::Scalar input = set.output.finalize_open();
+//        clr input = set.output.finalize_open();
 //        if (P.my_num() == pid_to_check) {
 //            if (input != private_inputs[i]) {
 //                std::cout << "Input " << i << " does not match" << std::endl;
@@ -84,7 +84,7 @@ void eval_point(
 //        }
 //    }
 
-    P377Element::Scalar r;
+    typename share::clear r;
     r.randomize(G);
     set.input.reset_all(P);
     if (opts.input_party_i == P.my_num()) {
@@ -95,14 +95,14 @@ void eval_point(
     }
     set.input.exchange();
 //    set.check();
-    T<P377Element::Scalar> r_share = set.input.finalize(opts.input_party_i);
+    share r_share = set.input.finalize(opts.input_party_i);
 
     // Evaluate polynomial defined by inputs at beta
-    T<P377Element::Scalar> result;
+    share result;
     result += r_share;
 //    (void)r_share;
 
-    P377Element::Scalar current_beta = beta;
+    typename share::clear current_beta = beta;
     for (int i = 0; i < opts.n_shares; i++) { // can we parallelize this?
         result += inputs[i] * current_beta;
         current_beta = current_beta * beta;
@@ -113,7 +113,7 @@ void eval_point(
     set.output.exchange(P);
     set.check();
 
-    P377Element::Scalar rho = set.output.finalize_open();
+    typename share::clear rho = set.output.finalize_open();
 
     set.check();
 

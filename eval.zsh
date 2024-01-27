@@ -5,8 +5,8 @@ trap "kill 0" EXIT
 
 
 
-#BIN=./rep-pe-party.x
-BIN=./sy-rep-pe-party.x
+BIN=./rep-pe-party.x
+#BIN=./sy-rep-pe-party.x
 #
 #
 #
@@ -28,9 +28,9 @@ BIN=./sy-rep-pe-party.x
 #$BIN -p 2 -N 3 --n_shares 41497138 --eval_point 1 --start 0 --input_party_i 1 & ; pid2=$!
 #wait $pid0 $pid1 $pid2
 
-$BIN -p 0 -N 3 --n_shares 2977 --start 0 --input_party_i 0 & ; pid0=$!
-$BIN -p 1 -N 3 --n_shares 2977 --start 0 --input_party_i 0 & ; pid1=$!
-$BIN -p 2 -N 3 --n_shares 2977 --start 0 --input_party_i 0 & ; pid2=$!
+$BIN -p 0 -N 3 --n_shares 32 --start 0 --input_party_i 0 --curve sec256k1 & ; pid0=$!
+$BIN -p 1 -N 3 --n_shares 32 --start 0 --input_party_i 0 --curve sec256k1 & ; pid1=$!
+$BIN -p 2 -N 3 --n_shares 32 --start 0 --input_party_i 0 --curve sec256k1 & ; pid2=$!
 wait $pid0 $pid1 $pid2
 #
 

@@ -15,6 +15,7 @@ public:
     int start;
     int input_party_i;
     string eval_point;
+    string curve;
 
     PEOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -54,6 +55,15 @@ public:
                 "-e",
                 "--eval_point"
                 );
+        opt.add(
+                "bls12377",
+                0,
+                1,
+                0,
+                "Curve",
+                "-cu",
+                "--curve"
+        );
 
         opt.parse(argc, argv);
 
@@ -64,6 +74,7 @@ public:
         if (opt.isSet("-e")) {
             opt.get("-e")->getString(eval_point);
         }
+        opt.get("-cu")->getString(curve);
 
         opt.resetArgs();
 

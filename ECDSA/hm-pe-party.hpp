@@ -40,8 +40,8 @@
 
 #include <assert.h>
 
-template<template<class U> class T>
-void run(int argc, const char** argv)
+template<class inputShare>
+void run(int argc, const char** argv, bigint prime_length)
 {
     bigint::init_thread();
     ez::ezOptionParser opt;
@@ -54,33 +54,32 @@ void run(int argc, const char** argv)
 
     CryptoPlayer P(N, "pc");
 
-    libff::bls12_377_pp::init_public_params();
-    mpz_t t;
-    mpz_init(t);
-    P377Element::G1::order().to_mpz(t);
+//    libff::bls12_377_pp::init_public_params();
+//    mpz_t t;
+//    mpz_init(t);
+//    P377Element::G1::order().to_mpz(t);
 
-    typedef T<P377Element::Scalar> inputShare;
+    std::cout << "Prime " << inputShare::clear::pr() << std::endl;
 
-    string prefix = get_prep_sub_dir<inputShare>("Player-Data", n_parties, 253);
+    string prefix = get_prep_sub_dir<inputShare>("Player-Data", n_parties, inputShare::clear::length());
     std::cout << "Loading mac from " << prefix << endl;
 
-    ProtocolSetup< inputShare > setup(bigint(t), P, prefix);
+    ProtocolSetup< inputShare > setup(prime_length, P, prefix);
 //    ProtocolSetup< inputShare > setup(bigint(t), P);
     ProtocolSet< inputShare> set(P, setup);
 //    inputShare::clear::init_field(bigint(t));
 //    inputShare::clear::next::init_field(bigint(t), false);
 
-    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
 //    beta = P377Element::Scalar(bigint("6578911705820052831726078019867999857858229676316950877123218490548071891330"));
 
-    P377Element::Scalar beta;
+    typename inputShare::clear beta;
     if (opts.eval_point.length() > 0) {
         std::cout << "Evaluating at fixed point " << opts.eval_point << std::endl;
         beta = P377Element::Scalar(bigint(opts.eval_point));
         std::cout << "Parsed beta: " << beta << std::endl;
     } else {
-        T<P377Element::Scalar> beta_share = set.protocol.get_random();
+        inputShare beta_share = set.protocol.get_random();
         set.output.init_open(P);
         set.output.prepare_open(beta_share);
         set.output.exchange(P);
@@ -88,8 +87,35 @@ void run(int argc, const char** argv)
         beta = set.output.finalize_open();
     }
 
-    eval_point<T>(beta, set, P, opts);
+    eval_point<inputShare>(beta, set, P, opts);
 
-    P377Element::finish();
+}
 
+template<template<class T> class share>
+void run(int argc, const char** argv) {
+    ez::ezOptionParser opt;
+    PEOptions opts(opt, argc, argv);
+
+    if (opts.curve == "bls12377") {
+        libff::bls12_377_pp::init_public_params();
+        mpz_t t;
+        mpz_init(t);
+        P377Element::G1::order().to_mpz(t);
+        bigint t_big(t);
+
+        run<share<P377Element::Scalar>>(argc, argv, t_big);
+
+        P377Element::finish();
+    } else if (opts.curve == "sec256k1") {
+
+        P256Element::init(false);
+
+        bigint order = P256Element::get_order();
+        run<share<P256Element::Scalar>>(argc, argv, order);
+
+        P256Element::finish();
+    } else {
+        std::cerr << "Unknown curve " << opts.curve << endl;
+        exit(1);
+    }
 }
