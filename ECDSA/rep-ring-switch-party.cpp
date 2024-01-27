@@ -10,5 +10,5 @@
 
 int main(int argc, const char** argv)
 {
-    run<Rep3Share2<64>, Rep3Share<P377Element::Scalar>>(argc, argv);
+    run<Rep3Share2<64>, Rep3Share>(argc, argv);
 }

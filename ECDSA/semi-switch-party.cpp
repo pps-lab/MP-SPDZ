@@ -19,5 +19,5 @@
 
 int main(int argc, const char** argv)
 {
-    run<SemiShare, SemiShare<P377Element::Scalar> >(argc, argv);
+    run<SemiShare, SemiShare>(argc, argv);
 }

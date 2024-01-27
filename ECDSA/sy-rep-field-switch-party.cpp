@@ -35,5 +35,5 @@
 
 int main(int argc, const char** argv)
 {
-    run<SpdzWiseRepFieldShare, SpdzWiseRepFieldShare<P377Element::Scalar>>(argc, argv);
+    run<SpdzWiseRepFieldShare, SpdzWiseRepFieldShare>(argc, argv);
 }

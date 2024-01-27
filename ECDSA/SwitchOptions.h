@@ -23,6 +23,7 @@ public:
     bool test;
     bool only_distribute_inputs;
     bool use_share_split;
+    std::string curve;
 
     SwitchOptions(ez::ezOptionParser& opt, int argc, const char** argv)
     {
@@ -143,6 +144,15 @@ public:
                 "-sp",
                 "--split"
         );
+        opt.add(
+                "bls12377",
+                0,
+                1,
+                0,
+                "Curve",
+                "-cu",
+                "--curve"
+        );
         opt.parse(argc, argv);
 
         opt.get("-n")->getInt(n_shares);
@@ -155,6 +165,7 @@ public:
         opt.get("-t")->getInt(n_threads);
         opt.get("-c")->getInt(chunk_size);
         opt.get("-pr")->getInt(input_prime_length);
+        opt.get("-cu")->getString(curve);
         debug = opt.isSet("-d");
         test = opt.isSet("-te");
         only_distribute_inputs = opt.isSet("-nc");

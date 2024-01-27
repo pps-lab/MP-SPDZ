@@ -116,10 +116,9 @@ vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_
 
 //    Timer timer_bits;
 //    timer_bits.start();
-    stats = P.total_comm();
 
 
-    set_input.binary.output.init_open(P, (n_bits_per_input + bit_overflow_two) * input_size);
+    set_input.binary.output.init_open(P, (n_bits_per_input + bit_overflow_two) * buffer_size / dl);
     for (int i = 0; i < (int)n_bits_per_input + bit_overflow_two; i++) {
         for (int j = 0; j < (int)buffer_size / dl; j++) {
             set_input.binary.output.prepare_open(sums_two[j][i], dl);
@@ -390,7 +389,7 @@ vector<outputShare> convert_shares_ring(const typename vector<inputShare>::itera
 
 
     auto diff = (P.total_comm() - overall_stats);
-    print_global("log", P, diff);
+//    print_global("log", P, diff);
 
 
     vector<outputShare> result = compose_shares(sums_one, input_size, bit_proc, set_input, set_output, out_arithmetic_mac_key,
@@ -837,12 +836,14 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
 }
 
 template<class inputShare, class outputShare>
-void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bool input_is_field = false)
+void run(int argc, const char** argv, bigint output_field_prime, int bit_length = -1, int n_players = 3, bool input_is_field = false)
 {
     bigint::init_thread();
     ez::ezOptionParser opt;
     SwitchOptions opts(opt, argc, argv);
     assert(opts.inputs_format.size() == 0 or opts.n_shares == 0); // can only specify one
+
+    // Set outputShare
 
 //    opts.R_after_msg |= is_same<T<P256Element>, AtlasShare<P256Element>>::value;
 
@@ -862,11 +863,6 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 //    inputShare::read_or_generate_mac_key(prefix, P, mac_key);
 
     // protocol setup (domain, MAC key if needed etc)
-    libff::bls12_377_pp::init_public_params();
-    mpz_t t;
-    mpz_init(t);
-    P377Element::G1::order().to_mpz(t);
-    bigint t_big(t);
 
     if (bit_length == -1) {
         bit_length = inputShare::clear::n_bits();
@@ -894,8 +890,8 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
     if (opts.test) {
         inputShare::clear::init_default(bit_length);
         inputShare::clear::next::init_default(bit_length, false);
-        outputShare::clear::init_field(t_big);
-        outputShare::clear::next::init_field(t_big, false);
+        outputShare::clear::init_field(output_field_prime);
+        outputShare::clear::next::init_field(output_field_prime, false);
 
         input_shares = {
                 inputShare::constant(typename inputShare::clear(bigint("0")), P.my_num(), typename inputShare::mac_key_type()),
@@ -910,8 +906,8 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
         std::cout << "Initializing with bit length " << bit_length << std::endl;
         inputShare::clear::init_default(bit_length);
         inputShare::clear::next::init_default(bit_length, false);
-        outputShare::clear::init_field(t_big);
-        outputShare::clear::next::init_field(t_big, false);
+        outputShare::clear::init_field(output_field_prime);
+        outputShare::clear::next::init_field(output_field_prime, false);
 
         input_shares = read_inputs<inputShare>(P, opts.n_shares, opts.start);
         log_name = "share_switch_output";
@@ -922,8 +918,8 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 
 //        ProtocolSetup<outputShare> setup_output(t_big, P);
 //        ProtocolSet<outputShare> set_output(P, setup_output);
-        outputShare::clear::init_field(t_big);
-        outputShare::clear::next::init_field(t_big, false);
+        outputShare::clear::init_field(output_field_prime);
+        outputShare::clear::next::init_field(output_field_prime, false);
 
         input_shares = distribute_inputs(P, set_input, opts.inputs_format, opts.n_bits_per_input);
         std::cout << "Done reading inputs" << endl;
@@ -1025,7 +1021,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
     auto has_same_types = is_same<inputShare, outputShare>::value;
     assert(not has_same_types);
 
-#pragma omp parallel for num_threads(n_threads)
+//#pragma omp parallel for num_threads(n_threads)
     for (int j = 0; j < n_threads; j++) {
         bigint::init_thread();
 
@@ -1049,7 +1045,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
         MixedProtocolSetup<inputShare> setup_input_i(P_j, bit_length, prefix_input);
         MixedProtocolSet<inputShare> set_input_i(P_j, setup_input_i);
 
-        ProtocolSetup<outputShare> setup_output_i(bigint(t), P_j);
+        ProtocolSetup<outputShare> setup_output_i(output_field_prime, P_j);
         ProtocolSet<outputShare> set_output_i(P_j, setup_output_i);
 
         auto thread_local_stats = P_j.total_comm();
@@ -1128,11 +1124,45 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
 //    std::cout << "Share 0 after reading " << check_shares[0] << std::endl;
 //    std::cout << "Prime " << P377Element::Scalar::pr() << std::endl;
 
-    P377Element::finish();
+//    P377Element::finish();
+}
+
+template<class inputShare, template<class T> class outputShare>
+void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bool input_is_field = false) {
+    ez::ezOptionParser opt;
+    SwitchOptions opts(opt, argc, argv);
+
+    if (opts.curve == "bls12377") {
+        libff::bls12_377_pp::init_public_params();
+        mpz_t t;
+        mpz_init(t);
+        P377Element::G1::order().to_mpz(t);
+        bigint t_big(t);
+
+//        P377Element::Scalar::init_field(t);
+//        P377Element::Scalar::next::init_field(t, false);
+
+        run<inputShare, outputShare<P377Element::Scalar>>(argc, argv, t_big, bit_length, n_players, input_is_field);
+
+        P377Element::finish();
+    } else if (opts.curve == "sec256k1") {
+
+        P256Element::init(false);
+//        P256Element::Scalar::next::init_field(P256Element::get_order(), false);
+
+        bigint order = P256Element::get_order();
+        run<inputShare, outputShare<P256Element::Scalar>>(argc, argv, order, bit_length, n_players, input_is_field);
+//        free((char *)order);
+
+        P256Element::finish();
+    } else {
+        std::cerr << "Unknown curve " << opts.curve << endl;
+        exit(1);
+    }
 }
 
 
-template< template<class T> class inputShare, class outputShare>
+template< template<class T> class inputShare, template<class T> class outputShare>
 void run(int argc, const char** argv) {
     ez::ezOptionParser opt;
     SwitchOptions opts(opt, argc, argv);

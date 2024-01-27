@@ -31,7 +31,7 @@ public:
     static int length() { return 256; }
     static string type_string() { return "P256"; }
 
-    static void init();
+    static void init(bool init_field = false);
     static void finish();
 
     P256Element();
@@ -64,6 +64,13 @@ public:
     void unpack(octetStream& os, int = -1);
 
     friend ostream& operator<<(ostream& s, const P256Element& x);
+
+    static bigint get_order() {
+        assert(curve != 0);
+        auto modulus = EC_GROUP_get0_order(curve);
+        auto mod = BN_bn2dec(modulus);
+        return mod;
+    }
 };
 
 P256Element operator*(const P256Element::Scalar& x, const P256Element& y);

@@ -9,14 +9,16 @@
 
 EC_GROUP* P256Element::curve;
 
-void P256Element::init()
+void P256Element::init(bool init_field)
 {
     curve = EC_GROUP_new_by_curve_name(NID_secp256k1);
     assert(curve != 0);
-    auto modulus = EC_GROUP_get0_order(curve);
-    auto mod = BN_bn2dec(modulus);
-    Scalar::init_field(mod, false);
-    free(mod);
+    if (init_field) {
+        auto modulus = EC_GROUP_get0_order(curve);
+        auto mod = BN_bn2dec(modulus);
+        Scalar::init_field(mod, false);
+        free(mod);
+    }
 }
 
 void P256Element::finish()

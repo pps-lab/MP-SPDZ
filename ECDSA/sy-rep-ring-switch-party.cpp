@@ -37,5 +37,5 @@ using SpdzWiseRep3Share = SpdzWiseRingShare<64, 40>;
 
 int main(int argc, const char** argv)
 {
-    run<SpdzWiseRep3Share, SpdzWiseRepFieldShare<P377Element::Scalar>>(argc, argv);
+    run<SpdzWiseRep3Share, SpdzWiseRepFieldShare>(argc, argv);
 }
