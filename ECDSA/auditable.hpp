@@ -26,12 +26,12 @@ Curve random_elem(PRNG& G) {
 }
 
 template<class Curve>
-inline KZGPublicParameters<Curve> get_public_parameters(int n_parameters, PRNG& G) {
+inline ECPublicParameters<Curve> get_public_parameters(int n_parameters, PRNG& G) {
     // TODO: Is this consistent across parties?
     // It seems if we call GlobalPRNG is becomes consistent globally across parties, but it is not always called
     // so we call it again in the auditable inference function
 
-    KZGPublicParameters<Curve> params;
+    ECPublicParameters<Curve> params;
     for (int i = 0; i < n_parameters; i++) {
         params.powers_of_g.push_back(random_elem<Curve>(G));
     }
@@ -41,8 +41,8 @@ inline KZGPublicParameters<Curve> get_public_parameters(int n_parameters, PRNG& 
 }
 
 
-template<template<class U> class T, class Curve>
-std::string generate_kzg_commitments(
+template<template<class U> class T, class Curve, template<class> class Commitment>
+std::string generate_vector_commitments(
         typename T<Curve>::MAC_Check& MCc,
         Player& P,
         PCOptions& opts)
@@ -51,12 +51,12 @@ std::string generate_kzg_commitments(
     G.SeedGlobally(P);
 
 //    test_arith();
-    std::vector<KZGCommitment<Curve>> commitments;
+    std::vector<Commitment<Curve>> commitments;
 
     int commitment_sizes_arr[] = { opts.n_model, opts.n_x, opts.n_y };
     std::vector<int> commitment_sizes(commitment_sizes_arr, commitment_sizes_arr + 3);
     int n_parameters = max_element(commitment_sizes.begin(), commitment_sizes.end()).operator*();
-    KZGPublicParameters publicParameters = get_public_parameters<Curve>(n_parameters, G);
+    ECPublicParameters publicParameters = get_public_parameters<Curve>(n_parameters, G);
 
     Timer timer;
     timer.start();
@@ -93,7 +93,7 @@ std::string generate_kzg_commitments(
     MCc.Check(P);
 
     for (int i = 0; i < (int)commitment_elements.size(); i++) {
-        commitments.push_back(KZGCommitment<Curve> { commitment_elements[i] });
+        commitments.push_back(Commitment<Curve> { commitment_elements[i] });
     }
 
     auto diff = (P.total_comm() - stats);
@@ -111,32 +111,91 @@ std::string generate_kzg_commitments(
         commitment.c.pack(os);
     }
     std::cout << "Generated " << commitments.size() << " commitments of total size " << os.get_length() << endl;
-//    std::cout << "SIZE " << os.get_length() << endl;
-
-//    P256Element::Scalar sk;
-//    sk.randomize(G);
 
     string message = os.str();
     return message;
-
-//    auto sig = sign((const unsigned char *) message.c_str(), message.length(), sk);
-//    std::cout << "Signature: " << sig.R << " " << sig.s << endl;
-
-//    const int commitment_size = 41;
-//    int expected_size = (commitment_size * datasets.size()) + (commitment_size * opts.poly_dims.size()) + commitment_size;
-
-//    octetStream os;
-//    model.c.pack(os);
-//    for (auto& dataset : datasets) {
-//        dataset.c.pack(os);
-//    }
-//    for (auto& commitment : commitments) {
-//        commitment.c.pack(os);
-//    }
-//    cout << "SIZE " << os.get_length() << endl;
-//    assert((int)os.get_length() == expected_size);
+}
 
 
+template<template<class U> class T, class Curve>
+std::string generate_individual_commitments(
+        typename T<Curve>::MAC_Check& MCc,
+        ProtocolSet< T<typename Curve::Scalar> > set,
+        Player& P,
+        PCOptions& opts)
+{
+    SeededPRNG G;
+    G.SeedGlobally(P);
+
+//    test_arith();
+    int commitment_sizes_arr[] = { opts.n_model, opts.n_x, opts.n_y };
+    std::vector<int> commitment_sizes(commitment_sizes_arr, commitment_sizes_arr + 3);
+    int n_parameters = max_element(commitment_sizes.begin(), commitment_sizes.end()).operator*();
+    ECPublicParameters publicParameters = get_public_parameters<Curve>(n_parameters, G);
+
+    Timer timer;
+    timer.start();
+    auto stats = P.total_comm();
+
+    std::vector<std::vector<T<Curve>>> commitment_shares;
+    int start = opts.start;
+    typedef T<typename Curve::Scalar> inputShare;
+    for (int size : commitment_sizes) {
+        // Proof for each size poly commitment
+        if (size == 0) {
+            continue;
+        }
+        std::cout << "Committing to polynomial of size " << size << " with individual commitments" << endl;
+        std::vector< inputShare > input = read_inputs<inputShare >(P, size, start, KZG_SUFFIX);
+
+        InputPolynomial<inputShare> polynomial;
+        vector<inputShare> randomness;
+        for (int i = 0; i < size; i++)
+        {
+            polynomial.coeffs.push_back(input[i]);
+
+            inputShare random_share = set.protocol.get_random();
+            randomness.push_back(random_share);
+        }
+
+        assert(polynomial.coeffs.size() <= publicParameters.powers_of_g.size());
+
+        commitment_shares.push_back(commit_individual(polynomial, randomness, publicParameters));
+
+        start = start + size;
+    }
+
+    vector<vector<Curve>> commitment_elements;
+    for (int i = 0; i < (int)commitment_shares.size(); i++) {
+        vector<Curve> commitment_elements_i;
+        MCc.POpen_Begin(commitment_elements_i, commitment_shares[i], P);
+        MCc.POpen_End(commitment_elements_i, commitment_shares[i], P);
+        commitment_elements.push_back(commitment_elements_i);
+    }
+
+    // We do this once for all the commitments, because of the protocol
+    MCc.Check(P);
+
+    auto diff = (P.total_comm() - stats);
+    cout << "Auditable inference took " << timer.elapsed() * 1e3 << " ms and sending "
+         << diff.sent << " bytes" << endl;
+    diff.print(true);
+
+    print_timer("commit", timer.elapsed());
+    print_stat("commit", diff);
+    print_global("commit", P, diff);
+
+    // Now we compute the hash of the concatenation!
+    octetStream os;
+    for (auto& commitment_vec : commitment_elements) {
+        for (auto& commitment : commitment_vec) {
+            commitment.pack(os);
+        }
+    }
+    std::cout << "Generated " << commitment_elements.size() << " commitments vectors of total size " << os.get_length() << endl;
+
+    string message = os.str();
+    return message;
 }
 
 //template<template<class U> class T>

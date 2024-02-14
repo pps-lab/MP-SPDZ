@@ -527,6 +527,8 @@ vector<outputShare> convert_shares_ring_split(const typename vector<inputShare>:
             }
         }
 
+        overall_stats = P.total_comm();
+
         bit_adder.multi_add(sums_one, summands_one, 0, buffer_size / dl, bit_proc, dl, 0);
 //        for (int i = 0; i < input_size; i++) {
 //            sums_one[i] = std::vector<BT>(n_bits_per_input);
@@ -535,6 +537,7 @@ vector<outputShare> convert_shares_ring_split(const typename vector<inputShare>:
 
     // print overall stats until this point
     auto diff = (P.total_comm() - overall_stats);
+    diff.print(true);
 //    print_global("share_switch_split", P, diff);
 
 
@@ -1139,20 +1142,15 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
         P377Element::G1::order().to_mpz(t);
         bigint t_big(t);
 
-//        P377Element::Scalar::init_field(t);
-//        P377Element::Scalar::next::init_field(t, false);
-
         run<inputShare, outputShare<P377Element::Scalar>>(argc, argv, t_big, bit_length, n_players, input_is_field);
 
         P377Element::finish();
     } else if (opts.curve == "sec256k1") {
 
         P256Element::init(false);
-//        P256Element::Scalar::next::init_field(P256Element::get_order(), false);
 
         bigint order = P256Element::get_order();
         run<inputShare, outputShare<P256Element::Scalar>>(argc, argv, order, bit_length, n_players, input_is_field);
-//        free((char *)order);
 
         P256Element::finish();
     } else {

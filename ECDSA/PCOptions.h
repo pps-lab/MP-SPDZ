@@ -19,6 +19,7 @@ public:
     int start;
     string prime;
     string curve;
+    string commit_type;
 
     PCOptions(ez::ezOptionParser& opt, int argc, const char** argv): EcdsaOptions(opt, argc, argv)
     {
@@ -95,6 +96,15 @@ public:
                 "-cu",
                 "--curve"
         );
+        opt.add(
+                "ec_vec",
+                0,
+                1,
+                0,
+                "Commitment type",
+                "-ct",
+                "--commit-type"
+        );
 
 
         opt.parse(argc, argv);
@@ -117,6 +127,7 @@ public:
         opt.get("-s")->getInt(start);
         opt.get("--prime")->getString(prime);
         opt.get("-cu")->getString(curve);
+        opt.get("-ct")->getString(commit_type);
 
         std::cout << "n_model " << n_model << std::endl;
         std::cout << "n_x " << n_x << std::endl;

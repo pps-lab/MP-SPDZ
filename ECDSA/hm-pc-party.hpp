@@ -60,6 +60,8 @@ void ecscalarmulshare(P377Element point, MaliciousRep3Share<P377Element::Scalar>
 }
 
 
+
+
 template<template <class U> class T, class Curve>
 void run(int argc, const char** argv, bigint order)
 {
@@ -73,26 +75,38 @@ void run(int argc, const char** argv, bigint order)
 
     CryptoPlayer P(N, "pc");
 
-    typedef T<typename Curve::Scalar> inputShare;
+    string message;
+    if (opts.n_y == 0 && opts.n_x == 0 && opts.n_model == 0) {
+        std::cout << "No inputs found, only signing!" << std::endl;
+        message = "Related work commitment";
+    } else {
+        typedef T<typename Curve::Scalar> inputShare;
 
-    inputShare::clear::init_field(order);
-    inputShare::clear::next::init_field(order, false);
+        string prefix = get_prep_sub_dir<inputShare>("Player-Data", 3, inputShare::clear::length());
+        std::cout << "Loading mac from " << prefix << endl;
+        ProtocolSetup< inputShare > setup(order, P, prefix);
+        ProtocolSet< inputShare> set(P, setup);
 
-    Timer timer_all;
-    timer_all.start();
-    auto stats_all = P.total_comm();
+        Timer timer_all;
+        timer_all.start();
+        auto stats_all = P.total_comm();
 
-    typename inputShare::mac_key_type input_mac_key;
-    inputShare::read_or_generate_mac_key("", P, input_mac_key);
-    typename inputShare::MAC_Check inputMCp(input_mac_key);
+        typename inputShare::mac_key_type input_mac_key;
+        inputShare::read_or_generate_mac_key("", P, input_mac_key);
+        typename inputShare::MAC_Check inputMCp(input_mac_key);
 
-    typename T<Curve>::Direct_MC inputMCc(inputMCp.get_alphai());
-    string message = generate_kzg_commitments<T, Curve>(inputMCc, P, opts);
+        typename T<Curve>::Direct_MC inputMCc(inputMCp.get_alphai());
+        if (opts.commit_type == "ec_vec") {
+            message = generate_vector_commitments<T, Curve, ECVectorCommitment>(inputMCc, P, opts);
+        } else if (opts.commit_type == "ec_individual") {
+            message = generate_individual_commitments<T, Curve>(inputMCc, set, P, opts);
+        }
 
-    auto diff_all = P.total_comm() - stats_all;
-    print_timer("commit_with_gen", timer_all.elapsed());
-    print_stat("commit_with_gen", diff_all);
-    print_global("commit_with_gen", P, diff_all);
+        auto diff_all = P.total_comm() - stats_all;
+        print_timer("commit_with_gen", timer_all.elapsed());
+        print_stat("commit_with_gen", diff_all);
+        print_global("commit_with_gen", P, diff_all);
+    }
 
 //    std::cout << "Message: " << message << endl;
 
@@ -166,8 +180,6 @@ void run(int argc, const char** argv, bigint order)
     MCc.Check(P);
 
     check(sig, (const unsigned char *)message.c_str(), message.length(), pk);
-
-    P256Element::finish();
 }
 
 template<template<class T> class share>
@@ -175,7 +187,10 @@ void run(int argc, const char** argv) {
     ez::ezOptionParser opt;
     PCOptions opts(opt, argc, argv);
 
+
     if (opts.curve == "bls12377") {
+        P256Element::init(true);
+
         libff::bls12_377_pp::init_public_params();
         mpz_t t;
         mpz_init(t);
@@ -186,16 +201,16 @@ void run(int argc, const char** argv) {
 
         P377Element::finish();
     } else if (opts.curve == "sec256k1") {
-
         P256Element::init(false);
 
         bigint order = P256Element::get_order();
         run<share, P256Element>(argc, argv, order);
 
-        P256Element::finish();
     } else {
         std::cerr << "Unknown curve " << opts.curve << endl;
         exit(1);
     }
+
+    P256Element::finish();
 }
 

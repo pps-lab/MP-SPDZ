@@ -18,7 +18,7 @@
 #include <libff/algebra/scalar_multiplication/multiexp.hpp>
 
 template<class Curve>
-class KZGPublicParameters {
+class ECPublicParameters {
 public:
     vector<Curve> powers_of_g;
     Curve g2;
@@ -31,7 +31,7 @@ public:
 };
 
 template<class Curve>
-class KZGCommitment {
+class ECVectorCommitment {
 public:
     Curve c;
 };
@@ -44,16 +44,16 @@ public:
     P377Element::Scalar rho;
 };
 
-template<template<class U> class T>
-void ecscalarmulshare(T<P377Element> pointshare, P377Element::Scalar multiplier, T<P377Element>& result){
+template<template<class U> class T, class Curve>
+void ecscalarmulshare(T<Curve> pointshare, typename Curve::Scalar multiplier, T<Curve>& result){
 //    result.set_share(pointshare.get_share() * multiplier);
 //    result.set_mac(pointshare.get_mac() * multiplier);
     result = pointshare * multiplier;
 }
 
 // Function for Scalar multiplication of a clear p256 and a shared gfp
-template<template<class U> class T>
-void ecscalarmulshare(P377Element point, T<P377Element::Scalar> multiplierShare, T<P377Element>& result){
+template<template<class U> class T, class Curve>
+void ecscalarmulshare(Curve point, T<typename Curve::Scalar> multiplierShare, T<Curve>& result){
     result.set_share(point * multiplierShare.get_share());
     result.set_mac(point * multiplierShare.get_mac());
 }
@@ -167,21 +167,25 @@ T<Curve> msm(std::vector<Curve>& bases, std::vector<T<typename Curve::Scalar>> &
     }
 
     assert(bases.size() >= multipliers.size());
+
+    // Make sure we only pass number of bases on the size of the multipliers
+    // Make a copy of bases vec of max size multipliers.size
+    std::vector<Curve> bases_short(bases.begin(), bases.begin() + multipliers.size());
 //    std::vector<P377Element::G1> bases_format(multipliers.size());
 //    for (unsigned long i = 0; i < multipliers.size(); i++) {
 //        bases_format[i] = bases[i].get_point();
 //    }
 
-    std::cout << bases.size() << " and " << multipliers.size() << " and " << share1.size() << std::endl;
+    std::cout << bases_short.size() << " and " << multipliers.size() << " and " << share1.size() << std::endl;
 
     size_t parts = 1; // TODO: Make this configurable
     if (multipliers.size() > 100000) {
         parts = 8; // something like this?
     }
 
-    Curve sum1 = libff::multi_exp<Curve, typename Curve::Scalar, libff::multi_exp_method_BDLO12>(bases.begin(), bases.end(),
+    Curve sum1 = libff::multi_exp<Curve, typename Curve::Scalar, libff::multi_exp_method_BDLO12>(bases_short.begin(), bases_short.end(),
                                                                                       share1.begin(), share1.end(), parts);
-    Curve sum2 = libff::multi_exp<Curve, typename Curve::Scalar, libff::multi_exp_method_BDLO12>(bases.begin(), bases.end(),
+    Curve sum2 = libff::multi_exp<Curve, typename Curve::Scalar, libff::multi_exp_method_BDLO12>(bases_short.begin(), bases_short.end(),
                                                                                                       share2.begin(), share2.end(), parts);
     array<Curve, 2> result_shares = { Curve(sum1), Curve(sum2) };
 
@@ -252,63 +256,52 @@ SemiShare<P377Element> msm(std::vector<P377Element>& bases, std::vector<SemiShar
 template<template<class U> class T, class Curve>
 T<Curve> commit_and_open(
         InputPolynomial<T<typename Curve::Scalar>> tuple,
-        KZGPublicParameters<Curve> kzgPublicParameters)
-//        typename T<P377Element>::MAC_Check& MCc,
-//        Player& P)
+        ECPublicParameters<Curve> kzgPublicParameters)
 {
-//    Timer timer;
-//    timer.start();
-//    auto stats = P.total_comm();
     assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
-
-    // Opening tuple coeffs is working
-//    typename T<P377Element::Scalar>::Direct_MC MCp(MCc.get_alphai());
-//    vector<P377Element::Scalar> test_element;
-//    tuple.coeffs[0] = tuple.coeffs[0] * 2;
-//    MCp.POpen_Begin(test_element, tuple.coeffs, P);
-//    MCp.POpen_End(test_element, tuple.coeffs, P);
-//    std::cout << "OPEN TEST ELEM " << test_element[0] << endl;
 
     Timer msm_timer;
     msm_timer.start();
 
     T<Curve> sum = msm(kzgPublicParameters.powers_of_g, tuple.coeffs);
 
-//    T<P377Element> sum;
-//    for (unsigned long i = 0; i < tuple.coeffs.size(); ++i) {
-//        // This is technically a share!!
-//        T<P377Element> result;
-////        std::cout << "Before " << result.get()[0] << " " << result.get()[1] << std::endl;
-////        std::cout << "KZG " << i << ": " << kzgPublicParameters.powers_of_g[i];
-//        ecscalarmulshare(kzgPublicParameters.powers_of_g[i], tuple.coeffs[i], result);
-////        std::cout << "After " << result.get()[0] << " " << result.get()[1] << std::endl; // these should be diff due to coeffs diff
-////        std::cout << "Before " << result.get_share() << std::endl;
-//
-//
-//        sum = sum + result;
-//    }
-
     auto diff_msm = msm_timer.elapsed();
     cout << "MSM took " << diff_msm * 1e3 << " ms" << endl;
     // optimize with MSM
 
     return sum;
+}
 
+template<template<class U> class T, class Curve>
+std::vector<T<Curve>> commit_individual(
+        InputPolynomial<T<typename Curve::Scalar>> tuple,
+        std::vector<T<typename Curve::Scalar>> randomness,
+        ECPublicParameters<Curve> kzgPublicParameters)
+{
+    assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
+    assert(tuple.coeffs.size() == randomness.size());
 
-//    vector<T<P377Element> > commitment_share = { sum };
-//
-//    vector<P377Element> commitment_element;
-//    MCc.POpen_Begin(commitment_element, commitment_share, P);
-//    MCc.POpen_End(commitment_element, commitment_share, P);
+    Timer msm_timer;
+    msm_timer.start();
 
-//    std::cout << "After open " << commitment_element[0] << endl;
+    std::vector<T<Curve>> result;
+    for (unsigned long i = 0; i < tuple.coeffs.size(); i++) {
+        Curve sum1 = kzgPublicParameters.powers_of_g[0] * tuple.coeffs[i].get()[0];
+        Curve sum2 = kzgPublicParameters.powers_of_g[0] * tuple.coeffs[i].get()[1];
 
-//    auto diff = (P.total_comm() - stats);
-//    cout << "Commitment took " << timer.elapsed() * 1e3 << " ms and sending "
-//         << diff.sent << " bytes" << endl;
-//    diff.print(true);
+        sum1 += kzgPublicParameters.powers_of_g[1] * randomness[i].get()[0];
+        sum2 += kzgPublicParameters.powers_of_g[1] * randomness[i].get()[1];
 
-//    return KZGCommitment { commitment_element[0] };
+        array<Curve, 2> result_shares = { Curve(sum1), Curve(sum2) };
+
+        result.push_back(T<Curve>(result_shares));
+    }
+
+    auto diff_msm = msm_timer.elapsed();
+    cout << "Exponentiation took " << diff_msm * 1e3 << " ms" << endl;
+    // optimize with MSM
+
+    return result;
 }
 
 //template<template<class U> class T>
