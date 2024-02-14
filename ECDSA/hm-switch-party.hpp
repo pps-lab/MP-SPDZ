@@ -108,11 +108,16 @@ vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_
 
     int begin = 0;
     int end = buffer_size / dl;
+
+//    (P.total_comm() - stats).print(true);
+//    stats = P.total_comm();
+//    std::cerr << "Now sum " << std::endl;
     bit_adder.add(sums_two, summands_two, begin, end, bit_proc,
                   bt::default_length, 0);
 
-//    cout << "Adding " << input_size * n_bits_per_input << " bits: " << timer_adders.elapsed() * 1e3 << " ms" << endl;
     (P.total_comm() - stats).print(true);
+//    stats = P.total_comm();
+//    std::cerr << "After sum" << endl;
 
 //    Timer timer_bits;
 //    timer_bits.start();
