@@ -139,7 +139,7 @@ class octetStream:
         self.ptr = 0
 
     def store(self, value):
-        self.buf += struct.pack('<i', value)
+        self.buf += struct.pack('<q', value)
 
     def get_int(self, length):
         buf = self.consume(length)

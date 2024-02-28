@@ -135,7 +135,10 @@ def sha3_256(x):
         c = sbitvec.from_hex('41fb')
         d = sbitvec.from_hex('1f877c')
         e = sbitvec.from_vec([sbit(0)] * 8)
-        for x in a, b, c, d, e:
+        f = sbitvec.from_hex('41fb6834928423874832892983984728289238949827929283743858382828372f17188141fb6834928423874832892983984728289238949827929283743858382828372f17188141fb6834928423874832892983984728289238949827')
+        g = sbitvec.from_hex('41fb6834928423874832892983984728289238949827929283743858382828372f17188141fb6834928423874832892983984728289238949827929283743858382828372f17188141fb6834928423874832892983984728289238949827929283743858382828372f17188141fb6834928423874832892983984728289238949827929283743858382828372f171881')
+        h = sbitvec.from_vec([sbit(0)] * 3000)
+        for x in a, b, c, d, e, f, g, h:
             sha3_256(x).reveal_print_hex()
 
     This should output the `test vectors
@@ -148,6 +151,10 @@ def sha3_256(x):
         Reg[0] = 0x39f31b6e653dfcd9caed2602fd87f61b6254f581312fb6eeec4d7148fa2e72aa #
         Reg[0] = 0xbc22345e4bd3f792a341cf18ac0789f1c9c966712a501b19d1b6632ccd408ec5 #
         Reg[0] = 0x5d53469f20fef4f8eab52b88044ede69c77a6a68a60728609fc4a65ff531e7d0 #
+        Reg[0] = 0xf5f673ec50d662039871fd53fae3ced069baf09030132d6d60d2ba7040b02b18 #
+        Reg[0] = 0xa8a42e808f9dc0f43366d5de91511f42e9c3f8f37de0307f010bf629401edd2a #
+        Reg[0] = 0xf722631013ecacd42b4c7259e9fe22b8c81a86e9fe0d4a626800e7f50c5a8978 #
+
 
     """
 
@@ -161,7 +168,8 @@ def sha3_256(x):
     # rate
     r = 1088
     # round up to be multiple of rate
-    n_blocks = math.ceil(len(x.v) / r)
+    length_with_suffix = len(x.v) + 8 # to handle the case the fixed padding overflows the block
+    n_blocks = max(math.ceil(length_with_suffix / r), 1)
     upper_block_length = n_blocks * r
 
     if x.v:

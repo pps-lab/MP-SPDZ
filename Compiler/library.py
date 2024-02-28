@@ -351,7 +351,8 @@ class Function:
         from .types import _types
         get_reg_type = lambda x: \
             regint if isinstance(x, int) else _types.get(x.reg_type, type(x))
-        if len(args) not in self.type_args:
+        key = len(args), get_tape()
+        if key not in self.type_args:
             # first call
             type_args = collections.defaultdict(list)
             for i,arg in enumerate(args):
@@ -371,8 +372,8 @@ class Function:
                         i += util.mem_size(t)
                 return self.function(*(list(compile_args) + runtime_args))
             self.on_first_call(wrapped_function)
-            self.type_args[len(args)] = type_args
-        type_args = self.type_args[len(args)]
+            self.type_args[key] = type_args
+        type_args = self.type_args[key]
         base = instructions.program.malloc(len(type_args), 'ci')
         bases = dict((t, get_program().malloc(len(type_args[t]), t)) \
                          for t in type_args)

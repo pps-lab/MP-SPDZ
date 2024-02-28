@@ -73,7 +73,7 @@ int main(int argc, char** argv)
     int my_client_id;
     int nparties;
     double salary_value;
-    int finish;
+    size_t finish;
     int port_base = 14000;
 
     if (argc < 5) {

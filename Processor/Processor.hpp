@@ -301,8 +301,8 @@ void Processor<sint, sgf2n>::write_socket(const RegType reg_type,
             }
           else if (reg_type == INT)
             {
-              // Send vector of 32-bit clear ints
-              socket_stream.store((int&) get_Ci_ref(registers[i] + j));
+              // Send vector of 64-bit clear ints
+              socket_stream.store(get_Ci_ref(registers[i] + j));
             }
           else
             {
@@ -330,7 +330,7 @@ void Processor<sint, sgf2n>::write_socket(const RegType reg_type,
 }
 
 
-// Receive vector of 32-bit clear ints
+// Receive vector of 64-bit clear ints
 template<class sint, class sgf2n>
 void Processor<sint, sgf2n>::read_socket_ints(int client_id,
     const vector<int>& registers, int size)
@@ -344,9 +344,7 @@ void Processor<sint, sgf2n>::read_socket_ints(int client_id,
   for (int j = 0; j < size; j++)
     for (int i = 0; i < m; i++)
       {
-        int val;
-        socket_stream.get(val);
-        write_Ci(registers[i] + j, (long) val);
+        write_Ci(registers[i] + j, socket_stream.get_int(8));
       }
 }
 

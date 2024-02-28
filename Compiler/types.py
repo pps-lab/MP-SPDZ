@@ -4776,14 +4776,22 @@ class sfix(_fix):
         return cls._new(cls.int_type.get_raw_input_from(player))
 
     @vectorized_classmethod
-    def get_random(cls, lower, upper, symmetric=True):
+    def get_random(cls, lower, upper, symmetric=True, public_randomness=False):
         """ Uniform secret random number around centre of bounds.
         Actual range can be smaller but never larger.
 
         :param lower: float
         :param upper: float
+        :param symmetric: symmetric distribution at higher cost
+        :param public_randomness: use public randomness (avoids preprocessing)
         :param size: vector size (int, default 1)
         """
+        if public_randomness:
+            get_random_int = regint.get_random
+            get_random_bit = lambda: regint.get_random(1)
+        else:
+            get_random_int = cls.int_type.get_random_int
+            get_random_bit = cls.int_type.get_random_bit
         f = cls.f
         k = cls.k
         log_range = int(math.log(upper - lower, 2))
@@ -4796,7 +4804,7 @@ class sfix(_fix):
         average = lower + 0.5 * (upper - lower)
         lower = average - 0.5 * real_range
         upper = average + 0.5 * real_range
-        r = cls._new(cls.int_type.get_random_int(n_bits)) * factor + lower
+        r = cls._new(get_random_int(n_bits)) * factor + lower
         if symmetric:
             lowest = math.floor(lower * 2 ** cls.f) / 2 ** cls.f
             highest = math.ceil(upper * 2 ** cls.f) / 2 ** cls.f
@@ -4804,7 +4812,7 @@ class sfix(_fix):
                 print('randomness range [%f,%f], '
                       'fringes half the probability' % \
                       (lowest, highest))
-            return cls.int_type.get_random_bit().if_else(r, -r + 2 * average)
+            return get_random_bit().if_else(r, -r + 2 * average)
         else:
             if program.verbose:
                 print('randomness range [%f,%f], %d bits' % \
