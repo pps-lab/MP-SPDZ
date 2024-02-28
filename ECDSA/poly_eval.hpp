@@ -18,23 +18,25 @@
 
 //#include "sign.hpp"
 
-P377Element random_elem(PRNG& G) {
-    P377Element::Scalar r_scalar;
+template<class Curve>
+Curve random_elem(PRNG& G) {
+    typename Curve::Scalar r_scalar;
     r_scalar.randomize(G);
-    return P377Element(r_scalar);
+    return Curve(r_scalar);
 }
 
-inline KZGPublicParameters get_public_parameters(int n_parameters, PRNG& G) {
+template<class Curve>
+inline ECPublicParameters<Curve> get_public_parameters(int n_parameters, PRNG& G) {
     // TODO: Is this consistent across parties?
     // It seems if we call GlobalPRNG is becomes consistent globally across parties, but it is not always called
     // so we call it again in the auditable inference function
 
-    KZGPublicParameters params;
+    ECPublicParameters<Curve> params;
     for (int i = 0; i < n_parameters; i++) {
-        params.powers_of_g.push_back(random_elem(G));
+        params.powers_of_g.push_back(random_elem<Curve>(G));
     }
 
-    params.g2 = random_elem(G);
+    params.g2 = random_elem<Curve>(G);
     return params;
 }
 

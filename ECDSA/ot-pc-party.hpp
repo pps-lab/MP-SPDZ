@@ -9,6 +9,7 @@
 #include "ECDSA/P256Element.h"
 #include "Protocols/SemiShare.h"
 #include "Processor/BaseMachine.h"
+#include "Protocols/ProtocolSet.h"
 
 #include "ECDSA/preprocessing.hpp"
 #include "ECDSA/sign.hpp"
@@ -42,6 +43,65 @@
 //    }
 //}
 
+// Ugly copies of classes because the share type abstraction doesnt work perfectly
+template<class Curve>
+std::vector<Share<Curve>> commit_individual(
+        InputPolynomial<Share<typename Curve::Scalar>> tuple,
+        std::vector<Share<typename Curve::Scalar>> randomness,
+        ECPublicParameters<Curve> kzgPublicParameters)
+{
+    assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
+    assert(tuple.coeffs.size() == randomness.size());
+
+    Timer msm_timer;
+    msm_timer.start();
+
+    std::vector<Share<Curve>> result;
+    for (unsigned long i = 0; i < tuple.coeffs.size(); i++) {
+        Share<Curve> result_g;
+        ecscalarmulshare(kzgPublicParameters.powers_of_g[0], tuple.coeffs[i], result_g);
+        Share<Curve> result_h;
+        ecscalarmulshare(kzgPublicParameters.powers_of_g[1], randomness[i], result_h);
+
+        result.push_back(result_g + result_h);
+    }
+
+    auto diff_msm = msm_timer.elapsed();
+    cout << "Exponentiation took " << diff_msm * 1e3 << " ms" << endl;
+    // optimize with MSM
+
+    return result;
+}
+
+template<class Curve>
+std::vector<SemiShare<Curve>> commit_individual(
+        InputPolynomial<SemiShare<typename Curve::Scalar>> tuple,
+        std::vector<SemiShare<typename Curve::Scalar>> randomness,
+        ECPublicParameters<Curve> kzgPublicParameters)
+{
+    assert(tuple.coeffs.size() <= kzgPublicParameters.powers_of_g.size());
+    assert(tuple.coeffs.size() == randomness.size());
+
+    Timer msm_timer;
+    msm_timer.start();
+
+    std::vector<SemiShare<Curve>> result;
+    for (unsigned long i = 0; i < tuple.coeffs.size(); i++) {
+        SemiShare<Curve> result_g = kzgPublicParameters.powers_of_g[0] * tuple.coeffs[i];
+//        ecscalarmulshare(kzgPublicParameters.powers_of_g[0], tuple.coeffs[i], result_g);
+        SemiShare<Curve> result_h = kzgPublicParameters.powers_of_g[1] * randomness[i];
+//        ecscalarmulshare(kzgPublicParameters.powers_of_g[1], randomness[i], result_h);
+
+        result.push_back(result_g + result_h);
+    }
+
+    auto diff_msm = msm_timer.elapsed();
+    cout << "Exponentiation took " << diff_msm * 1e3 << " ms" << endl;
+    // optimize with MSM
+
+    return result;
+}
+
 
 void test_arith() {
 
@@ -71,8 +131,8 @@ void test_arith() {
 }
 
 
-template<template<class U> class T>
-void run(int argc, const char** argv)
+template<template<class U> class T, class Curve>
+void run(int argc, const char** argv, bigint order)
 {
     ez::ezOptionParser opt;
     PCOptions opts(opt, argc, argv);
@@ -135,52 +195,60 @@ void run(int argc, const char** argv)
 
     PlainPlayer P(N, "pc");
 
-    typedef T<P377Element::Scalar> inputShare;
-    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
-    std::cout << "Loading mac from " << prefix << endl;
+//    typedef T<P377Element::Scalar> inputShare;
+//    string prefix = get_prep_sub_dir<inputShare>("Player-Data", 2, inputShare::clear::length());
+//    std::cout << "Loading mac from " << prefix << endl;
 
 
-    libff::bls12_377_pp::init_public_params();
-    mpz_t t;
-    mpz_init(t);
-    P377Element::G1::order().to_mpz(t);
-
-    P377Element::Scalar::init_field(bigint(t), true);
-    if (opts.prime.length() > 0) {
-        P377Element::Scalar::next::init_field(bigint(opts.prime), false);
-        std::cout << "Setting prime to " << bigint(opts.prime) << endl;
-    } else {
-        P377Element::Scalar::next::init_field(P377Element::Scalar::pr(), false);
-    }
-    std::cout << "Prime length " << P377Element::Scalar::pr() << endl;
-//    test_arith();
-
-
-
-    Timer timer_all;
-    timer_all.start();
-    auto stats_all = P.total_comm();
-
+//    libff::bls12_377_pp::init_public_params();
+//    mpz_t t;
+//    mpz_init(t);
+//    P377Element::G1::order().to_mpz(t);
+//
+//    P377Element::Scalar::init_field(bigint(t), true);
+//    if (opts.prime.length() > 0) {
+//        P377Element::Scalar::next::init_field(bigint(opts.prime), false);
+//        std::cout << "Setting prime to " << bigint(opts.prime) << endl;
+//    } else {
+//        P377Element::Scalar::next::init_field(P377Element::Scalar::pr(), false);
+//    }
+//    std::cout << "Prime length " << P377Element::Scalar::pr() << endl;
+////    test_arith();
     DataPositions usage;
 
-    typename inputShare::mac_key_type mac_key;
-    inputShare::read_or_generate_mac_key(prefix, P, mac_key);
 
-    inputShare::MAC_Check::setup(P);
-    T<P377Element>::MAC_Check::setup(P);
-    typename inputShare::Direct_MC inputMCp(mac_key);
+    string message;
+    if (opts.n_y == 0 && opts.n_x == 0 && opts.n_model == 0) {
+        std::cout << "No inputs found, only signing!" << std::endl;
+        message = "Related work commitment";
+    } else {
+        typedef T<typename Curve::Scalar> inputShare;
 
-    typename T<P377Element>::Direct_MC inputMCc(inputMCp.get_alphai());
-    string message = generate_kzg_commitments<T>(inputMCc, P, opts);
+        string prefix = get_prep_sub_dir<inputShare>("Player-Data", 3, inputShare::clear::length());
+        std::cout << "Loading mac from " << prefix << endl;
+        ProtocolSetup< inputShare > setup(order, P, prefix);
+        ProtocolSet< inputShare> set(P, setup);
 
-    inputShare::MAC_Check::teardown();
-    T<P377Element>::MAC_Check::teardown();
-    P377Element::finish();
+        Timer timer_all;
+        timer_all.start();
+        auto stats_all = P.total_comm();
 
-    auto diff_all = P.total_comm() - stats_all;
-    print_timer("commit_with_gen", timer_all.elapsed());
-    print_stat("commit_with_gen", diff_all);
-    print_global("commit_with_gen", P, diff_all);
+        typename inputShare::mac_key_type input_mac_key;
+        inputShare::read_or_generate_mac_key("", P, input_mac_key);
+        typename inputShare::MAC_Check inputMCp(input_mac_key);
+
+        typename T<Curve>::Direct_MC inputMCc(inputMCp.get_alphai());
+        if (opts.commit_type == "ec_vec") {
+            message = generate_vector_commitments<T, Curve, ECVectorCommitment>(inputMCc, P, opts);
+        } else if (opts.commit_type == "ec_individual") {
+            message = generate_individual_commitments<T, Curve>(inputMCc, set, P, opts);
+        }
+
+        auto diff_all = P.total_comm() - stats_all;
+        print_timer("commit_with_gen", timer_all.elapsed());
+        print_stat("commit_with_gen", diff_all);
+        print_global("commit_with_gen", P, diff_all);
+    }
 
     std::cout<< "Signing now" << std::endl;
 
@@ -277,3 +345,39 @@ void run(int argc, const char** argv)
 
     P256Element::finish();
 }
+
+
+template<template<class T> class share>
+void run(int argc, const char** argv) {
+    ez::ezOptionParser opt;
+    PCOptions opts(opt, argc, argv);
+
+    if (opts.curve == "bls12377") {
+        P256Element::init(true);
+
+        libff::bls12_377_pp::init_public_params();
+        mpz_t t;
+        mpz_init(t);
+        P377Element::G1::order().to_mpz(t);
+        bigint t_big(t);
+
+        run<share, P377Element>(argc, argv, t_big);
+
+        P377Element::finish();
+    } else if (opts.curve == "sec256k1") {
+//        P256Element::init(false);
+//
+//        bigint order = P256Element::get_order();
+//        run<share, P256Element>(argc, argv, order);
+
+        exit(1); // not implemented yet
+
+    } else {
+        std::cerr << "Unknown curve " << opts.curve << endl;
+        exit(1);
+    }
+
+    P256Element::finish();
+}
+
+
