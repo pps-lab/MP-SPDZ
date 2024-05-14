@@ -2159,6 +2159,191 @@ class QuantSoftmax(QuantBase, BaseLayer):
             return [c.if_else(x, y) for x, y in zip(left, right)]
         print_ln('guess: %s', util.tree_reduce(comp, list(enumerate(self.X[0])))[0].reveal())
 
+class BertBase(BaseLayer, FixBase):
+    pass
+
+class BertEncoder(BertBase):
+
+    def __init__(self, n_examples, n_layers, d_model, n_heads, d_k, d_v, d_ff, dropout=0.1):
+        input_shape = [n_examples, d_model]
+        output_shape = [n_examples, d_model]
+        super(BertEncoder, self).__init__(input_shape, output_shape)
+        self.layers = []
+        for _ in range(n_layers):
+            self.layers.append(BertLayer(n_examples, d_model, n_heads, d_k, d_v, d_ff, dropout))
+
+    def _forward(self, batch):
+        x = batch
+        for layer in self.layers:
+            x = layer.forward(x)
+        return x
+
+    def reset(self):
+        for layer in self.layers:
+            layer.reset()
+
+
+class BertLayer(BertBase):
+
+    def __init__(self, n_examples, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1):
+        input_shape = [n_examples, hidden_state]
+        output_shape = [n_examples, hidden_state]
+        super(BertLayer, self).__init__(input_shape, output_shape)
+        self.multi_head_attention = MultiHeadAttention(n_examples, hidden_state, num_attention_heads, dropout)
+        self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size)
+        self.output = BertOutput(n_examples, intermediate_size, hidden_state, dropout)
+
+        self.X.address = self.multi_head_attention.X.address
+        self.Y.address = self.output.Y.address
+
+        self.intermediate.X.address = self.multi_head_attention.Y.address
+        self.output.X.address = self.intermediate.Y.address
+
+        self.d_out = hidden_state
+
+    def _forward(self, batch):
+        self.multi_head_attention.forward(batch)
+        self.intermediate.forward(batch)
+        self.output.forward(batch)
+
+    def reset(self):
+        self.multi_head_attention.reset()
+        self.intermediate.reset()
+        self.output.reset()
+
+class BertIntermediate(BertBase):
+
+    def __init__(self, n_examples, hidden_size, intermediate_size):
+        input_shape = [n_examples, hidden_size]
+        output_shape = [n_examples, intermediate_size]
+        super(BertIntermediate, self).__init__(input_shape, output_shape)
+        self.dense = Dense(n_examples, hidden_size, intermediate_size)
+        self.activation = Relu([n_examples, intermediate_size])
+
+        self.X.address = self.dense.X.address
+        self.activation.X.address = self.dense.Y.address
+        self.Y.address = self.activation.Y.address
+
+    def forward(self, batch=None, training=None):
+        self.dense.forward(batch)
+        self.activation._forward(batch)
+
+    def reset(self):
+        self.dense.reset()
+
+
+class BertOutput(BertBase):
+
+    def __init__(self, n_examples, intermediate_size, hidden_size, dropout=0.1):
+        input_shape = [n_examples, intermediate_size]
+        output_shape = [n_examples, hidden_size]
+        super(BertOutput, self).__init__(input_shape, output_shape)
+        self.dense = Dense(n_examples, intermediate_size, hidden_size)
+        # self.layer_norm = FixLayerNorm(output_shape, output_shape, d_model)
+        self.dropout = Dropout(n_examples, hidden_size, hidden_size, alpha=dropout)
+
+    def _forward(self, batch):
+        self.dense.forward(batch)
+        # self.layer_norm.forward(x)
+        self.dropout.forward(batch)
+
+    def reset(self):
+        self.dense.reset()
+
+class MultiHeadAttention(BertBase):
+
+    def __init__(self, n_examples, hidden_size, num_attention_heads, dropout=0.1):
+        self.n_examples = n_examples
+
+        input_output_shape = [n_examples, hidden_size]
+        super().__init__(input_output_shape, input_output_shape)
+
+        self.num_attention_heads = num_attention_heads
+        self.attention_head_size = int(hidden_size / num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+
+        self.hidden_size = hidden_size
+        self.wq = Dense(n_examples, hidden_size, self.all_head_size)
+        self.wk = Dense(n_examples, hidden_size, self.all_head_size)
+        self.wv = Dense(n_examples, hidden_size, self.all_head_size)
+        self.dropout = Dropout(n_examples, self.all_head_size, 1, alpha=dropout) # I think?
+
+        # set up layers
+        dense_layers = [self.wq, self.wk, self.wv]
+        for layer in dense_layers:
+            layer.X.address = self.X.address
+
+        layers = [self.wq, self.wk, self.wv, self.dropout]
+        for i in range(1, len(layers)):
+            layers[i].X.address = layers[i - 1].Y.address
+        self.X = layers[0].X
+
+        # self.attention_probs = sfix.Matrix(n_examples, hidden_size)
+        self.context = sfix.Matrix(n_examples, hidden_size)
+        self.Y.address = self.context.address
+
+
+    def forward(self, batch=None, training=None):
+        self.wq.forward(batch)
+        self.wk.forward(batch)
+        self.wv.forward(batch)
+
+        # attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1) # attn_mask : [batch_size x n_heads x len_q x len_k]
+        attn_mask = None
+
+        # ScaledDotProdAttention
+
+        print(self.wk.Y)
+        # For some reason the dense repr has another dimension?
+        attention_scores = MultiArray([self.n_examples, self.num_attention_heads, self.attention_head_size], sfix)
+
+        # loop over batch
+        @for_range_multithread(self.n_threads, 1, self.n_examples)
+        def _(i):
+            # we need to get the i-th row of the input
+            query_sub = sfix.Matrix(self.num_attention_heads, self.attention_head_size)
+            query_sub.assign(self.wq.Y[i])
+
+            key_sub = sfix.Matrix(self.num_attention_heads, self.attention_head_size)
+            key_sub.assign(self.wk.Y[i])
+
+            attention_scores.assign_part_vector(
+                query_sub.direct_mul_trans(key_sub), i)
+
+        # apply softmax to vector of last dim
+        @for_range_multithread(self.n_threads, 1, [self.n_examples, self.num_attention_heads])
+        def _(i, j):
+            @for_range_opt(self.attention_head_size)
+            def _(k):
+                attention_scores[i][j][k] = attention_scores[i][j][k] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
+            attention_scores[i][j].assign(softmax(attention_scores[i][j]))
+
+        # mask fill scores?
+        # scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
+
+        self.dropout.X.assign(attention_scores)
+        self.dropout.forward(batch=batch, training=training)
+
+        # self.context.assign(self.dropout.Y.dot(value_sub))
+
+        # return context
+
+    def reset(self):
+        self.wq.reset()
+        self.wk.reset()
+        self.wv.reset()
+
+# class ScaledDotProductAttention:
+#
+#     def compute(self, q, k, v, attn_mask):
+#         d_k = k.shape[-1]
+#         scores = q.dot(k.transpose(0, 2, 1)) / math.sqrt(d_k)
+#         # mask fill scores?
+#         # scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
+#         attention = softmax(scores)
+#         context = attention.dot(v)
+#         return scores, context, attention
+
 class Optimizer:
     """ Base class for graphs of layers. """
     n_threads = Layer.n_threads
@@ -2278,6 +2463,7 @@ class Optimizer:
                               training=training)
                 if self.print_random_update:
                     print_ln('forward layer %s', layer)
+                    # print(layer, i)
                     l = min(100, layer.Y[i].total_size())
                     i = regint.get_random(64) % len(batch)
                     if l < 100:
@@ -3234,6 +3420,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
 
     def process(item):
         nonlocal input_shape
+        nonlocal bert_config
         name = type(item).__name__
         if name == 'Sequential':
             for x in item:
@@ -3322,11 +3509,30 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
                                   alpha=item.p))
             input_shape = layers[-1].Y.sizes
+        elif name == 'BertModel':
+            bert_config = item.config
+            process(item.embeddings)
+            process(item.encoder)
+        elif name == 'BertEmbeddings':
+            print('BertEmbeddings', item)
+            pass # no-op
+        elif name == 'BertEncoder':
+            print('BertEmbeddings', item)
+            for x in item.layer:
+                process(x)
+        elif name == 'BertLayer':
+            hidden_state = bert_config.hidden_size
+            intermediate_size = bert_config.intermediate_size
+            num_attention_heads = bert_config.num_attention_heads
+            layernorm_eps = bert_config.layer_norm_eps
+            layer = BertLayer(input_shape[0], hidden_state, intermediate_size, num_attention_heads, layernorm_eps)
+            layers.append(layer)
         else:
             raise CompilerError('unknown PyTorch module: ' + name)
 
     input_shape = data_input_shape + [1] * (4 - len(data_input_shape))
     print("INPUT SHAPE", input_shape)
+    bert_config = None
     process(sequence)
     if regression:
         layers.append(LinearOutput(data_input_shape[0], layers[-1].d_out))
