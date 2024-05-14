@@ -2172,11 +2172,15 @@ class BertEncoder(BertBase):
         for _ in range(n_layers):
             self.layers.append(BertLayer(n_examples, d_model, n_heads, d_k, d_v, d_ff, dropout))
 
+        for i in enumerate(1, len(self.layers)):
+            self.layers[i].X.address = self.layers[i - 1].Y.address
+
+        self.layers[0].X.address = self.X.address
+        self.layers[-1].Y.address = self.Y.address
+
     def _forward(self, batch):
-        x = batch
         for layer in self.layers:
-            x = layer.forward(x)
-        return x
+            layer.forward(batch)
 
     def reset(self):
         for layer in self.layers:
@@ -2210,6 +2214,28 @@ class BertLayer(BertBase):
         self.multi_head_attention.reset()
         self.intermediate.reset()
         self.output.reset()
+
+    def load_state_dict(self, state_dict, input_via):
+        import numpy
+        # format of state_dict
+        # ['attention.self.query.weight', 'attention.self.query.bias', 'attention.self.key.weight', 'attention.self.key.bias', 'attention.self.value.weight', 'attention.self.value.bias', 'attention.output.dense.weight', 'attention.output.dense.bias', 'attention.output.LayerNorm.weight', 'attention.output.LayerNorm.bias', 'intermediate.dense.weight', 'intermediate.dense.bias', 'output.dense.weight', 'output.dense.bias', 'output.LayerNorm.weight', 'output.LayerNorm.bias']
+        # set the values of the layers
+        self.multi_head_attention.wq.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['attention.self.query.weight'], 0, 1))
+        self.multi_head_attention.wq.b = sfix.input_tensor_via(input_via, state_dict['attention.self.query.bias'])
+        self.multi_head_attention.wk.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['attention.self.key.weight'], 0, 1))
+        self.multi_head_attention.wk.b = sfix.input_tensor_via(input_via, state_dict['attention.self.key.bias'])
+        self.multi_head_attention.wv.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['attention.self.value.weight'], 0, 1))
+        self.multi_head_attention.wv.b = sfix.input_tensor_via(input_via, state_dict['attention.self.value.bias'])
+
+        self.intermediate.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['intermediate.dense.weight'], 0, 1))
+        self.intermediate.dense.b = sfix.input_tensor_via(input_via, state_dict['intermediate.dense.bias'])
+
+        self.output.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['output.dense.weight'], 0, 1))
+        self.output.dense.b = sfix.input_tensor_via(input_via, state_dict['output.dense.bias'])
+
+        # TODO: Layer norm
+
+
 
 class BertIntermediate(BertBase):
 
@@ -3526,6 +3552,8 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             num_attention_heads = bert_config.num_attention_heads
             layernorm_eps = bert_config.layer_norm_eps
             layer = BertLayer(input_shape[0], hidden_state, intermediate_size, num_attention_heads, layernorm_eps)
+            if input_via is not None:
+                layer.load_state_dict(item.state_dict(), input_via)
             layers.append(layer)
         else:
             raise CompilerError('unknown PyTorch module: ' + name)

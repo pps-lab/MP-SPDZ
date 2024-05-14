@@ -6827,6 +6827,7 @@ class SubMultiArray(_vectorizable):
         else:
             other_sizes = other.sizes
             assert len(other.sizes) == 2
+        print("SIZES", self.sizes, other_sizes)
         assert self.sizes[1] == other_sizes[0]
         if self.value_type == other.value_type:
             assert res_type in (self.value_type, None)
