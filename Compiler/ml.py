@@ -1470,6 +1470,94 @@ class BatchNorm(Layer):
                      self.nabla_Y[i][j][k].reveal(),
                      self.nabla_X[i][j][k].reveal())
 
+class LayerNorm(Layer):  # Changed class name
+    """ Fixed-point layer normalization layer.
+
+    :param shape: input/output shape (tuple/list of any number of int)
+    :param approx: use approximate square root
+
+    """
+    thetas = lambda self: (self.weights, self.bias)
+    nablas = lambda self: (self.nabla_weights, self.nabla_bias)
+
+    def __init__(self, shape, approx=True, args=None):
+        if len(shape) == 2:
+            shape = [shape[0], 1, shape[1]] # Not sure why this extra dimension is added
+        tensors = (Tensor(shape, sfix) for i in range(4))
+        self.X, self.Y, self.nabla_X, self.nabla_Y = tensors
+        self.epsilon = 2 ** (-sfix.f * 2 // 3 + 1)
+        self.approx = approx
+        if approx:
+            print('Approximate square root inverse in layer normalization')  # Updated print statement
+            self.InvertSqrt = mpc_math.InvertSqrt
+        else:
+            print('Precise square root inverse in layer normalization')  # Updated print statement
+            self.InvertSqrt = lambda x: 1 / mpc_math.sqrt(x)
+        self.weights = sfix.Array(shape[-1])  # Changed to match last dimension of shape
+        self.bias = sfix.Array(shape[-1])     # Changed to match last dimension of shape
+        self.nabla_weights = sfix.Array(shape[-1])  # Changed to match last dimension of shape
+        self.nabla_bias = sfix.Array(shape[-1])     # Changed to match last dimension of shape
+
+    def __repr__(self):
+        return '%s(%s, approx=%s)' % \
+            (type(self).__name__, self.X.sizes, self.approx)
+
+    def reset(self):  # Simplified reset method
+        self.bias.assign_all(0)
+        self.weights.assign_all(1)
+
+    def _output(self, batch, mu, var):
+        factor = sfix.Array(len(mu))
+        factor[:] = self.InvertSqrt(var[:] + self.epsilon)
+        @for_range_opt_multithread(self.n_threads,
+                                   [len(batch), self.X.sizes[1]])
+        def _(i, j):
+            tmp = self.weights[:] * (self.X[i][j][:] - mu[:]) * factor[:]  # Removed self.mu reference
+            self.Y[i][j][:] = self.bias[:] + tmp
+
+    def forward(self, batch, training=False):
+        d = self.X.sizes[1]
+        d_in = self.X.sizes[2]
+        mu = sfix.Array(len(batch))
+        var = sfix.Array(len(batch))
+        X_batch = MultiArray([len(batch), self.X.sizes[1], self.X.sizes[2]], sfix)
+        X_batch.assign_vector(self.X.get_slice_vector(batch))
+
+        assert d == 1, "For now only 2-dim supported"
+        @for_range_opt_multithread(self.n_threads,
+                                   [len(batch)])
+        def _(i):
+            mu[i] = sum(X_batch[i][0][:]) # Removed self.mu reference
+
+        print("Mu", mu)
+        print(X_batch)
+        @multithread(self.n_threads, len(batch))
+        def _(base, size):
+            mu.assign_vector(
+                mu.get_vector(base, size) / (d * d_in), base)
+
+        @for_range_opt_multithread(self.n_threads,
+                                   [len(batch)])
+        def _(i):
+            var[i] = sum((X_batch[i][0][:] - mu[:]) ** 2) # Removed self.mu reference
+
+        @multithread(self.n_threads, len(batch))
+        def _(base, size):
+            var.assign_vector(
+                var.get_vector(base, size) / (d * d_in - 1),
+                base)
+        self._output(batch, mu, var)  # Simplified to always use current batch statistics
+        if self.print_random_update:
+            i = regint.get_random(64) % len(batch)
+            j = regint.get_random(64) % d
+            k = regint.get_random(64) % d_in
+            for x in mu, var:
+                print_ln('%s at %s: %s', str(x), k, x[k].reveal())
+            print_ln('%s at (%s, %s, %s): in=%s out=%s',
+                     str(self.Y), i, j, k, self.X[i][j][k].reveal(),
+                     self.Y[i][j][k].reveal())
+
+
 class QuantBase(object):
     bias_before_reduction = True
 
@@ -2227,13 +2315,18 @@ class BertLayer(BertBase):
         self.multi_head_attention.wv.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['attention.self.value.weight'], 0, 1))
         self.multi_head_attention.wv.b = sfix.input_tensor_via(input_via, state_dict['attention.self.value.bias'])
 
+        self.multi_head_attention.output.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['attention.output.dense.weight'], 0, 1))
+        self.multi_head_attention.output.dense.b = sfix.input_tensor_via(input_via, state_dict['attention.output.dense.bias'])
+        self.multi_head_attention.output.layer_norm.weights = sfix.input_tensor_via(input_via, state_dict['attention.output.LayerNorm.weight'])
+        self.multi_head_attention.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['attention.output.LayerNorm.bias'])
+
         self.intermediate.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['intermediate.dense.weight'], 0, 1))
         self.intermediate.dense.b = sfix.input_tensor_via(input_via, state_dict['intermediate.dense.bias'])
 
         self.output.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['output.dense.weight'], 0, 1))
         self.output.dense.b = sfix.input_tensor_via(input_via, state_dict['output.dense.bias'])
-
-        # TODO: Layer norm
+        self.output.layer_norm.weights = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.weight'])
+        self.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.bias'])
 
 
 
@@ -2265,16 +2358,22 @@ class BertOutput(BertBase):
         output_shape = [n_examples, hidden_size]
         super(BertOutput, self).__init__(input_shape, output_shape)
         self.dense = Dense(n_examples, intermediate_size, hidden_size)
-        # self.layer_norm = FixLayerNorm(output_shape, output_shape, d_model)
+        self.layer_norm = LayerNorm(output_shape)
         self.dropout = Dropout(n_examples, hidden_size, hidden_size, alpha=dropout)
+
+        self.X.address = self.dense.X.address
+        self.layer_norm.X.address = self.dense.Y.address
+        self.dropout.X.address = self.layer_norm.Y.address
+        self.Y.address = self.dropout.Y.address
 
     def _forward(self, batch):
         self.dense.forward(batch)
-        # self.layer_norm.forward(x)
+        self.layer_norm.forward(batch)
         self.dropout.forward(batch)
 
     def reset(self):
         self.dense.reset()
+
 
 class MultiHeadAttention(BertBase):
 
@@ -2292,21 +2391,24 @@ class MultiHeadAttention(BertBase):
         self.wq = Dense(n_examples, hidden_size, self.all_head_size)
         self.wk = Dense(n_examples, hidden_size, self.all_head_size)
         self.wv = Dense(n_examples, hidden_size, self.all_head_size)
-        self.dropout = Dropout(n_examples, self.all_head_size, 1, alpha=dropout) # I think?
+        self.dropout = Dropout(n_examples, self.num_attention_heads, self.attention_head_size, alpha=dropout) # I think?
+
+        self.output = BertOutput(n_examples, hidden_size, hidden_size, dropout)
 
         # set up layers
         dense_layers = [self.wq, self.wk, self.wv]
         for layer in dense_layers:
             layer.X.address = self.X.address
 
-        layers = [self.wq, self.wk, self.wv, self.dropout]
+        layers = [self.wq, self.wk, self.wv, self.dropout, self.output]
         for i in range(1, len(layers)):
             layers[i].X.address = layers[i - 1].Y.address
         self.X = layers[0].X
 
         # self.attention_probs = sfix.Matrix(n_examples, hidden_size)
         self.context = sfix.Matrix(n_examples, hidden_size)
-        self.Y.address = self.context.address
+        self.output.X.address = self.context.address
+        self.Y.address = self.output.Y.address
 
 
     def forward(self, batch=None, training=None):
@@ -2350,7 +2452,16 @@ class MultiHeadAttention(BertBase):
         self.dropout.X.assign(attention_scores)
         self.dropout.forward(batch=batch, training=training)
 
-        # self.context.assign(self.dropout.Y.dot(value_sub))
+        @for_range_multithread(self.n_threads, 1, self.n_examples)
+        def _(i):
+            value_sub = sfix.Matrix(self.num_attention_heads, self.attention_head_size)
+            value_sub.assign(self.wv.Y[i])
+
+            print("VAlue sub", value_sub, self.dropout.Y)
+
+            self.context.assign(self.dropout.Y[i].direct_mul_trans(value_sub))
+
+        self.output.forward(batch)
 
         # return context
 
@@ -2358,6 +2469,7 @@ class MultiHeadAttention(BertBase):
         self.wq.reset()
         self.wk.reset()
         self.wv.reset()
+        self.output.reset()
 
 # class ScaledDotProductAttention:
 #
