@@ -1172,7 +1172,7 @@ def map_sum_simple(n_threads, n_loops, type, size):
                 assert len(args[i]) == 1
                 args[i] = args[i][0]
         for i in (0, 1):
-            assert len(args[i]) == size
+            assert len(args[i]) == size, f"Expected {size}, got {len(args[i])} for {i}"
             if isinstance(args[i], Array):
                 args[i] = args[i][:]
         return args[0] + args[1]

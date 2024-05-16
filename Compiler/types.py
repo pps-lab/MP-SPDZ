@@ -6341,7 +6341,7 @@ class SubMultiArray(_vectorizable):
         if key not in self.sub_cache:
             if util.is_constant(index) and \
                (index >= self.sizes[0] or index < 0):
-                raise CompilerError('index out of range')
+                raise CompilerError(f'index {index} out of range')
             elif self.check_indices:
                 library.runtime_error_if(index >= self.sizes[0],
                                          'overflow: %s/%s',
@@ -6427,6 +6427,7 @@ class SubMultiArray(_vectorizable):
         :param vector: vector of matching size convertible to relevant basic type
         :param base: compile-time (int) """
         assert self.value_type.n_elements() == 1
+        print(vector.size, self.total_size())
         assert vector.size <= self.total_size()
         self.value_type.conv(vector).store_in_mem(self.address + base)
 
@@ -6451,6 +6452,21 @@ class SubMultiArray(_vectorizable):
         """
         assert self.value_type.n_elements() == 1
         part_size = reduce(operator.mul, self.sizes[1:])
+        size = (size or 1) * part_size
+        print("Sizes", size, self.total_size())
+        assert size <= self.total_size()
+        return self.value_type.load_mem(self.address + base * part_size,
+                                        size=size)
+
+    def get_part_vector_second_dim(self, base=0, size=None):
+        """ Vector from range of the first dimension, including all
+        entries in further dimensions.
+
+        :param base: index in first dimension (regint/cint/int)
+        :param size: size in first dimension (int)
+        """
+        assert self.value_type.n_elements() == 1
+        part_size = reduce(operator.mul, self.sizes[2:])
         size = (size or 1) * part_size
         assert size <= self.total_size()
         return self.value_type.load_mem(self.address + base * part_size,
