@@ -949,10 +949,15 @@ class FlexDense(Dense):
             X_sub_out = sfix.Matrix(self.N, self.d_out)
             X_sub_out.assign_vector(X_sub.direct_mul(self.W))
 
+            # print_ln("Dense input %s %s %s", i, X_sub.reveal_nested(), batch[0])
+            # print_ln("Dense prod %s %s %s", i, X_sub_out.reveal_nested(), batch[0])
+
             # put it back
             @for_range(self.N)
             def _(j):
                 prod[j][i][:] = X_sub_out[j][:]
+
+        # print_ln("Dense prod %s %s %s", i, X_sub.reveal_nested(), batch[0])
 
         if self.input_bias:
             if self.d_out == 1:
@@ -1218,6 +1223,9 @@ class Gelu(ElementWiseLayer):
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
+        print_ln("")
+        print_ln("base size %s %s %s", base, size, x.reveal())
+        print_ln("")
         x = 0.5 * x * (1 + self.tanh(0.79788456 * (x + 0.044715 * x ** 3)))
 
         # Gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
@@ -1652,57 +1660,80 @@ class LayerNorm(Layer):  # Changed class name
         self.weights.assign_all(1)
 
     def _output(self, batch, mu, var):
-        factor = sfix.Array(len(mu))
-        factor[:] = self.InvertSqrt(var[:] + self.epsilon)
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
+        factor = sfix.Tensor(batch_shape)
+        factor[:] = self.InvertSqrt(var[:] + self.epsilon)
 
         @for_range_opt_multithread(self.n_threads,
                                    batch_shape)
         def _(*arg):
             sel_X = self.X
             sel_Y = self.Y
+            mu_sel = mu
+            fac_sel = factor
             for ar in arg:
                 sel_X = sel_X[ar]
                 sel_Y = sel_Y[ar]
-            tmp = self.weights[:] * (sel_X[:] - mu[:]) * factor[:]  # Removed self.mu reference
+                mu_sel = mu_sel[ar]
+                fac_sel = fac_sel[ar]
+            tmp = self.weights[:] * (sel_X[:] - mu_sel) * fac_sel  # Removed self.mu reference
             sel_Y[:] = self.bias[:] + tmp
 
     def forward(self, batch, training=False):
         d = self.X.sizes[1]
         d_in = self.X.sizes[2]
-        mu = sfix.Array(len(batch))
-        var = sfix.Array(len(batch))
         X_batch = MultiArray([len(batch), self.X.sizes[1], self.X.sizes[2]], sfix)
         X_batch.assign_vector(self.X.get_slice_vector(batch))
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
 
+        mu = sfix.Tensor(batch_shape)
+        var = sfix.Tensor(batch_shape)
+
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
             sel = X_batch
             for ar in arg:
                 sel = sel[ar]
-            mu[arg[0]] = sum(sel[:])
+            res = sum(sel[:])
+            if len(arg) == 2:
+                mu[arg[0]][arg[1]] = res
+            else:
+                raise NotImplementedError("Only 3D tensors supported")
 
-        print("Mu", mu)
-        print(X_batch)
-        @multithread(self.n_threads, len(batch))
+        # print("Mu", mu)
+        # print(X_batch)
+        # print_ln("forward sums: %s", mu.reveal_nested())
+
+        @multithread(self.n_threads, mu.total_size())
         def _(base, size):
-            total_dim = reduce(operator.mul, batch_shape[1:])
+            total_dim = self.X.sizes[-1]
             mu.assign_vector(
                 mu.get_vector(base, size) / total_dim, base)
 
+        # print_ln("forward mu: %s", mu.reveal_nested())
+
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
             sel = X_batch
+            mu_sel = mu
             for ar in arg:
                 sel = sel[ar]
-            var[arg[0]] = sum((sel[:] - mu[:]) ** 2) # Removed self.mu reference
+                mu_sel = mu_sel[ar]
+            print("SHAPES LAYERNORM", sel.shape, mu.shape)
+            res = sum((sel[:] - mu_sel) ** 2) # Removed self.mu reference
+            if len(arg) == 2:
+                var[arg[0]][arg[1]] = res
+            else:
+                raise NotImplementedError("Only 3D tensors supported")
 
-        @multithread(self.n_threads, len(batch))
+        # print_ln("var: %s", var.reveal_nested())
+
+        @multithread(self.n_threads, mu.total_size())
         def _(base, size):
-            total_dim = reduce(operator.mul, batch_shape[1:])
+            # total_dim = reduce(operator.mul, batch_shape[1:])
+            total_dim = self.X.sizes[-1]
             var.assign_vector(
-                var.get_vector(base, size) / (total_dim - 1),
+                var.get_vector(base, size) / (total_dim),
                 base)
         self._output(batch, mu, var)  # Simplified to always use current batch statistics
         if self.print_random_update:
@@ -2482,8 +2513,10 @@ class BertLayer(BertBase):
         output_shape = [n_examples, seq_len, hidden_state]
         super(BertLayer, self).__init__(input_shape, output_shape)
         self.multi_head_attention = MultiHeadAttention(n_examples, seq_len, hidden_state, num_attention_heads, dropout)
-        self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size, num_attention_heads)
-        self.output = BertOutput(n_examples, intermediate_size, hidden_state, num_attention_heads, dropout)
+        self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size, seq_len)
+        self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout)
+
+        self.input_tensor = sfix.Tensor(input_shape)
 
         # self.X.address = self.multi_head_attention.X.address
         # self.Y.address = self.output.Y.address
@@ -2494,18 +2527,23 @@ class BertLayer(BertBase):
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
 
-        self.multi_head_attention.forward(batch)
+        self.multi_head_attention._forward(batch, self.input_tensor)
         print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
 
         print_ln("forward layer multi_head_attention %s", self.multi_head_attention.Y[0][0][0].reveal())
 
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch)
-        print_ln("forward layer intermediate %s", self.intermediate.Y[0][0][0].reveal())
+        print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y.reveal_nested())
+
+        # print_ln("")
+        # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
+        # print_ln("")
+        # runtime_error("stop here")
 
         self.output.X.address = self.intermediate.Y.address
-        self.output.forward(batch)
-        print_ln("our layer output %s", self.output.Y[0][0][0].reveal())
+        self.output._forward(batch, self.multi_head_attention.Y)
+        print_ln("our layer output %s", self.output.Y.reveal_nested())
         print_ln("our output %s", self.Y[0][0][0].reveal())
 
     def reset(self):
@@ -2534,6 +2572,7 @@ class BertLayer(BertBase):
         self.intermediate.dense.b = sfix.input_tensor_via(input_via, state_dict['intermediate.dense.bias'])
 
         self.output.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['output.dense.weight'], 0, 1))
+        # print_ln("output.dense.W state_dict %s", self.output.dense.W[0][0].reveal())
         self.output.dense.b = sfix.input_tensor_via(input_via, state_dict['output.dense.bias'])
         self.output.layer_norm.weights = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.weight'])
         self.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.bias'])
@@ -2542,12 +2581,12 @@ class BertLayer(BertBase):
 
 class BertIntermediate(BertBase):
 
-    def __init__(self, n_examples, hidden_size, intermediate_size, n_attention_heads):
-        input_shape = [n_examples, hidden_size]
-        output_shape = [n_examples, intermediate_size]
+    def __init__(self, n_examples, hidden_size, intermediate_size, seq_len):
+        input_shape = [n_examples, seq_len, hidden_size]
+        output_shape = [n_examples, seq_len, intermediate_size]
         super(BertIntermediate, self).__init__(input_shape, output_shape)
-        self.dense = FlexDense(n_examples, hidden_size, intermediate_size, n_attention_heads)
-        self.activation = Gelu([n_examples, intermediate_size, n_attention_heads])
+        self.dense = FlexDense(n_examples, hidden_size, intermediate_size, seq_len)
+        self.activation = Gelu([n_examples, seq_len, intermediate_size])
 
 
     def forward(self, batch=None, training=None):
@@ -2556,6 +2595,8 @@ class BertIntermediate(BertBase):
         self.activation.Y.address = self.Y.address
 
         self.dense.forward(batch)
+        print_ln("forward layer intermediate.dense %s", self.dense.Y[0].reveal_nested())
+
         self.activation._forward(batch)
 
     def reset(self):
@@ -2564,27 +2605,53 @@ class BertIntermediate(BertBase):
 
 class BertOutput(BertBase):
 
-    def __init__(self, n_examples, intermediate_size, hidden_size, n_attention_heads, dropout=0.1):
-        input_shape = [n_examples, n_attention_heads, intermediate_size]
-        output_shape = [n_examples, n_attention_heads, hidden_size]
+    def __init__(self, n_examples, intermediate_size, hidden_size, seq_len, dropout=0.1):
+        input_shape = [n_examples, seq_len, intermediate_size]
+        output_shape = [n_examples, seq_len, hidden_size]
+        self.input_shape = input_shape
+        print("INSTANTIATING BERTOUTPUT with ", input_shape, output_shape, intermediate_size, hidden_size)
         super(BertOutput, self).__init__(input_shape, output_shape)
-        self.dense = FlexDense(n_examples, intermediate_size, hidden_size, n_attention_heads)
+        self.dense = FlexDense(n_examples, intermediate_size, hidden_size, seq_len)
         self.layer_norm = LayerNorm(output_shape)
-        self.dropout = FlexDropout([n_examples, n_attention_heads, hidden_size], alpha=dropout)
+        self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
-    def _forward(self, batch):
+    def _forward(self, batch, input_tensor):
         self.dense.X.address = self.X.address
         self.dropout.X.address = self.dense.Y.address
         self.layer_norm.X.address = self.dropout.Y.address
         self.layer_norm.Y.address = self.Y.address
 
+        print_ln("forward layer output.dense X %s", self.dense.X[0].reveal_nested())
+        print_ln("")
         self.dense.forward(batch)
+        print_ln("forward layer output.dense %s", self.dense.Y[0].reveal_nested())
+        print_ln("")
+
         self.dropout.forward(batch)
+        # print_ln("forward layer output.dropout %s", self.dropout.Y[0].reveal_nested())
+        # print_ln("")
 
         # TODO: Maybe here also add the input tensor before its passed onto Dense?
         # self.dense.X
+        # TODO: How does it work with batch and indices?
+        # And also batch_size ??
+        # @multithread(self.n_threads, len(batch))
+        # def _(base, size):
+        #     self.layer_norm.X.assign_vector(
+        #         self.layer_norm.X.get_vector() +
+        #         self.X.get_vector(base, size))
+        print("LAYER NORM SHAPES", self.layer_norm.X, self.X, self.input_shape)
+
+        # TODO: X is the hidden state, but we want to add the original input here ... how to access??
+        self.layer_norm.X[:] += input_tensor[:]
+
+        print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0].reveal_nested())
+        print_ln("")
         self.layer_norm.forward(batch)
+
+        print_ln("forward layer layer_norm_forward %s", self.layer_norm.Y[0].reveal_nested())
+        print_ln("")
 
 
     def reset(self):
@@ -2611,7 +2678,7 @@ class MultiHeadAttention(BertBase):
         self.wv = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
         self.dropout = FlexDropout([n_examples, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
 
-        self.output = BertOutput(n_examples, hidden_size, hidden_size, num_attention_heads, dropout)
+        self.output = BertOutput(n_examples, hidden_size, hidden_size, seq_len, dropout)
 
 
 
@@ -2621,11 +2688,13 @@ class MultiHeadAttention(BertBase):
         # self.X = layers[0].X
 
         # self.attention_probs = sfix.Matrix(n_examples, hidden_size)
-        self.context = sfix.Tensor([n_examples, num_attention_heads, self.seq_len, self.attention_head_size])
+        # self.old_context = sfix.Tensor([n_examples, num_attention_heads, self.seq_len, self.attention_head_size])
+        self.context = sfix.Tensor([n_examples, self.seq_len, hidden_size])
 
 
 
-    def forward(self, batch=None, training=None):
+    def _forward(self, batch=None, input_tensor=None, training=None):
+
         # set up layers
         dense_layers = [self.wq, self.wk, self.wv]
         for layer in dense_layers:
@@ -2685,7 +2754,7 @@ class MultiHeadAttention(BertBase):
 
         # apply softmax to vector of last dim
         # one attention head is all 0s
-        print_ln('forward layer multiheadattention %s', attention_scores[0].get_vector().reveal())
+        print_ln('forward layer multiheadattention %s', attention_scores[0].reveal_nested())
 
         @for_range_multithread(self.n_threads, 1, [self.n_examples])
         def _(i):
@@ -2698,8 +2767,7 @@ class MultiHeadAttention(BertBase):
         # mask fill scores?
         # scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
 
-        print_ln('forward layer multiheadattention after softmax %s', attention_scores[0].get_vector().reveal())
-
+        print_ln('forward layer multiheadattention after softmax %s', attention_scores[0].reveal_nested())
 
         self.dropout.X.address = attention_scores.address
         self.dropout.forward(batch=batch, training=training)
@@ -2717,15 +2785,18 @@ class MultiHeadAttention(BertBase):
                 # print("RES MULTI", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
 
                 # Maybe here: assign in old order?
-                self.context[i].assign_vector(res, j * res.size)
+                # self.old_context[i].assign_vector(res, j * res.size)
+                for k in range(self.seq_len):
+                    self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res[k * self.attention_head_size:(k + 1) * self.attention_head_size]
 
                 # How to transfer to forward?
 
         # missing half of the values ?
+        # print_ln('forward layer old_context %s', self.old_context[0].get_vector().reveal())
         print_ln('forward layer context %s', self.context[0].get_vector().reveal())
 
-        self.output.forward(batch)
-        print_ln('forward layer output %s', self.output.Y[0].get_vector().reveal())
+        self.output._forward(batch, input_tensor)
+        print_ln('forward layer output %s', self.output.Y[0].reveal_nested())
 
     # return context
 
@@ -2855,6 +2926,9 @@ class Optimizer:
             if layer.inputs and len(layer.inputs) == 1 and layer.inputs[0] is not None:
                 layer._X.address = layer.inputs[0].Y.address
             layer.Y.alloc()
+            if hasattr(layer, 'input_tensor'):
+                # override to give transformer input tensor access to layers that support it
+                layer.input_tensor.address = self.layers[0].X.address
             if model_from is not None:
                 layer.input_from(model_from)
             break_point()
