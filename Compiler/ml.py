@@ -1219,24 +1219,77 @@ class Gelu(ElementWiseLayer):
 
     def __init__(self, shape, inputs=None):
         super(Gelu, self).__init__(shape)
-        # self.comparisons = MultiArray(shape, sint)
+        self.comparisons = MultiArray(shape, sint)
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
-        print_ln("")
-        print_ln("base size %s %s %s", base, size, x.reveal())
-        print_ln("")
-        x = 0.5 * x * (1 + self.tanh(0.79788456 * (x + 0.044715 * x ** 3)))
 
-        # Gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-        # @for_range(0, size)
-        # def _(i):
-        #     x[i] = 0.5 * x[i] * (1 + self.tanh(0.79788456 * (x[i] + 0.044715 * x[i] ** 3)))
+        return self.compute_gelu_approx(x)
 
-        return x
+        # print_ln("")
+        # print_ln("base size %s %s %s %s", base, size, x[196].reveal(), x[0].reveal())
+        # print_ln("")
+        # x = 0.5 * x * (1 + self.tanh(0.79788456 * (x + 0.044715 * x ** 3), base))
+        # print_ln("x after %s", x[196].reveal())
+        # print_ln("x after %s", x[0].reveal())
+        #
+        #
+        # # print_ln("196: x^3 %s, tanh %s, exp %s", (x[196] ** 3).reveal(), self.tanh(x[196]).reveal(), exp(2 * x[196]).reveal())
+        # # print_ln("0:   x^3 %s, tanh %s, exp %s", (x[0] ** 3).reveal(), self.tanh(x[0]).reveal(), exp(2 * x[0]).reveal())
+        #
+        # # Gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+        # # @for_range(0, size)
+        # # def _(i):
+        # #     x[i] = 0.5 * x[i] * (1 + self.tanh(0.79788456 * (x[i] + 0.044715 * x[i] ** 3)))
+        #
+        # return x
 
-    def tanh(self, x):
-        return (exp(2 * x) - 1) / (exp(2 * x) + 1)
+    def compute_gelu_approx(self, x):
+        poly_f_0_a = -0.5054031199708174
+        poly_f_0_b = -0.42226581151983866
+        poly_f_0_c = -0.11807612951181953
+        poly_f_0_d = -0.011034134030615728
+
+        poly_f_1_a = 0.008526321541038084
+        poly_f_1_b = 0.5
+        poly_f_1_c = 0.3603292692789629
+        poly_f_1_e = -0.037688200365904236
+        poly_f_1_g = 0.0018067462606141187
+
+        b0 = x < -4
+        b1 = x < -1.95
+        b2 = 3 < x
+
+        z0 = b0 ^ b1
+        z1 = b1 ^ b2 ^ 1
+        z2 = b2
+
+        xb = x
+        xc = x ** 2
+        xd = xc * xb
+        xe = xc ** 2
+        xg = xd ** 2
+
+        f_0 = poly_f_0_a + poly_f_0_b * xb + poly_f_0_c * xc + poly_f_0_d * xd
+        f_1 = poly_f_1_a + poly_f_1_b * xb + poly_f_1_c * xc + poly_f_1_e * xe + poly_f_1_g * xg
+
+        # print_ln("z_0 * f_0 = %s * %s", z0.reveal(), f_0.reveal())
+        # print_ln("z_1 * f_1 = %s * %s", z1.reveal(), f_1.reveal())
+        # print_ln("z_2 * x = %s * %s", z2.reveal(), x.reveal())
+
+        return (z0 * f_0) + (z1 * f_1) + (z2 * x)
+
+    def tanh(self, x, base=0):
+        exp_2x = exp(2 * x)
+
+        real_tanh = (exp_2x - 1) / (exp_2x + 1)
+        return real_tanh
+
+        # if x is too high, we get essentially the same result
+        # c = x > 3
+        # self.comparisons.assign_vector(c, base)
+        # return c.if_else(x, real_tanh)
+
 
     def f_prime_part(self, base, size):
         print("WHAT IS PRIME? DERIV?")
@@ -1253,7 +1306,9 @@ class Tanh(ElementWiseLayer):
         return self.tanh(x)
 
     def tanh(self, x):
-        return (exp(2 * x) - 1) / (exp(2 * x) + 1)
+        # return (exp(2 * x) - 1) / (exp(2 * x) + 1)
+
+        return 2 * sigmoid(2 * x) - 1
 
 
 class Square(ElementWiseLayer):
@@ -2444,10 +2499,11 @@ class BertBase(BaseLayer, FixBase):
 class BertPooler(BertBase):
 
     def __init__(self, n_examples, seq_len, hidden_state):
-        shape = [n_examples, seq_len, hidden_state]
-        super(BertPooler, self).__init__(shape, shape)
+        input_shape = [n_examples, seq_len, hidden_state]
+        output_shape = [n_examples, hidden_state]
+        super(BertPooler, self).__init__(input_shape, output_shape)
         self.dense = Dense(n_examples, hidden_state, hidden_state)
-        self.activation = Tanh(shape)
+        self.activation = Tanh(input_shape)
 
         # set in forward
         # self.X.address = self.dense.X.address
@@ -2535,7 +2591,7 @@ class BertLayer(BertBase):
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch)
         print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y.reveal_nested())
-
+        print_ln(" ")
         # print_ln("")
         # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
         # print_ln("")
@@ -2594,6 +2650,8 @@ class BertIntermediate(BertBase):
         self.activation.X.address = self.dense.Y.address
         self.activation.Y.address = self.Y.address
 
+        print_ln("forward layer intermediate.dense X %s", self.dense.X[0].reveal_nested())
+
         self.dense.forward(batch)
         print_ln("forward layer intermediate.dense %s", self.dense.Y[0].reveal_nested())
 
@@ -2622,8 +2680,8 @@ class BertOutput(BertBase):
         self.layer_norm.X.address = self.dropout.Y.address
         self.layer_norm.Y.address = self.Y.address
 
-        print_ln("forward layer output.dense X %s", self.dense.X[0].reveal_nested())
-        print_ln("")
+        # print_ln("forward layer output.dense X %s", self.dense.X[0].reveal_nested())
+        # print_ln("")
         self.dense.forward(batch)
         print_ln("forward layer output.dense %s", self.dense.Y[0].reveal_nested())
         print_ln("")
@@ -3902,6 +3960,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             for x in item:
                 process(x)
         elif name == 'Linear':
+            print("Debugging Linear", item.in_features, input_shape)
             assert mul(input_shape[1:]) == item.in_features
             assert item.bias is not None
             layers.append(Dense(input_shape[0], item.in_features,
@@ -3985,11 +4044,19 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
                                   alpha=item.p))
             input_shape = layers[-1].Y.sizes
+        elif name == 'BertForSequenceClassification':
+            process(item.bert)
+            print("INPUT SHAPE SEQUENCE", input_shape)
+            process(item.dropout)
+            print("INPUT SHAPE SEQUENCE 3", input_shape)
+            process(item.classifier)
         elif name == 'BertModel':
             bert_config = item.config
             process(item.embeddings)
             process(item.encoder)
+            print("INPUT SHAPE ENCODER", input_shape)
             process(item.pooler)
+            print("INPUT SHAPE POOLER", input_shape)
         elif name == 'BertEmbeddings':
             print('BertEmbeddings', item)
             pass # no-op
