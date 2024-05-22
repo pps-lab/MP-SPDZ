@@ -469,6 +469,7 @@ class MultiOutputBase(NoVariableLayer):
             truth = argmax(a)
             guess = argmax(b)
             correct = truth == guess
+            print_ln("truth %s, guess %s, correct %s", truth, guess, correct)
             if debug:
                 to_print = (1 - correct) * (n_printed < 10)
                 n_printed.iadd(to_print)
@@ -1152,7 +1153,6 @@ class ElementWiseLayer(NoVariableLayer):
 
     def _forward(self, batch=[0]):
         n_per_item = reduce(operator.mul, self.X.sizes[1:])
-        print("ElementWiseLayer", n_per_item)
         @multithread(self.n_threads, len(batch) * n_per_item)
         def _(base, size):
             self.Y.assign_vector(self.f_part(base, size), base)
@@ -1692,7 +1692,7 @@ class LayerNorm(Layer):  # Changed class name
     thetas = lambda self: (self.weights, self.bias)
     nablas = lambda self: (self.nabla_weights, self.nabla_bias)
 
-    def __init__(self, shape, approx=False, layernorm_eps=None, args=None):
+    def __init__(self, shape, approx=True, layernorm_eps=None, args=None):
         if len(shape) == 2:
             shape = [shape[0], 1, shape[1]] # Not sure why this extra dimension is added
         tensors = (Tensor(shape, sfix) for i in range(4))
@@ -1778,7 +1778,6 @@ class LayerNorm(Layer):  # Changed class name
             for ar in arg:
                 sel = sel[ar]
                 mu_sel = mu_sel[ar]
-            print("SHAPES LAYERNORM", sel.shape, mu.shape)
             res = sum((sel[:] - mu_sel) ** 2) # Removed self.mu reference
             if len(arg) == 2:
                 var[arg[0]][arg[1]] = res
@@ -3317,7 +3316,7 @@ class Optimizer:
 
         """
         N = data.sizes[0]
-        print(N, truth, batch_size)
+        print("REVEAL_COR", N, truth, batch_size)
         n_correct = MemValue(0)
         loss = MemValue(sfix(0))
         def f(start, batch_size, batch):
@@ -3325,6 +3324,7 @@ class Optimizer:
             batch.assign_vector(regint.inc(batch_size, start))
             self.forward(batch=batch, run_last=False)
             part_truth = truth.get_part(start, batch_size)
+            print_ln("truth %s, part_truth %s", truth.reveal_nested(), part_truth.reveal_nested())
             n_correct.iadd(
                 self.layers[-1].reveal_correctness(batch_size, part_truth))
             loss.iadd(self.layers[-1].l * batch_size)
@@ -3986,7 +3986,6 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             for x in item:
                 process(x)
         elif name == 'Linear':
-            print("Debugging Linear", item.in_features, item.out_features, input_shape)
             assert mul(input_shape[1:]) == item.in_features
             assert item.bias is not None
             layers.append(Dense(input_shape[0], item.in_features,
@@ -4007,7 +4006,6 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
                         swapped, [item.out_features, item.in_features])
                     print (swapped.shape)
                 swapped = numpy.swapaxes(swapped, 0, 1)
-                print("LINEAR SWAPPED WEIGHTS", swapped)
                 layers[-1].W = sfix.input_tensor_via(
                     input_via, swapped)
                 layers[-1].b = sfix.input_tensor_via(

@@ -6427,7 +6427,6 @@ class SubMultiArray(_vectorizable):
         :param vector: vector of matching size convertible to relevant basic type
         :param base: compile-time (int) """
         assert self.value_type.n_elements() == 1
-        print(vector.size, self.total_size())
         assert vector.size <= self.total_size()
         self.value_type.conv(vector).store_in_mem(self.address + base)
 
@@ -6843,7 +6842,6 @@ class SubMultiArray(_vectorizable):
         else:
             other_sizes = other.sizes
             assert len(other.sizes) == 2
-        print("SIZES", self.sizes, other_sizes)
         assert self.sizes[1] == other_sizes[0]
         if self.value_type == other.value_type:
             assert res_type in (self.value_type, None)
