@@ -1152,6 +1152,7 @@ class ElementWiseLayer(NoVariableLayer):
 
     def _forward(self, batch=[0]):
         n_per_item = reduce(operator.mul, self.X.sizes[1:])
+        print("ElementWiseLayer", n_per_item)
         @multithread(self.n_threads, len(batch) * n_per_item)
         def _(base, size):
             self.Y.assign_vector(self.f_part(base, size), base)
@@ -1246,6 +1247,7 @@ class Gelu(ElementWiseLayer):
         # return x
 
     def compute_gelu_approx(self, x):
+        # print_ln("GELU inputs %s", x.reveal())
         poly_f_0_a = -0.5054031199708174
         poly_f_0_b = -0.42226581151983866
         poly_f_0_c = -0.11807612951181953
@@ -1304,10 +1306,15 @@ class Tanh(ElementWiseLayer):
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
-        return self.tanh(x)
+        print("TANH base size", base, size)
+        res = self.tanh(x)
+        print("TANH res", res)
+        return res
 
     def tanh(self, x):
         # return (exp(2 * x) - 1) / (exp(2 * x) + 1)
+        print("TANH", x)
+        # print_ln("TANH INPUTS %s", x.reveal())
 
         return 2 * sigmoid(2 * x) - 1
 
@@ -1689,12 +1696,12 @@ class LayerNorm(Layer):  # Changed class name
     thetas = lambda self: (self.weights, self.bias)
     nablas = lambda self: (self.nabla_weights, self.nabla_bias)
 
-    def __init__(self, shape, approx=True, args=None):
+    def __init__(self, shape, approx=False, layernorm_eps=None, args=None):
         if len(shape) == 2:
             shape = [shape[0], 1, shape[1]] # Not sure why this extra dimension is added
         tensors = (Tensor(shape, sfix) for i in range(4))
         self.X, self.Y, self.nabla_X, self.nabla_Y = tensors
-        self.epsilon = 2 ** (-sfix.f * 2 // 3 + 1) # TODO: Get from model ?
+        self.epsilon = 2 ** (-sfix.f * 2 // 3 + 1) #if layernorm_eps is not None else sfix(layernorm_eps)
         self.approx = approx
         if approx:
             print('Approximate square root inverse in layer normalization')  # Updated print statement
@@ -2504,7 +2511,7 @@ class BertPooler(BertBase):
         output_shape = [n_examples, hidden_state]
         super(BertPooler, self).__init__(input_shape, output_shape)
         self.dense = Dense(n_examples, hidden_state, hidden_state)
-        self.activation = Tanh(input_shape)
+        self.activation = Tanh(output_shape)
 
         # set in forward
         # self.X.address = self.dense.X.address
@@ -2523,8 +2530,14 @@ class BertPooler(BertBase):
         def _(j):
             self.dense.X[j][:] = self.X[j][0][:]
 
+        if self.debug_bert_output:
+            print_ln("forward layer pooler.dense X %s", self.dense.X.reveal_nested())
+
         self.dense.forward(batch)
+        # print_ln("LINEAR Layer weights after bertpooler.dense: %s", self.opt.layers[-2].W.reveal_nested())
+
         self.activation._forward(batch)
+        # print_ln("LINEAR Layer weights after bertpooler.activation: %s", self.opt.layers[-2].W.reveal_nested())
 
     def reset(self):
         self.dense.reset()
@@ -2571,7 +2584,7 @@ class BertLayer(BertBase):
         super(BertLayer, self).__init__(input_shape, output_shape)
         self.multi_head_attention = MultiHeadAttention(n_examples, seq_len, hidden_state, num_attention_heads, dropout)
         self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size, seq_len)
-        self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout)
+        self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps)
 
         self.hidden_state = sfix.Tensor(input_shape)
 
@@ -2671,14 +2684,14 @@ class BertIntermediate(BertBase):
 
 class BertOutput(BertBase):
 
-    def __init__(self, n_examples, intermediate_size, hidden_size, seq_len, dropout=0.1):
+    def __init__(self, n_examples, intermediate_size, hidden_size, seq_len, dropout=0.1, layernorm_eps=1e-12):
         input_shape = [n_examples, seq_len, intermediate_size]
         output_shape = [n_examples, seq_len, hidden_size]
         self.input_shape = input_shape
         print("INSTANTIATING BERTOUTPUT with ", input_shape, output_shape, intermediate_size, hidden_size)
         super(BertOutput, self).__init__(input_shape, output_shape)
         self.dense = FlexDense(n_examples, intermediate_size, hidden_size, seq_len)
-        self.layer_norm = LayerNorm(output_shape)
+        self.layer_norm = LayerNorm(output_shape, layernorm_eps=layernorm_eps)
         self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
@@ -2867,6 +2880,9 @@ class MultiHeadAttention(BertBase):
         if self.debug_bert_output:
             print_ln('forward layer multiheadattention before output %s', self.context[0].get_vector().reveal())
 
+        if self.debug_bert_output:
+            print_ln('forward layer hidden_state %s', hidden_state.reveal_nested())
+
         self.output._forward(batch, hidden_state)
         if self.debug_bert_output:
             print_ln('forward bertlayer output %s', self.output.Y[0].reveal_nested())
@@ -3005,6 +3021,8 @@ class Optimizer:
             if self.time_layers:
                 start_timer(100 + i)
             if i != len(self.layers) - 1 or run_last:
+                # if hasattr(layer, 'opt'):
+                #     layer.opt = self
                 layer.forward(batch=self.batch_for(layer, batch),
                               training=training)
                 if self.print_random_update:
@@ -3972,7 +3990,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             for x in item:
                 process(x)
         elif name == 'Linear':
-            print("Debugging Linear", item.in_features, input_shape)
+            print("Debugging Linear", item.in_features, item.out_features, input_shape)
             assert mul(input_shape[1:]) == item.in_features
             assert item.bias is not None
             layers.append(Dense(input_shape[0], item.in_features,
@@ -3993,6 +4011,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
                         swapped, [item.out_features, item.in_features])
                     print (swapped.shape)
                 swapped = numpy.swapaxes(swapped, 0, 1)
+                print("LINEAR SWAPPED WEIGHTS", swapped)
                 layers[-1].W = sfix.input_tensor_via(
                     input_via, swapped)
                 layers[-1].b = sfix.input_tensor_via(
@@ -4105,6 +4124,9 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
     else:
         print("Layers Mulout", layers[-1], layers[-1].d_out)
         layers.append(MultiOutput(data_input_shape[0], layers[-1].d_out))
+
+    print_ln("LINEAR Layer weights %s: %s", layers[-2], layers[-2].W.reveal_nested())
+
     return layers
 
 class OneLayerSGD:
