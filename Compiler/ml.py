@@ -234,7 +234,7 @@ class Layer:
     input_bias = True
     thetas = lambda self: ()
     debug_output = False
-    debug_bert_output = True
+    debug_bert_output = False
     back_batch_size = 128
     print_random_update = False
 
@@ -1306,15 +1306,11 @@ class Tanh(ElementWiseLayer):
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
-        print("TANH base size", base, size)
         res = self.tanh(x)
-        print("TANH res", res)
         return res
 
     def tanh(self, x):
         # return (exp(2 * x) - 1) / (exp(2 * x) + 1)
-        print("TANH", x)
-        # print_ln("TANH INPUTS %s", x.reveal())
 
         return 2 * sigmoid(2 * x) - 1
 
@@ -4122,10 +4118,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
     elif layers[-1].d_out == 1:
         layers.append(Output(data_input_shape[0]))
     else:
-        print("Layers Mulout", layers[-1], layers[-1].d_out)
         layers.append(MultiOutput(data_input_shape[0], layers[-1].d_out))
-
-    print_ln("LINEAR Layer weights %s: %s", layers[-2], layers[-2].W.reveal_nested())
 
     return layers
 
