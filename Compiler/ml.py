@@ -234,6 +234,7 @@ class Layer:
     input_bias = True
     thetas = lambda self: ()
     debug_output = False
+    debug_bert_output = True
     back_batch_size = 128
     print_random_update = False
 
@@ -2572,7 +2573,7 @@ class BertLayer(BertBase):
         self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size, seq_len)
         self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout)
 
-        self.input_tensor = sfix.Tensor(input_shape)
+        self.hidden_state = sfix.Tensor(input_shape)
 
         # self.X.address = self.multi_head_attention.X.address
         # self.Y.address = self.output.Y.address
@@ -2582,16 +2583,20 @@ class BertLayer(BertBase):
     def _forward(self, batch):
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
+        self.hidden_state.address = self.X.address
 
-        self.multi_head_attention._forward(batch, self.input_tensor)
-        print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
+        self.multi_head_attention._forward(batch, self.hidden_state)
+        if self.debug_bert_output:
+            print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
 
-        print_ln("forward layer multi_head_attention %s", self.multi_head_attention.Y[0][0][0].reveal())
+        if self.debug_bert_output:
+            print_ln("forward layer multi_head_attention %s", self.multi_head_attention.Y[0][0][0].reveal())
 
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch)
-        print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y.reveal_nested())
-        print_ln(" ")
+        if self.debug_bert_output:
+            print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y.reveal_nested())
+            print_ln(" ")
         # print_ln("")
         # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
         # print_ln("")
@@ -2599,8 +2604,9 @@ class BertLayer(BertBase):
 
         self.output.X.address = self.intermediate.Y.address
         self.output._forward(batch, self.multi_head_attention.Y)
-        print_ln("our layer output %s", self.output.Y.reveal_nested())
-        print_ln("our output %s", self.Y[0][0][0].reveal())
+        if self.debug_bert_output:
+            print_ln("our layer output %s", self.output.Y.reveal_nested())
+            print_ln("our output %s", self.Y[0][0][0].reveal())
 
     def reset(self):
         self.multi_head_attention.reset()
@@ -2650,10 +2656,12 @@ class BertIntermediate(BertBase):
         self.activation.X.address = self.dense.Y.address
         self.activation.Y.address = self.Y.address
 
-        print_ln("forward layer intermediate.dense X %s", self.dense.X[0].reveal_nested())
+        if self.debug_bert_output:
+            print_ln("forward layer intermediate.dense X %s", self.dense.X[0].reveal_nested())
 
         self.dense.forward(batch)
-        print_ln("forward layer intermediate.dense %s", self.dense.Y[0].reveal_nested())
+        if self.debug_bert_output:
+            print_ln("forward layer intermediate.dense %s", self.dense.Y[0].reveal_nested())
 
         self.activation._forward(batch)
 
@@ -2683,8 +2691,9 @@ class BertOutput(BertBase):
         # print_ln("forward layer output.dense X %s", self.dense.X[0].reveal_nested())
         # print_ln("")
         self.dense.forward(batch)
-        print_ln("forward layer output.dense %s", self.dense.Y[0].reveal_nested())
-        print_ln("")
+        if self.debug_bert_output:
+            print_ln("forward layer output.dense %s", self.dense.Y[0].reveal_nested())
+            print_ln("")
 
         self.dropout.forward(batch)
         # print_ln("forward layer output.dropout %s", self.dropout.Y[0].reveal_nested())
@@ -2704,12 +2713,14 @@ class BertOutput(BertBase):
         # TODO: X is the hidden state, but we want to add the original input here ... how to access??
         self.layer_norm.X[:] += input_tensor[:]
 
-        print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0].reveal_nested())
-        print_ln("")
+        if self.debug_bert_output:
+            print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0].reveal_nested())
+            print_ln("")
         self.layer_norm.forward(batch)
 
-        print_ln("forward layer layer_norm_forward %s", self.layer_norm.Y[0].reveal_nested())
-        print_ln("")
+        #
+        # print_ln("forward layer layer_norm_forward %s", self.layer_norm.Y[0].reveal_nested())
+        # print_ln("")
 
 
     def reset(self):
@@ -2751,7 +2762,7 @@ class MultiHeadAttention(BertBase):
 
 
 
-    def _forward(self, batch=None, input_tensor=None, training=None):
+    def _forward(self, batch=None, hidden_state=None, training=None):
 
         # set up layers
         dense_layers = [self.wq, self.wk, self.wv]
@@ -2812,7 +2823,8 @@ class MultiHeadAttention(BertBase):
 
         # apply softmax to vector of last dim
         # one attention head is all 0s
-        print_ln('forward layer multiheadattention %s', attention_scores[0].reveal_nested())
+        # if self.debug_bert_output:
+        #     print_ln('forward layer multiheadattention %s', attention_scores[0].reveal_nested())
 
         @for_range_multithread(self.n_threads, 1, [self.n_examples])
         def _(i):
@@ -2825,7 +2837,8 @@ class MultiHeadAttention(BertBase):
         # mask fill scores?
         # scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
 
-        print_ln('forward layer multiheadattention after softmax %s', attention_scores[0].reveal_nested())
+        # if self.debug_bert_output:
+        #     print_ln('forward layer multiheadattention after softmax %s', attention_scores[0].reveal_nested())
 
         self.dropout.X.address = attention_scores.address
         self.dropout.forward(batch=batch, training=training)
@@ -2851,10 +2864,12 @@ class MultiHeadAttention(BertBase):
 
         # missing half of the values ?
         # print_ln('forward layer old_context %s', self.old_context[0].get_vector().reveal())
-        print_ln('forward layer context %s', self.context[0].get_vector().reveal())
+        if self.debug_bert_output:
+            print_ln('forward layer multiheadattention before output %s', self.context[0].get_vector().reveal())
 
-        self.output._forward(batch, input_tensor)
-        print_ln('forward layer output %s', self.output.Y[0].reveal_nested())
+        self.output._forward(batch, hidden_state)
+        if self.debug_bert_output:
+            print_ln('forward bertlayer output %s', self.output.Y[0].reveal_nested())
 
     # return context
 
@@ -2984,9 +2999,6 @@ class Optimizer:
             if layer.inputs and len(layer.inputs) == 1 and layer.inputs[0] is not None:
                 layer._X.address = layer.inputs[0].Y.address
             layer.Y.alloc()
-            if hasattr(layer, 'input_tensor'):
-                # override to give transformer input tensor access to layers that support it
-                layer.input_tensor.address = self.layers[0].X.address
             if model_from is not None:
                 layer.input_from(model_from)
             break_point()
@@ -2999,11 +3011,11 @@ class Optimizer:
                     print_ln('forward layer %s', layer)
                     # print(layer, i)
                     l = min(1023, layer.Y[0].total_size())
-                    i = regint.get_random(64) % len(batch)
+                    i = regint.get_random(min(64, len(batch))) % len(batch)
                     if l < 100:
                         j = 0
                     else:
-                        j = regint.get_random(64) % \
+                        j = regint.get_random(min(64, layer.Y[0].total_size())) % \
                             (layer.Y[0].total_size() - l)
                     print_ln('forward layer %s at (%s, %s): %s', layer, i, j,
                              layer.Y[i].to_array().get_vector(j, l).reveal())
@@ -4091,6 +4103,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
     elif layers[-1].d_out == 1:
         layers.append(Output(data_input_shape[0]))
     else:
+        print("Layers Mulout", layers[-1], layers[-1].d_out)
         layers.append(MultiOutput(data_input_shape[0], layers[-1].d_out))
     return layers
 
