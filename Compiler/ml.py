@@ -943,19 +943,19 @@ class FlexDense(Dense):
 
         @for_range(self.d)
         def _(i):
-            X_sub = sfix.Matrix(self.N, self.d_in)
-            @for_range(self.N)
+            X_sub = sfix.Matrix(N, self.d_in)
+            @for_range(N)
             def _(j):
                 X_sub[j][:] = self.X[batch[j]][i][:]
 
-            X_sub_out = sfix.Matrix(self.N, self.d_out)
+            X_sub_out = sfix.Matrix(N, self.d_out)
             X_sub_out.assign_vector(X_sub.direct_mul(self.W))
 
             # print_ln("Dense input %s %s %s", i, X_sub.reveal_nested(), batch[0])
             # print_ln("Dense prod %s %s %s", i, X_sub_out.reveal_nested(), batch[0])
 
             # put it back
-            @for_range(self.N)
+            @for_range(N)
             def _(j):
                 prod[j][i][:] = X_sub_out[j][:]
 
@@ -2602,6 +2602,7 @@ class BertLayer(BertBase):
 
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch)
+
         if self.debug_bert_output:
             print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y.reveal_nested())
             print_ln(" ")
@@ -2612,6 +2613,7 @@ class BertLayer(BertBase):
 
         self.output.X.address = self.intermediate.Y.address
         self.output._forward(batch, self.multi_head_attention.Y)
+
         if self.debug_bert_output:
             print_ln("our layer output %s", self.output.Y.reveal_nested())
             print_ln("our output %s", self.Y[0][0][0].reveal())
@@ -2716,7 +2718,6 @@ class BertOutput(BertBase):
         #     self.layer_norm.X.assign_vector(
         #         self.layer_norm.X.get_vector() +
         #         self.X.get_vector(base, size))
-        print("LAYER NORM SHAPES", self.layer_norm.X, self.X, self.input_shape)
 
         # TODO: X is the hidden state, but we want to add the original input here ... how to access??
         self.layer_norm.X[:] += input_tensor[:]
@@ -2783,11 +2784,6 @@ class MultiHeadAttention(BertBase):
         self.wq.forward(batch)
         self.wk.forward(batch)
         self.wv.forward(batch)
-
-        # attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1) # attn_mask : [batch_size x n_heads x len_q x len_k]
-        attn_mask = None
-
-        # ScaledDotProdAttention
 
         print(self.wk.Y)
         # For some reason the dense repr has another dimension?
@@ -3081,9 +3077,8 @@ class Optimizer:
 
             if latent_space_layer is not None:
                 latent_space_part = latent_space_layer.Y.get_part(0, batch_size)
-            #print(f"latent_space={latent_space.sizes}")
-            #print_ln("latent_space=%s", latent_space.sizes) #.reveal_nested()
                 latent.get_part(start, batch_size).assign(latent_space_part)
+
 
             part = self.layers[-1].eval(batch_size, top=top)
             res.assign_part_vector(part.get_vector(), start)
