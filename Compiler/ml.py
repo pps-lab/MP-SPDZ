@@ -942,6 +942,8 @@ class FlexDense(Dense):
         N = len(batch)
         prod = MultiArray([N, self.d, self.d_out], sfix)
 
+        # print_ln("Dense input %s %s", N, batch, batch[0])
+
         @for_range(self.d)
         def _(i):
             X_sub = sfix.Matrix(N, self.d_in)
@@ -960,7 +962,7 @@ class FlexDense(Dense):
             def _(j):
                 prod[j][i][:] = X_sub_out[j][:]
 
-        # print_ln("Dense prod %s %s %s", i, X_sub.reveal_nested(), batch[0])
+            # print_ln("Dense prod %s %s", i, batch[0])
 
         if self.input_bias:
             if self.d_out == 1:
@@ -2788,6 +2790,8 @@ class MultiHeadAttention(BertBase):
         self.wk.forward(batch)
         self.wv.forward(batch)
 
+        print_ln("post forward")
+
         print(self.wk.Y)
         # For some reason the dense repr has another dimension?
         # [batch_size, num_attention_heads, seq_len, ???]
@@ -3320,7 +3324,9 @@ class Optimizer:
         loss = MemValue(sfix(0))
         def f(start, batch_size, batch):
             print(start, batch_size, batch)
+            print_ln("%s %s %s", start, batch_size, batch)
             batch.assign_vector(regint.inc(batch_size, start))
+            print_ln("Assign betch")
             self.forward(batch=batch, run_last=False)
             part_truth = truth.get_part(start, batch_size)
             print_ln("truth %s, part_truth %s", truth.reveal_nested(), part_truth.reveal_nested())
