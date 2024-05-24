@@ -70,6 +70,7 @@ from Compiler.comparison import CarryOutRawLE
 from Compiler.GC.types import sbitint
 from functools import reduce
 
+
 def log_e(x):
     return mpc_math.log_fx(x, math.e)
 
@@ -234,7 +235,7 @@ class Layer:
     input_bias = True
     thetas = lambda self: ()
     debug_output = False
-    debug_bert_output = False
+    debug_bert_output = True
     back_batch_size = 128
     print_random_update = False
 
@@ -1226,7 +1227,8 @@ class Gelu(ElementWiseLayer):
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
 
-        return self.compute_gelu_approx(x)
+        return self.compute_gelu_sigmoid(x)
+        # return self.compute_gelu_approx(x)
 
         # print_ln("")
         # print_ln("base size %s %s %s %s", base, size, x[196].reveal(), x[0].reveal())
@@ -1281,6 +1283,9 @@ class Gelu(ElementWiseLayer):
         # print_ln("z_2 * x = %s * %s", z2.reveal(), x.reveal())
 
         return (z0 * f_0) + (z1 * f_1) + (z2 * x)
+
+    def compute_gelu_sigmoid(self, x, base=0):
+        return x * sigmoid(0.071355 * (x ** 3) + 1.595769 * x)
 
     def tanh(self, x, base=0):
         exp_2x = exp(2 * x)
@@ -1692,18 +1697,19 @@ class LayerNorm(Layer):  # Changed class name
     thetas = lambda self: (self.weights, self.bias)
     nablas = lambda self: (self.nabla_weights, self.nabla_bias)
 
-    def __init__(self, shape, approx=True, layernorm_eps=None, args=None):
+    def __init__(self, shape, approx=False, layernorm_eps=None, args=None):
         if len(shape) == 2:
             shape = [shape[0], 1, shape[1]] # Not sure why this extra dimension is added
         tensors = (Tensor(shape, sfix) for i in range(4))
         self.X, self.Y, self.nabla_X, self.nabla_Y = tensors
         self.epsilon = 2 ** (-sfix.f * 2 // 3 + 1) #if layernorm_eps is not None else sfix(layernorm_eps)
+        self.epsilon = cfix(layernorm_eps)
         self.approx = approx
         if approx:
-            print('Approximate square root inverse in layer normalization')  # Updated print statement
+            print('Approximate square root inverse in layer normalization')
             self.InvertSqrt = mpc_math.InvertSqrt
         else:
-            print('Precise square root inverse in layer normalization')  # Updated print statement
+            print('Precise square root inverse in layer normalization')
             self.InvertSqrt = lambda x: 1 / mpc_math.sqrt(x)
         self.weights = sfix.Array(shape[-1])  # Changed to match last dimension of shape
         self.bias = sfix.Array(shape[-1])     # Changed to match last dimension of shape
@@ -2525,8 +2531,8 @@ class BertPooler(BertBase):
         def _(j):
             self.dense.X[j][:] = self.X[j][0][:]
 
-        if self.debug_bert_output:
-            print_ln("forward layer pooler.dense X %s", self.dense.X.reveal_nested())
+        # if self.debug_bert_output:
+        #     print_ln("forward layer pooler.dense X %s", self.dense.X.reveal_nested())
 
         self.dense.forward(batch)
         # print_ln("LINEAR Layer weights after bertpooler.dense: %s", self.opt.layers[-2].W.reveal_nested())
@@ -2573,13 +2579,13 @@ class BertEncoder(BertBase):
 
 class BertLayer(BertBase):
 
-    def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1):
+    def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1, rsqrt_approx=True):
         input_shape = [n_examples, seq_len, hidden_state]
         output_shape = [n_examples, seq_len, hidden_state]
         super(BertLayer, self).__init__(input_shape, output_shape)
-        self.multi_head_attention = MultiHeadAttention(n_examples, seq_len, hidden_state, num_attention_heads, dropout)
+        self.multi_head_attention = MultiHeadAttention(n_examples, seq_len, hidden_state, num_attention_heads, dropout, layernorm_eps, rsqrt_approx)
         self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size, seq_len)
-        self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps)
+        self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps, rsqrt_approx)
 
         self.hidden_state = sfix.Tensor(input_shape)
 
@@ -2604,7 +2610,7 @@ class BertLayer(BertBase):
         self.intermediate.forward(batch)
 
         if self.debug_bert_output:
-            print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y.reveal_nested())
+            print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][0][0:20].reveal())
             print_ln(" ")
         # print_ln("")
         # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
@@ -2615,7 +2621,7 @@ class BertLayer(BertBase):
         self.output._forward(batch, self.multi_head_attention.Y)
 
         if self.debug_bert_output:
-            print_ln("our layer output %s", self.output.Y.reveal_nested())
+            print_ln("our layer output %s", self.output.Y[0][0][0:20].reveal())
             print_ln("our output %s", self.Y[0][0][0].reveal())
 
     def reset(self):
@@ -2666,12 +2672,9 @@ class BertIntermediate(BertBase):
         self.activation.X.address = self.dense.Y.address
         self.activation.Y.address = self.Y.address
 
-        if self.debug_bert_output:
-            print_ln("forward layer intermediate.dense X %s", self.dense.X[0].reveal_nested())
-
         self.dense.forward(batch)
         if self.debug_bert_output:
-            print_ln("forward layer intermediate.dense %s", self.dense.Y[0].reveal_nested())
+            print_ln("forward layer intermediate.dense %s", self.dense.Y[0][0][0:20].reveal())
 
         self.activation._forward(batch)
 
@@ -2681,14 +2684,14 @@ class BertIntermediate(BertBase):
 
 class BertOutput(BertBase):
 
-    def __init__(self, n_examples, intermediate_size, hidden_size, seq_len, dropout=0.1, layernorm_eps=1e-12):
+    def __init__(self, n_examples, intermediate_size, hidden_size, seq_len, dropout=0.1, layernorm_eps=1e-12, rsqrt_approx=True):
         input_shape = [n_examples, seq_len, intermediate_size]
         output_shape = [n_examples, seq_len, hidden_size]
         self.input_shape = input_shape
-        print("INSTANTIATING BERTOUTPUT with ", input_shape, output_shape, intermediate_size, hidden_size)
+        print("INSTANTIATING BERTOUTPUT with ", input_shape, output_shape, intermediate_size, hidden_size, rsqrt_approx)
         super(BertOutput, self).__init__(input_shape, output_shape)
         self.dense = FlexDense(n_examples, intermediate_size, hidden_size, seq_len)
-        self.layer_norm = LayerNorm(output_shape, layernorm_eps=layernorm_eps)
+        self.layer_norm = LayerNorm(output_shape, layernorm_eps=layernorm_eps, approx=rsqrt_approx)
         self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
@@ -2702,7 +2705,7 @@ class BertOutput(BertBase):
         # print_ln("")
         self.dense.forward(batch)
         if self.debug_bert_output:
-            print_ln("forward layer output.dense %s", self.dense.Y[0].reveal_nested())
+            print_ln("forward layer output.dense %s", self.dense.Y[0][0][0:20].reveal())
             print_ln("")
 
         self.dropout.forward(batch)
@@ -2723,7 +2726,7 @@ class BertOutput(BertBase):
         self.layer_norm.X[:] += input_tensor[:]
 
         if self.debug_bert_output:
-            print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0].reveal_nested())
+            print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0][0][0:20].reveal())
             print_ln("")
         self.layer_norm.forward(batch)
 
@@ -2738,12 +2741,13 @@ class BertOutput(BertBase):
 
 class MultiHeadAttention(BertBase):
 
-    def __init__(self, n_examples, seq_len, hidden_size, num_attention_heads, dropout=0.1):
+    def __init__(self, n_examples, seq_len, hidden_size, num_attention_heads, dropout=0.1, layernorm_eps=1e-12, rsqrt_approx=True):
         self.n_examples = n_examples
 
         input_output_shape = [n_examples, seq_len, hidden_size]
         super().__init__(input_output_shape, input_output_shape)
 
+        print("Multheadattention", rsqrt_approx)
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = int(hidden_size / num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -2756,7 +2760,7 @@ class MultiHeadAttention(BertBase):
         self.wv = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
         self.dropout = FlexDropout([n_examples, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
 
-        self.output = BertOutput(n_examples, hidden_size, hidden_size, seq_len, dropout)
+        self.output = BertOutput(n_examples, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
 
 
 
@@ -2822,7 +2826,6 @@ class MultiHeadAttention(BertBase):
                 # key_sub[:] = self.wk.Y[i][:][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
                 res = query_sub.direct_mul_trans(key_sub)
-                print("RES MULTI", res, self.num_attention_heads, self.attention_head_size)
                 attention_scores[i].assign_part_vector(res, j)
 
         # apply softmax to vector of last dim
@@ -2869,14 +2872,14 @@ class MultiHeadAttention(BertBase):
         # missing half of the values ?
         # print_ln('forward layer old_context %s', self.old_context[0].get_vector().reveal())
         if self.debug_bert_output:
-            print_ln('forward layer multiheadattention before output %s', self.context[0].get_vector().reveal())
+            print_ln('forward layer multiheadattention before output %s', self.context[0][0][0:20].get_vector().reveal())
 
         if self.debug_bert_output:
-            print_ln('forward layer hidden_state %s', hidden_state.reveal_nested())
+            print_ln('forward layer hidden_state %s', hidden_state[0][0][0:20].reveal())
 
         self.output._forward(batch, hidden_state)
         if self.debug_bert_output:
-            print_ln('forward bertlayer output %s', self.output.Y[0].reveal_nested())
+            print_ln('forward bertlayer output %s', self.output.Y[0][0][0:20].reveal())
 
     # return context
 
@@ -3016,6 +3019,8 @@ class Optimizer:
                 #     layer.opt = self
                 layer.forward(batch=self.batch_for(layer, batch),
                               training=training)
+                # runtime_error("first layer")
+                # break
                 if self.print_random_update:
                     print_ln('forward layer %s', layer)
                     # print(layer, i)
@@ -4066,22 +4071,17 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             input_shape = layers[-1].Y.sizes
         elif name == 'BertForSequenceClassification':
             process(item.bert)
-            print("INPUT SHAPE SEQUENCE", input_shape)
             process(item.dropout)
-            print("INPUT SHAPE SEQUENCE 3", input_shape)
             process(item.classifier)
         elif name == 'BertModel':
             bert_config = item.config
             process(item.embeddings)
             process(item.encoder)
-            print("INPUT SHAPE ENCODER", input_shape)
             process(item.pooler)
-            print("INPUT SHAPE POOLER", input_shape)
         elif name == 'BertEmbeddings':
-            print('BertEmbeddings', item)
+            print('Embedding layer not implemented.', item)
             pass # no-op
         elif name == 'BertEncoder':
-            print('BertEmbeddings', item)
             for x in item.layer:
                 process(x)
         elif name == 'BertLayer':
@@ -4090,7 +4090,9 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             num_attention_heads = bert_config.num_attention_heads
             layernorm_eps = bert_config.layer_norm_eps
             seq_len = input_shape[1]
-            layer = BertLayer(input_shape[0], seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps)
+            rsqrt_approx = False
+            layer = BertLayer(input_shape[0], seq_len, hidden_state, intermediate_size, num_attention_heads,
+                              layernorm_eps, 0.1, rsqrt_approx)
             if input_via is not None:
                 layer.load_state_dict(item.state_dict(), input_via)
             layers.append(layer)
