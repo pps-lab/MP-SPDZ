@@ -1703,7 +1703,6 @@ class LayerNorm(Layer):  # Changed class name
         tensors = (Tensor(shape, sfix) for i in range(4))
         self.X, self.Y, self.nabla_X, self.nabla_Y = tensors
         self.epsilon = 2 ** (-sfix.f * 2 // 3 + 1) #if layernorm_eps is not None else sfix(layernorm_eps)
-        self.epsilon = cfix(layernorm_eps)
         self.approx = approx
         if approx:
             print('Approximate square root inverse in layer normalization')
