@@ -1766,17 +1766,11 @@ class LayerNorm(Layer):  # Changed class name
             else:
                 raise NotImplementedError("Only 3D tensors supported")
 
-        # print("Mu", mu)
-        # print(X_batch)
-        # print_ln("forward sums: %s", mu.reveal_nested())
-
         @multithread(self.n_threads, mu.total_size())
         def _(base, size):
             total_dim = self.X.sizes[-1]
             mu.assign_vector(
                 mu.get_vector(base, size) / total_dim, base)
-
-        # print_ln("forward mu: %s", mu.reveal_nested())
 
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
@@ -3326,7 +3320,6 @@ class Optimizer:
             print(start, batch_size, batch)
             print_ln("%s %s %s", start, batch_size, batch)
             batch.assign_vector(regint.inc(batch_size, start))
-            print_ln("Assign betch")
             self.forward(batch=batch, run_last=False)
             part_truth = truth.get_part(start, batch_size)
             print_ln("truth %s, part_truth %s", truth.reveal_nested(), part_truth.reveal_nested())
