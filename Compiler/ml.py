@@ -1229,8 +1229,8 @@ class Gelu(ElementWiseLayer):
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
 
-        return self.compute_gelu_sigmoid(x)
-        # return self.compute_gelu_approx(x)
+        # return self.compute_gelu_sigmoid(x)
+        return self.compute_gelu_approx(x)
 
         # print_ln("")
         # print_ln("base size %s %s %s %s", base, size, x[196].reveal(), x[0].reveal())
