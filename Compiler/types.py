@@ -6452,7 +6452,6 @@ class SubMultiArray(_vectorizable):
         assert self.value_type.n_elements() == 1
         part_size = reduce(operator.mul, self.sizes[1:])
         size = (size or 1) * part_size
-        print("Sizes", size, self.total_size())
         assert size <= self.total_size()
         return self.value_type.load_mem(self.address + base * part_size,
                                         size=size)

@@ -2854,22 +2854,41 @@ class MultiHeadAttention(BertBase):
         self.dropout.X.address = attention_scores.address
         self.dropout.forward(batch=batch, training=training)
 
-        @for_range_multithread(self.n_threads, 0, self.n_examples)
-        def _(i):
-            for j in range(self.num_attention_heads):
-                value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+        # @for_range_multithread(self.n_threads, 0, self.n_examples)
+        # def _(i):
+        # @for_range_opt(self.n_examples)
+        # def _(i):
+        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
+        def _(i, j):
+        # for j in range(self.num_attention_heads):
+            value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
 
-                for k in range(self.seq_len):
-                    value_sub[k] = self.wv.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+            # for k in range(self.seq_len):
+            @for_range_opt([self.seq_len])
+            def _(k):
+                value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                # value_sub[k] = self.wv.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
-                res = self.dropout.Y[i][j].direct_mul(value_sub)
-                # print_ln("RES %s", res.reveal())
-                # print("RES MULTI", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
+            res = sfix.Matrix(self.seq_len, self.attention_head_size)
+            res.assign_vector(self.dropout.Y[i][j].direct_mul(value_sub))
+            # res = self.dropout.Y[i][j].direct_mul(value_sub)
+            # print_ln("RES %s", res.reveal())
+            print("RES MULTI", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
 
-                # Maybe here: assign in old order?
-                # self.old_context[i].assign_vector(res, j * res.size)
-                for k in range(self.seq_len):
-                    self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res[k * self.attention_head_size:(k + 1) * self.attention_head_size]
+            # Maybe here: assign in old order?
+            # self.old_context[i].assign_vector(res, j * res.size)
+            @for_range_opt([self.seq_len])
+            def _(k):
+                # self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res.get_part_vector(
+                #     k * self.attention_head_size, self.attention_head_size
+                # )
+                self.context[i][k].assign_part_vector(
+                    res.get_part_vector(
+                        k * self.attention_head_size, self.attention_head_size
+                    ),
+                    j * self.attention_head_size
+                )
+                # self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res[k * self.attention_head_size:(k + 1) * self.attention_head_size]
 
                 # How to transfer to forward?
 
@@ -4095,7 +4114,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             num_attention_heads = bert_config.num_attention_heads
             layernorm_eps = bert_config.layer_norm_eps
             seq_len = input_shape[1]
-            rsqrt_approx = True
+            rsqrt_approx = False
             layer = BertLayer(input_shape[0], seq_len, hidden_state, intermediate_size, num_attention_heads,
                               layernorm_eps, 0.1, rsqrt_approx)
             if input_via is not None:
