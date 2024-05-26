@@ -944,23 +944,23 @@ class FlexDense(Dense):
 
         # print_ln("Dense input %s %s", N, batch, batch[0])
 
-        @for_range(self.d)
+        #@for_range(self.d)
+        @for_range_multithread(self.n_threads, 100, self.d)
         def _(i):
             X_sub = sfix.Matrix(N, self.d_in)
-            @for_range(N)
-            def _(j):
+            # @for_range(N)
+            # def _(j):
+            #     X_sub[j][:] = self.X[batch[j]][i][:]
+            for j in range(N): # often N=1
                 X_sub[j][:] = self.X[batch[j]][i][:]
 
             X_sub_out = sfix.Matrix(N, self.d_out)
             X_sub_out.assign_vector(X_sub.direct_mul(self.W))
-
-            # print_ln("Dense input %s %s %s", i, X_sub.reveal_nested(), batch[0])
-            # print_ln("Dense prod %s %s %s", i, X_sub_out.reveal_nested(), batch[0])
-
-            # put it back
-            @for_range(N)
-            def _(j):
-                prod[j][i][:] = X_sub_out[j][:]
+            # @for_range(N)
+            # def _(j):
+            #     prod[j][i][:] = X_sub_out[j][:]
+            for j in range(N):
+                X_sub[j][:] = self.X[batch[j]][i][:]
 
             # print_ln("Dense prod %s %s", i, batch[0])
 
@@ -2806,15 +2806,20 @@ class MultiHeadAttention(BertBase):
 
             # loop over wq.Y which is [batch_size, seq_len, hidden_size] to multiply with wk.Y which is [batch_size, seq_len, hidden_size]
             # but in the process we need to reshape the matrices to [num_attention_heads, attention_head_size]
-            for j in range(self.num_attention_heads):
+            @for_range_multithread(self.n_threads, 100, self.num_attention_heads)
+            def _(j):
+            # for j in range(self.num_attention_heads):
                 query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
                 key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
                 # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
 
-                for k in range(self.seq_len):
-                    # print(k, j)
-                    query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
-                    key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+                @for_range(self.seq_len)
+                def _(k):
+                # for k in range(self.seq_len):
+                    query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                    key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                    # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+                    # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
                     # for l in range(self.attention_head_size):
                     #     print(k, l)
                     #     query_sub[k][l] = self.wq.Y[i][k][j * self.attention_head_size + l]
@@ -2830,13 +2835,15 @@ class MultiHeadAttention(BertBase):
         # if self.debug_bert_output:
         #     print_ln('forward layer multiheadattention %s', attention_scores[0].reveal_nested())
 
-        @for_range_multithread(self.n_threads, 1, [self.n_examples])
+        # @for_range_multithread(self.n_threads, 1, [self.n_examples])
+        @for_range(self.n_examples)
         def _(i):
             attention_scores[i][:] = attention_scores[i][:] / math.sqrt(self.attention_head_size)
-            @for_range_opt([self.num_attention_heads, self.seq_len])
-            def _(j, k):
-                # attention_scores[i][j][k] = attention_scores[i][j][k] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
-                attention_scores[i][j][k][:] = softmax(attention_scores[i][j][k][:])
+
+        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads, self.seq_len])
+        def _(i, j, k):
+            # attention_scores[i][j][k] = attention_scores[i][j][k] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
+            attention_scores[i][j][k][:] = softmax(attention_scores[i][j][k][:])
 
         # mask fill scores?
         # scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
