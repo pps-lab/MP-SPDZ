@@ -2756,18 +2756,7 @@ class MultiHeadAttention(BertBase):
         self.dropout = FlexDropout([n_examples, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
 
         self.output = BertOutput(n_examples, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
-
-
-
-        # layers = [self.wq, self.wk, self.wv, self.dropout, self.output]
-        # for i in range(1, len(layers)):
-        #     layers[i].X.address = layers[i - 1].Y.address
-        # self.X = layers[0].X
-
-        # self.attention_probs = sfix.Matrix(n_examples, hidden_size)
-        # self.old_context = sfix.Tensor([n_examples, num_attention_heads, self.seq_len, self.attention_head_size])
         self.context = sfix.Tensor([n_examples, self.seq_len, hidden_size])
-
 
 
     def _forward(self, batch=None, hidden_state=None, training=None):
@@ -2806,20 +2795,20 @@ class MultiHeadAttention(BertBase):
 
             # loop over wq.Y which is [batch_size, seq_len, hidden_size] to multiply with wk.Y which is [batch_size, seq_len, hidden_size]
             # but in the process we need to reshape the matrices to [num_attention_heads, attention_head_size]
-            @for_range_multithread(self.n_threads, 100, self.num_attention_heads)
-            def _(j):
-            # for j in range(self.num_attention_heads):
+            # @for_range_multithread(self.n_threads, 100, self.num_attention_heads)
+            # def _(j):
+            for j in range(self.num_attention_heads):
                 query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
                 key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
                 # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
 
-                @for_range(self.seq_len)
-                def _(k):
-                # for k in range(self.seq_len):
-                    query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
-                    key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
-                    # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
-                    # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+                # @for_range(self.seq_len)
+                # def _(k):
+                for k in range(self.seq_len):
+                    # query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                    # key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                    query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+                    key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
                     # for l in range(self.attention_head_size):
                     #     print(k, l)
                     #     query_sub[k][l] = self.wq.Y[i][k][j * self.attention_head_size + l]
@@ -2854,43 +2843,38 @@ class MultiHeadAttention(BertBase):
         self.dropout.X.address = attention_scores.address
         self.dropout.forward(batch=batch, training=training)
 
-        # @for_range_multithread(self.n_threads, 0, self.n_examples)
-        # def _(i):
+        @for_range_multithread(self.n_threads, 0, self.n_examples)
+        def _(i):
         # @for_range_opt(self.n_examples)
         # def _(i):
-        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
-        def _(i, j):
-        # for j in range(self.num_attention_heads):
-            value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+        # @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
+        # def _(i, j):
+            for j in range(self.num_attention_heads):
+                value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
 
-            # for k in range(self.seq_len):
-            @for_range_opt([self.seq_len])
-            def _(k):
-                value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
-                # value_sub[k] = self.wv.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+                for k in range(self.seq_len):
+                # @for_range_opt([self.seq_len])
+                # def _(k):
+                #     value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                    value_sub[k] = self.wv.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
-            res = sfix.Matrix(self.seq_len, self.attention_head_size)
-            res.assign_vector(self.dropout.Y[i][j].direct_mul(value_sub))
-            # res = self.dropout.Y[i][j].direct_mul(value_sub)
-            # print_ln("RES %s", res.reveal())
-            print("RES MULTI", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
+                # res = sfix.Matrix(self.seq_len, self.attention_head_size)
+                # res.assign_vector(self.dropout.Y[i][j].direct_mul(value_sub))
+                res = self.dropout.Y[i][j].direct_mul(value_sub)
+                # print_ln("RES %s", res.reveal())
+                print("RES MULTI", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
 
-            # Maybe here: assign in old order?
-            # self.old_context[i].assign_vector(res, j * res.size)
-            @for_range_opt([self.seq_len])
-            def _(k):
-                # self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res.get_part_vector(
-                #     k * self.attention_head_size, self.attention_head_size
-                # )
-                self.context[i][k].assign_part_vector(
-                    res.get_part_vector(
-                        k * self.attention_head_size, self.attention_head_size
-                    ),
-                    j * self.attention_head_size
-                )
-                # self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res[k * self.attention_head_size:(k + 1) * self.attention_head_size]
+                # Maybe here: assign in old order?
+                # self.old_context[i].assign_vector(res, j * res.size)
+                # @for_range_opt([self.seq_len])
+                # def _(k):
+                #     self.context[i][k].assign_part_vector(res[k],
+                #         j * self.attention_head_size
+                #     )
+                for k in range(self.seq_len):
+                    self.context[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size] = res[k * self.attention_head_size:(k + 1) * self.attention_head_size]
 
-                # How to transfer to forward?
+                    # How to transfer to forward?
 
         # missing half of the values ?
         # print_ln('forward layer old_context %s', self.old_context[0].get_vector().reveal())
