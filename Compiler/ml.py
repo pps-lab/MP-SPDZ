@@ -2775,16 +2775,6 @@ class MultiHeadAttention(BertBase):
         # loop over batch
         @for_range_multithread(self.n_threads, 1, self.n_examples)
         def _(i):
-            # we need to get the i-th row of the input
-            # query_sub = sfix.Matrix(self.num_attention_heads, self.attention_head_size)
-            # query_sub.assign(self.wq.Y[i]) # how does this dense layer work?
-            #
-            # key_sub = sfix.Matrix(self.num_attention_heads, self.attention_head_size)
-            # key_sub.assign(self.wk.Y[i])
-            #
-            # attention_scores.assign_part_vector(
-            #     query_sub.direct_mul_trans(key_sub), i)
-
             # loop over wq.Y which is [batch_size, seq_len, hidden_size] to multiply with wk.Y which is [batch_size, seq_len, hidden_size]
             # but in the process we need to reshape the matrices to [num_attention_heads, attention_head_size]
             @for_range_multithread(self.n_threads, 100, self.num_attention_heads)
@@ -2801,12 +2791,6 @@ class MultiHeadAttention(BertBase):
                     key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
                     # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
                     # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
-                    # for l in range(self.attention_head_size):
-                    #     print(k, l)
-                    #     query_sub[k][l] = self.wq.Y[i][k][j * self.attention_head_size + l]
-
-                # key_sub.assign_vector(self.wk.Y[i][:][j * self.attention_head_size:(j + 1) * self.attention_head_size])
-                # key_sub[:] = self.wk.Y[i][:][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
                 res = query_sub.direct_mul_trans(key_sub)
                 attention_scores[i].assign_part_vector(res, j)
