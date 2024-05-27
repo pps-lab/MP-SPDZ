@@ -1046,6 +1046,7 @@ class Dropout(NoVariableLayer):
     def forward(self, batch, training=False):
         if training:
             n_bits = -math.log(self.alpha, 2)
+            print("n_bits", n_bits, self.alpha)
             assert n_bits == int(n_bits)
             n_bits = int(n_bits)
             @for_range_opt_multithread(self.n_threads, len(batch))
@@ -4047,8 +4048,12 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
                     input_via, item.running_var.detach())
             pass
         elif name == 'Dropout':
+            alpha = item.p
+            if alpha == 0.1:
+                print('WARNING: dropout rate 0.1 not supported, using 0.125')
+                alpha = 0.125
             layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
-                                  alpha=item.p))
+                                  alpha=alpha))
             input_shape = layers[-1].Y.sizes
         elif name == 'BertForSequenceClassification':
             process(item.bert)
