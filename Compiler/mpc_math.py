@@ -914,7 +914,11 @@ def tanh(x):
 
 def Sep(x):
     b = floatingpoint.PreOR(list(reversed(x.v.bit_decompose(x.k, maybe_mixed=True))))
-    t = x.v * (1 + x.v.bit_compose(b_i.bit_not() for b_i in b[-2 * x.f + 1:]))
+    bb = b[:]
+    while len(bb) < 2 * x.f - 1:
+        bb.insert(0, type(b[0])(0))
+    t = x.v * (1 + x.v.bit_compose(b_i.bit_not()
+                                   for b_i in bb[-2 * x.f + 1:]))
     u = types.sfix._new(t.right_shift(x.f, 2 * x.k, signed=False))
     b += [b[0].long_one()]
     return u, [b[i + 1] - b[i] for i in reversed(range(x.k))]
