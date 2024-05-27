@@ -2494,6 +2494,9 @@ class BertBase(BaseLayer, FixBase):
 
 class BertPooler(BertBase):
 
+    thetas = lambda self: ()
+    nablas = lambda self: () # refer to downstream layers?
+
     def __init__(self, n_examples, seq_len, hidden_state):
         input_shape = [n_examples, seq_len, hidden_state]
         output_shape = [n_examples, hidden_state]
@@ -2565,6 +2568,9 @@ class BertEncoder(BertBase):
 
 
 class BertLayer(BertBase):
+
+    thetas = lambda self: ()
+    nablas = lambda self: () # refer to downstream layers?
 
     def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1, rsqrt_approx=True):
         input_shape = [n_examples, seq_len, hidden_state]
@@ -4067,7 +4073,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             seq_len = input_shape[1]
             rsqrt_approx = True
             layer = BertLayer(input_shape[0], seq_len, hidden_state, intermediate_size, num_attention_heads,
-                              layernorm_eps, 0.1, rsqrt_approx)
+                              layernorm_eps, 0.125, rsqrt_approx)
             if input_via is not None:
                 layer.load_state_dict(item.state_dict(), input_via)
             layers.append(layer)
