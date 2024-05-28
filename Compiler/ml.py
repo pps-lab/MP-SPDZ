@@ -2804,6 +2804,7 @@ class MultiHeadAttention(BertBase):
                 # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
                 # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
+            print_ln("query_sub %s %s", i, j)
             res = query_sub.direct_mul_trans(key_sub)
             attention_scores[i].assign_part_vector(res, j)
 
