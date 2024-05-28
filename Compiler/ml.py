@@ -59,6 +59,7 @@ an example of how to run MP-SPDZ on TensorFlow graphs.
 """
 
 import math
+import operator
 import re
 
 from Compiler import mpc_math, util
@@ -2784,27 +2785,27 @@ class MultiHeadAttention(BertBase):
         attention_scores = MultiArray([self.n_examples, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
         # loop over batch
-        @for_range_multithread(self.n_threads, 1, self.n_examples)
-        def _(i):
+        # @for_range_opt_multithread(self.n_threads, 1, self.n_examples)
+        # def _(i):
             # loop over wq.Y which is [batch_size, seq_len, hidden_size] to multiply with wk.Y which is [batch_size, seq_len, hidden_size]
             # but in the process we need to reshape the matrices to [num_attention_heads, attention_head_size]
-            @for_range_multithread(self.n_threads, 100, self.num_attention_heads)
-            def _(j):
-            # for j in range(self.num_attention_heads):
-                query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
-                key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
-                # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
+        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
+        def _(i, j):
+        # for j in range(self.num_attention_heads):
+            query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
 
-                @for_range(self.seq_len)
-                def _(k):
-                # for k in range(self.seq_len):
-                    query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
-                    key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
-                    # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
-                    # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+            @for_range(self.seq_len)
+            def _(k):
+            # for k in range(self.seq_len):
+                query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
+                # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
-                res = query_sub.direct_mul_trans(key_sub)
-                attention_scores[i].assign_part_vector(res, j)
+            res = query_sub.direct_mul_trans(key_sub)
+            attention_scores[i].assign_part_vector(res, j)
 
         # apply softmax to vector of last dim
         # one attention head is all 0s
@@ -3044,8 +3045,7 @@ class Optimizer:
 
         if latent_space_layer is not None:
 
-            latent_space_size = latent_space_layer.Y.sizes[-1]
-
+            latent_space_size = reduce(operator.mul, latent_space_layer.Y.sizes[1:])
             print("latent_space_size=%s", latent_space_size)
 
             latent = sfix.Matrix(len(data), latent_space_size)
@@ -3066,7 +3066,10 @@ class Optimizer:
             self.forward(batch=batch, run_last=not top)
 
             if latent_space_layer is not None:
+                print("latent_space_layer.Y.sizes=%s", latent_space_layer.Y.sizes)
                 latent_space_part = latent_space_layer.Y.get_part(0, batch_size)
+                print("latent_space_part=%s", latent_space_part.sizes)
+                print("latent", latent.sizes)
                 # TODO: Fix latent size here
                 latent.get_part(start, batch_size).assign(latent_space_part)
 
