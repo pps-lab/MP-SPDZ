@@ -2540,6 +2540,8 @@ class BertPooler(BertBase):
         self.dense.W = sfix.input_tensor_via(input_via, numpy.swapaxes(state_dict['dense.weight'], 0, 1))
         self.dense.b = sfix.input_tensor_via(input_via, state_dict['dense.bias'])
 
+    def backward(self, compute_nabla_X=True, batch=None):
+        print("Bertpooler backward, not implemented")
 
 class BertEncoder(BertBase):
 
@@ -2649,6 +2651,8 @@ class BertLayer(BertBase):
         self.output.layer_norm.weights = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.weight'])
         self.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.bias'])
 
+    def backward(self, compute_nabla_X=True, batch=None):
+        print("BertLayer backward, not implemented")
 
 
 class BertIntermediate(BertBase):
@@ -3063,6 +3067,7 @@ class Optimizer:
 
             if latent_space_layer is not None:
                 latent_space_part = latent_space_layer.Y.get_part(0, batch_size)
+                # TODO: Fix latent size here
                 latent.get_part(start, batch_size).assign(latent_space_part)
 
 
