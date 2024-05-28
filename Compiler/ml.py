@@ -964,11 +964,11 @@ class FlexDense(Dense):
                     v = prod.get_vector(base, size) + self.b.expand_to_vector(0, size)
                     self.f_input.assign_vector(v, base)
             else:
-                @for_range_multithread(self.n_threads, 100, N)
-                def _(i):
-                    for j in range(self.d):
-                        v = prod[i][j].get_vector() + self.b.get_vector()
-                        self.f_input[i][j].assign_vector(v)
+                @for_range_multithread(self.n_threads, 100, [N, self.d])
+                def _(i, j):
+                    # for j in range(self.d):
+                    v = prod[i][j].get_vector() + self.b.get_vector()
+                    self.f_input[i][j].assign_vector(v)
         progress('f input')
 
     def backward(self, compute_nabla_X=True, batch=None):
