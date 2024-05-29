@@ -1347,7 +1347,7 @@ class Gelu(ElementWiseLayer):
 
     def f_prime_part(self, base, size):
         print("Gelu backward not implemnented, check impl of this")
-        return Array(size, sfix)
+        return self.X.get_vector(base, size)
         # return self.comparisons.get_vector(base, size)
 
 class Tanh(ElementWiseLayer):
