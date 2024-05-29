@@ -972,7 +972,58 @@ class FlexDense(Dense):
         progress('f input')
 
     def backward(self, compute_nabla_X=True, batch=None):
-        raise NotImplementedError('FlexDense does not support backward yet')
+        N = len(batch)
+        d = self.d
+        d_out = self.d_out
+        X = self.X
+        Y = self.Y
+        W = self.W
+        b = self.b
+        nabla_X = self.nabla_X
+        nabla_Y = self.nabla_Y
+        nabla_W = self.nabla_W
+        nabla_b = self.nabla_b
+
+        if self.activation_layer:
+            self.activation_layer.backward(batch)
+            f_schur_Y = self.activation_layer.nabla_X
+        else:
+            f_schur_Y = nabla_Y
+
+        if compute_nabla_X:
+            nabla_X.alloc()
+            # @multithread(self.n_threads, N)
+            # def _(base, size):
+            #     B = sfix.Matrix(N, d_out, address=f_schur_Y.address)
+            #     nabla_X.assign_part_vector(
+            #         B.direct_mul_trans(W, indices=(regint.inc(size, base),
+            #                                        regint.inc(self.d_out),
+            #                                        regint.inc(self.d_out),
+            #                                        regint.inc(self.d_in))),
+            #         base)
+
+            print_ln("Backward pass FlexDense!")
+            @for_range_multithread(self.n_threads, 100, self.d)
+            def _(i):
+                X_sub = sfix.Matrix(N, self.d_out)
+                for j in range(N): # often N=1
+                    X_sub[j][:] = f_schur_Y[batch[j]][i][:]
+
+                X_sub_out = sfix.Matrix(N, self.d_in)
+                X_sub_out.assign_vector(X_sub.direct_mul_trans(self.W))
+                for j in range(N):
+                    nabla_X[j][i][:] = X_sub_out[j][:]
+
+
+            if self.print_random_update:
+                print_ln('backward %s', self)
+                index = regint.get_random(64) % self.nabla_X.total_size()
+                print_ln('%s nabla_X at %s: %s', str(self.nabla_X),
+                         index, self.nabla_X.to_array()[index].reveal())
+
+            progress('nabla X')
+
+        self.backward_params(f_schur_Y, batch=batch)
 
 class QuantizedDense(DenseBase):
     def __init__(self, N, d_in, d_out):
@@ -1122,7 +1173,6 @@ class FlexDropout(NoVariableLayer):
             print_ln('dropout Y %s', self.Y.reveal_nested())
 
     def backward(self, compute_nabla_X=True, batch=None):
-        raise NotImplementedError('FlexDropout does not support backward ye, but might be supported out of the box')
         if compute_nabla_X:
             @for_range_opt_multithread(self.n_threads, len(batch))
             def _(i):
@@ -1296,8 +1346,8 @@ class Gelu(ElementWiseLayer):
 
 
     def f_prime_part(self, base, size):
-        print("WHAT IS PRIME? DERIV?")
-        return None
+        print("Gelu backward not implemnented, check impl of this")
+        return Array(size, sfix)
         # return self.comparisons.get_vector(base, size)
 
 class Tanh(ElementWiseLayer):
@@ -1799,6 +1849,8 @@ class LayerNorm(Layer):  # Changed class name
                      str(self.Y), i, j, k, self.X[i][j][k].reveal(),
                      self.Y[i][j][k].reveal())
 
+    def backward(self, batch, compute_nabla_X=True):
+        print("Layernorm backward not implemented")
 
 class QuantBase(object):
     bias_before_reduction = True
@@ -2591,6 +2643,8 @@ class BertLayer(BertBase):
 
         self.d_out = hidden_state
 
+        print("Init BertLayer")
+
     def _forward(self, batch):
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
@@ -2602,9 +2656,11 @@ class BertLayer(BertBase):
 
         if self.debug_bert_output:
             print_ln("forward layer multi_head_attention %s", self.multi_head_attention.Y[0][0][0].reveal())
+        print("Forward Attention")
 
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch)
+        print("Foward Intermediate")
 
         if self.debug_bert_output:
             print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][0][0:20].reveal())
@@ -2620,6 +2676,8 @@ class BertLayer(BertBase):
         if self.debug_bert_output:
             print_ln("our layer output %s", self.output.Y[0][0][0:20].reveal())
             print_ln("our output %s", self.Y[0][0][0].reveal())
+
+        print("Forward BertLayer")
 
     def reset(self):
         self.multi_head_attention.reset()
@@ -2653,7 +2711,12 @@ class BertLayer(BertBase):
         self.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.bias'])
 
     def backward(self, compute_nabla_X=True, batch=None):
-        print("BertLayer backward, not implemented")
+        # assign nabla_X and Y
+        self.multi_head_attention.backward(compute_nabla_X, batch)
+
+        self.intermediate.backward(compute_nabla_X, batch)
+
+        self.output.backward(compute_nabla_X, batch)
 
 
 class BertIntermediate(BertBase):
@@ -2679,6 +2742,10 @@ class BertIntermediate(BertBase):
 
     def reset(self):
         self.dense.reset()
+
+    def backward(self, compute_nabla_X=True, batch=None):
+        self.activation.backward(batch)
+        self.dense.backward(compute_nabla_X, batch)
 
 
 class BertOutput(BertBase):
@@ -2737,6 +2804,11 @@ class BertOutput(BertBase):
     def reset(self):
         self.dense.reset()
 
+    def backward(self, compute_nabla_X=True, batch=None):
+        print_ln("Not implemented!")
+        self.layer_norm.backward(compute_nabla_X, batch)
+        self.dropout.backward(compute_nabla_X, batch)
+        self.dense.backward(compute_nabla_X, batch)
 
 class MultiHeadAttention(BertBase):
 
@@ -2784,11 +2856,6 @@ class MultiHeadAttention(BertBase):
         # [batch_size, num_attention_heads, seq_len, ???]
         attention_scores = MultiArray([self.n_examples, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
-        # loop over batch
-        # @for_range_opt_multithread(self.n_threads, 1, self.n_examples)
-        # def _(i):
-            # loop over wq.Y which is [batch_size, seq_len, hidden_size] to multiply with wk.Y which is [batch_size, seq_len, hidden_size]
-            # but in the process we need to reshape the matrices to [num_attention_heads, attention_head_size]
         @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
         def _(i, j):
         # for j in range(self.num_attention_heads):
@@ -2801,17 +2868,10 @@ class MultiHeadAttention(BertBase):
             # for k in range(self.seq_len):
                 query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
                 key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
-                # query_sub[k] = self.wq.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
-                # key_sub[k] = self.wk.Y[i][k][j * self.attention_head_size:(j + 1) * self.attention_head_size]
 
-            print_ln("query_sub %s %s", i, j)
+            # print_ln("query_sub %s %s", i, j)
             res = query_sub.direct_mul_trans(key_sub)
             attention_scores[i].assign_part_vector(res, j)
-
-        # apply softmax to vector of last dim
-        # one attention head is all 0s
-        # if self.debug_bert_output:
-        #     print_ln('forward layer multiheadattention %s', attention_scores[0].reveal_nested())
 
         # @for_range_multithread(self.n_threads, 1, [self.n_examples])
         @for_range(self.n_examples)
@@ -2876,16 +2936,12 @@ class MultiHeadAttention(BertBase):
         self.wv.reset()
         self.output.reset()
 
-# class ScaledDotProductAttention:
-#
-#     def compute(self, q, k, v, attn_mask):
-#         d_k = k.shape[-1]
-#         scores = q.dot(k.transpose(0, 2, 1)) / math.sqrt(d_k)
-#         # mask fill scores?
-#         # scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
-#         attention = softmax(scores)
-#         context = attention.dot(v)
-#         return scores, context, attention
+    def backward(self, compute_nabla_X=True, batch=None):
+        print_ln("Not implemented!")
+        self.wq.backward(compute_nabla_X, batch)
+        self.wk.backward(compute_nabla_X, batch)
+        self.wv.backward(compute_nabla_X, batch)
+        self.output.backward(compute_nabla_X, batch)
 
 class Optimizer:
     """ Base class for graphs of layers. """
