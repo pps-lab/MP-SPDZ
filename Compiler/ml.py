@@ -942,10 +942,6 @@ class FlexDense(Dense):
     def compute_f_input(self, batch):
         N = len(batch)
         prod = MultiArray([N, self.d, self.d_out], sfix)
-
-        # print_ln("Dense input %s %s", N, batch, batch[0])
-
-        #@for_range(self.d)
         @for_range_multithread(self.n_threads, 100, self.d)
         def _(i):
             X_sub = sfix.Matrix(N, self.d_in)
@@ -956,6 +952,34 @@ class FlexDense(Dense):
             X_sub_out.assign_vector(X_sub.direct_mul(self.W))
             for j in range(N):
                 prod[j][i][:] = X_sub_out[j][:]
+
+        # flattened_array version
+        result_matrix = sfix.Matrix(N * self.d, self.d_out)
+        max_size = get_program().budget // self.d_out
+
+        print_ln("max_Size %s", max_size)
+
+        # for now we assume that batch size is total size
+        # assert N == self.N
+        # batch contains the indices of the batches in self.N, we want to expand to have self.d too
+        # batch_with_d =
+
+        # @multithread(self.n_threads, N * self.d, max_size)
+        # def _(base, size):
+        #     X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
+        #     print_ln("X_sub N d d_in %s %s %s %s %s", self.N, self.d, self.d_in, base, size)
+        #     # result_matrix.assign_part_vector(
+        #     #     X_sub.direct_mul(self.W, indices=(
+        #     #         batch.get_vector(base, size), regint.inc(self.d_in),
+        #     #         regint.inc(self.d_in), regint.inc(self.d_out))), base)
+        #     result_matrix.assign_part_vector(
+        #         X_sub.direct_mul(self.W, indices=(
+        #             regint.inc(size, base=base), regint.inc(self.d_in),
+        #             regint.inc(self.d_in), regint.inc(self.d_out))), base)
+        #     print_ln("result matrix done")
+
+        # prod.address = result_matrix.address
+        # X_sub = sfix.Matrix(N * self.d, self.d_in, address=self.X.address)
 
         if self.input_bias:
             if self.d_out == 1:
@@ -992,15 +1016,6 @@ class FlexDense(Dense):
 
         if compute_nabla_X:
             nabla_X.alloc()
-            # @multithread(self.n_threads, N)
-            # def _(base, size):
-            #     B = sfix.Matrix(N, d_out, address=f_schur_Y.address)
-            #     nabla_X.assign_part_vector(
-            #         B.direct_mul_trans(W, indices=(regint.inc(size, base),
-            #                                        regint.inc(self.d_out),
-            #                                        regint.inc(self.d_out),
-            #                                        regint.inc(self.d_in))),
-            #         base)
 
             print_ln("Backward pass FlexDense!")
             @for_range_multithread(self.n_threads, 100, self.d)
@@ -1014,7 +1029,6 @@ class FlexDense(Dense):
                 for j in range(N):
                     nabla_X[j][i][:] = X_sub_out[j][:]
 
-
             if self.print_random_update:
                 print_ln('backward %s', self)
                 index = regint.get_random(64) % self.nabla_X.total_size()
@@ -1024,6 +1038,92 @@ class FlexDense(Dense):
             progress('nabla X')
 
         self.backward_params(f_schur_Y, batch=batch)
+
+    def backward_params(self, f_schur_Y, batch):
+
+        print("backward params flexdense")
+        N = len(batch)
+        tmp = Matrix(self.d_in, self.d_out, unreduced_sfix)
+
+        A = sfix.Matrix(N, self.d_out, address=f_schur_Y.address)
+        B = sfix.Matrix(self.N, self.d_in, address=self.X.address)
+
+        @multithread(self.n_threads, self.d_in)
+        def _(base, size):
+            mp = B.direct_trans_mul(A, reduce=False,
+                                    indices=(regint.inc(size, base),
+                                             batch.get_vector(),
+                                             regint.inc(N),
+                                             regint.inc(self.d_out)))
+            tmp.assign_part_vector(mp, base)
+
+        progress('nabla W (matmul)')
+
+        @multithread(self.n_threads, self.d_in * self.d_out,
+                     max_size=get_program().budget)
+        def _(base, size):
+            self.nabla_W.assign_vector(
+                tmp.get_vector(base, size).reduce_after_mul(), base=base)
+
+        if self.print_random_update:
+            print_ln('backward %s', self)
+            i = regint.get_random(64) % self.d_in
+            j = regint.get_random(64) % self.d_out
+            print_ln('%s at (%s, %s): before=%s after=%s A=%s B=%s',
+                     str(self.nabla_W), i, j, tmp[i][j].v.reveal(),
+                     self.nabla_W[i][j].reveal(),
+                     A.get_column(j).reveal(),
+                     B.get_column_by_row_indices(
+                         batch.get_vector(), i).reveal())
+            print_ln('batch=%s B=%s', batch,
+                     [self.X[bi][0][i].reveal() for bi in batch])
+
+        progress('nabla W')
+
+        self.nabla_b.assign_vector(sum(sum(f_schur_Y[k][j].get_vector()
+                                           for k in range(N))
+                                       for j in range(self.d)))
+
+        progress('nabla b')
+
+        if self.debug_output:
+            print_ln('dense nabla Y %s', self.nabla_Y.reveal_nested())
+            print_ln('dense W %s', self.W.reveal_nested())
+            print_ln('dense nabla X %s', self.nabla_X.reveal_nested())
+        if self.debug:
+            limit = N * self.debug
+            @for_range_opt(self.d_in)
+            def _(i):
+                @for_range_opt(self.d_out)
+                def _(j):
+                    to_check = self.nabla_W[i][j].reveal()
+                    check = sum(to_check > limit) + sum(to_check < -limit)
+                    @if_(check)
+                    def _():
+                        print_ln('nabla W %s %s %s: %s', i, j, self.W.sizes, to_check)
+                        print_ln('Y %s', [f_schur_Y[k][0][j].reveal()
+                                          for k in range(N)])
+                        print_ln('X %s', [self.X[k][0][i].reveal()
+                                          for k in range(N)])
+            @for_range_opt(self.d_out)
+            def _(j):
+                to_check = self.nabla_b[j].reveal()
+                check = sum(to_check > limit) + sum(to_check < -limit)
+                @if_(check)
+                def _():
+                    print_ln('nabla b %s %s: %s', j, len(self.b), to_check)
+                    print_ln('Y %s', [f_schur_Y[k][0][j].reveal()
+                                      for k in range(N)])
+            @for_range_opt(len(batch))
+            def _(i):
+                to_check = self.nabla_X[i].get_vector().reveal()
+                check = sum(to_check > limit) + sum(to_check < -limit)
+                @if_(check)
+                def _():
+                    print_ln('X %s %s', i, self.X[i].reveal_nested())
+                    print_ln('Y %s %s', i, f_schur_Y[i].reveal_nested())
+
+
 
 class QuantizedDense(DenseBase):
     def __init__(self, N, d_in, d_out):
@@ -1338,11 +1438,6 @@ class Gelu(ElementWiseLayer):
 
         real_tanh = (exp_2x - 1) / (exp_2x + 1)
         return real_tanh
-
-        # if x is too high, we get essentially the same result
-        # c = x > 3
-        # self.comparisons.assign_vector(c, base)
-        # return c.if_else(x, real_tanh)
 
 
     def f_prime_part(self, base, size):
