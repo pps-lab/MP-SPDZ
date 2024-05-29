@@ -2711,12 +2711,13 @@ class BertLayer(BertBase):
         self.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.bias'])
 
     def backward(self, compute_nabla_X=True, batch=None):
+        print("Not impl")
         # assign nabla_X and Y
-        self.multi_head_attention.backward(compute_nabla_X, batch)
-
-        self.intermediate.backward(compute_nabla_X, batch)
-
-        self.output.backward(compute_nabla_X, batch)
+        # self.multi_head_attention.backward(compute_nabla_X, batch)
+        #
+        # self.intermediate.backward(compute_nabla_X, batch)
+        #
+        # self.output.backward(compute_nabla_X, batch)
 
 
 class BertIntermediate(BertBase):
