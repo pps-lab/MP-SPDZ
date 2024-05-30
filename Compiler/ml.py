@@ -941,6 +941,7 @@ class FlexDense(Dense):
 
     def compute_f_input(self, batch):
         N = len(batch)
+        print_ln("Batch len %s", N)
         prod = MultiArray([N, self.d, self.d_out], sfix)
         # @for_range_multithread(self.n_threads, 100, self.d)
         # def _(i):
@@ -980,6 +981,8 @@ class FlexDense(Dense):
 
         prod.address = result_matrix.address
 
+        # print_ln("FlexDense result_matrix full %s", prod.reveal())
+
         if self.input_bias:
             if self.d_out == 1:
                 @multithread(self.n_threads, N)
@@ -989,9 +992,12 @@ class FlexDense(Dense):
             else:
                 @for_range_multithread(self.n_threads, 100, [N, self.d])
                 def _(i, j):
-                    # for j in range(self.d):
                     v = prod[i][j].get_vector() + self.b.get_vector()
+                    # print_ln("running bias %s %s %s", i, j, v.reveal())
                     self.f_input[i][j].assign_vector(v)
+
+        # print_ln("FlexDense f_inpu full %s", self.f_input.reveal())
+
         progress('f input')
 
     def backward(self, compute_nabla_X=True, batch=None):
@@ -2653,14 +2659,11 @@ class BertPooler(BertBase):
         self.dense = Dense(n_examples, hidden_state, hidden_state)
         self.activation = Tanh(output_shape)
 
-        # set in forward
-        # self.X.address = self.dense.X.address
-
         self.d_out = hidden_state
 
 
     def _forward(self, batch):
-        self.dense.X.address = self.X.address
+        # self.dense.X.address = self.X.address
         self.activation.X.address = self.dense.Y.address
         self.activation.Y.address = self.Y.address
 
@@ -2668,6 +2671,7 @@ class BertPooler(BertBase):
         # batch contains [n_batch, n_heads, n_dim]
         @for_range(len(batch))
         def _(j):
+            print_ln("Pooling %s %s", j, batch[j])
             self.dense.X[j][:] = self.X[batch[j]][0][:]
 
         # if self.debug_bert_output:
@@ -2748,6 +2752,7 @@ class BertLayer(BertBase):
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
         self.hidden_state.address = self.X.address
+        # self.multi_head_attention.Y.address = self.Y.address
 
         self.multi_head_attention._forward(batch, self.hidden_state)
         # if self.debug_bert_output:
@@ -2755,14 +2760,20 @@ class BertLayer(BertBase):
 
         if self.debug_bert_output:
             print_ln("forward layer multi_head_attention %s %s", self.multi_head_attention.Y[0][1][0].reveal(), sum(sum(self.multi_head_attention.Y[0].reveal())))
+            print_ln("forward layer multi_head_attention2 %s", sum(sum(self.multi_head_attention.Y[1].reveal())))
+            print_ln("forward layer multi_head_attention full %s", self.multi_head_attention.Y.reveal())
+
         print("Forward Attention")
 
         batch_inc = regint.Array(len(batch))
+        batch_inc.assign(regint.inc(len(batch)))
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch_inc)
 
         if self.debug_bert_output:
             print_ln("forward layer intermediate %s %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][1][0:20].reveal(), sum(sum(self.intermediate.Y[0].reveal())))
+            print_ln("forward layer intermediate2 %s", sum(sum(self.intermediate.Y[1].reveal())))
+
             print_ln(" ")
         # print_ln("")
         # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
@@ -2770,7 +2781,8 @@ class BertLayer(BertBase):
         # runtime_error("stop here")
 
         self.output.X.address = self.intermediate.Y.address
-        self.output._forward(batch_inc, self.multi_head_attention.Y)
+        self.output._forward(batch_inc, self.multi_head_attention.Y) # TODO renen able
+        # self.output.Y.address = self.output.X.address
 
         if self.debug_bert_output:
             print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
@@ -2780,6 +2792,9 @@ class BertLayer(BertBase):
             print_ln("our layer output %s %s %s %s", self.output.Y.address, len(self.Y[0].reveal()), self.output.Y[0][0][0:20].reveal(), sum(sum(self.output.Y[0].reveal())))
             print_ln("shapes %s %s", self.Y.sizes, self.output.Y.sizes)
             print_ln("types %s %s %s %s %s %s", self.Y.value_type, self.output.Y.value_type, type(self.Y), type(self.output.Y), self, self.output)
+            print_ln("our layer output2 %s", sum(sum(self.output.Y[1].reveal())))
+            print_ln("our layer output full %s", self.Y.reveal())
+
         print("Forward BertLayer")
 
     def reset(self):
@@ -2815,12 +2830,18 @@ class BertLayer(BertBase):
 
     def backward(self, compute_nabla_X=True, batch=None):
         print("Not impl")
+        # layer.inputs[0].nabla_Y.address = \
+        #     layer.nabla_X.address
         # assign nabla_X and Y
+        self.output.nabla_Y = self.nabla_Y
+        self.intermediate.nabla_Y = self.output.nabla_X
+        self.multi_head_attention.nabla_Y = self.intermediate.nabla_X
+        self.multi_head_attention.nabla_X = self.nabla_X
+
+        # self.output.backward(compute_nabla_X, batch, ) # TODO state here?
+        # self.intermediate.backward(compute_nabla_X, batch)
         # self.multi_head_attention.backward(compute_nabla_X, batch)
         #
-        # self.intermediate.backward(compute_nabla_X, batch)
-        #
-        # self.output.backward(compute_nabla_X, batch)
 
 
 class BertIntermediate(BertBase):
@@ -2877,12 +2898,15 @@ class BertOutput(BertBase):
 
         self.dropout.forward(batch)
 
-        # @multithread(self.n_threads, len(batch))
-        # def _(base, size):
-        #     self.layer_norm.X.assign_part_vector(
-        #         self.layer_norm.X.get_part_vector(base, size) +
-        #         input_tensor.get_part_vector(base, size), base)
-        self.layer_norm.X[:] += input_tensor[:] # TODO: is it maybe this addition since we take the last value? would be strange
+        @multithread(self.n_threads, len(batch))
+        def _(base, size):
+            self.layer_norm.X.assign_part_vector(
+                self.layer_norm.X.get_part_vector(base, size) +
+                input_tensor.get_part_vector(base, size), base)
+        if self.debug_bert_output:
+            print_ln("input tensor %s %s", str(input_tensor[:]), str(self.layer_norm.X[:]))
+
+        # self.layer_norm.X[:] += input_tensor[:] # TODO: is it maybe this addition since we take the last value? would be strange
 
         if self.debug_bert_output:
             print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0][0][0:20].reveal())
@@ -2947,15 +2971,21 @@ class MultiHeadAttention(BertBase):
 
         self.wq.forward(batch)
 
-        self.wk.forward()
-        self.wv.forward()
+        inc_batch = regint.Array(N)
+        inc_batch.assign(regint.inc(N))
+        self.wk.forward(inc_batch)
+        self.wv.forward(inc_batch)
 
         print_ln("post forward")
 
         if self.debug_bert_output:
+            # print_ln('forward layer wq full %s', self.wq.X.reveal())
+
             print_ln('forward layer wv %s %s', self.wv.Y[0][1][0:10].reveal(), sum(self.wv.Y[0][1].reveal()))
             print_ln('forward layer hidden_state %s', hidden_state[0][1][0:10].reveal())
+            print_ln('forward layer wv full %s', self.wv.Y.reveal())
 
+        # max_size = program.budget // self.attention_head_size
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
         # for j in range(self.num_attention_heads):
@@ -2979,15 +3009,18 @@ class MultiHeadAttention(BertBase):
 
         if self.debug_bert_output:
             print_ln('forward layer attention_scores')
+            print_ln('forward layer attention_scores full %s', self.attention_scores.reveal())
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
         def _(i, j, k):
             # attention_scores[i][j][k] = attention_scores[i][j][k] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
             self.attention_scores[i][j][k][:] = softmax(self.attention_scores[i][j][k][:])
 
-        inc_batch = regint.Array(N)
         self.dropout.X.address = self.attention_scores.address
         self.dropout.forward(batch=inc_batch, training=training)
+
+        if self.debug_bert_output:
+            print_ln('forward layer dropout full %s', self.dropout.Y.reveal())
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
