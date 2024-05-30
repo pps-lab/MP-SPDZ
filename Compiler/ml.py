@@ -964,6 +964,7 @@ class FlexDense(Dense):
         # batch_with_d =
 
         # TODO: Make this work with flex batch size?
+        # we are going to assume the batch is continuous
 
         @multithread(self.n_threads, N * self.d, max_size)
         def _(base, size):
@@ -2760,8 +2761,7 @@ class BertLayer(BertBase):
 
         if self.debug_bert_output:
             print_ln("forward layer multi_head_attention %s %s", self.multi_head_attention.Y[0][1][0].reveal(), sum(sum(self.multi_head_attention.Y[0].reveal())))
-            print_ln("forward layer multi_head_attention2 %s", sum(sum(self.multi_head_attention.Y[1].reveal())))
-            print_ln("forward layer multi_head_attention full %s", self.multi_head_attention.Y.reveal())
+            # print_ln("forward layer multi_head_attention full %s", self.multi_head_attention.Y.reveal())
 
         print("Forward Attention")
 
@@ -2772,7 +2772,6 @@ class BertLayer(BertBase):
 
         if self.debug_bert_output:
             print_ln("forward layer intermediate %s %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][1][0:20].reveal(), sum(sum(self.intermediate.Y[0].reveal())))
-            print_ln("forward layer intermediate2 %s", sum(sum(self.intermediate.Y[1].reveal())))
 
             print_ln(" ")
         # print_ln("")
@@ -2790,10 +2789,8 @@ class BertLayer(BertBase):
             # print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
 
             print_ln("our layer output %s %s %s %s", self.output.Y.address, len(self.Y[0].reveal()), self.output.Y[0][0][0:20].reveal(), sum(sum(self.output.Y[0].reveal())))
-            print_ln("shapes %s %s", self.Y.sizes, self.output.Y.sizes)
-            print_ln("types %s %s %s %s %s %s", self.Y.value_type, self.output.Y.value_type, type(self.Y), type(self.output.Y), self, self.output)
-            print_ln("our layer output2 %s", sum(sum(self.output.Y[1].reveal())))
-            print_ln("our layer output full %s", self.Y.reveal())
+            # print_ln("shapes %s %s", self.Y.sizes, self.output.Y.sizes)
+            # print_ln("types %s %s %s %s %s %s", self.Y.value_type, self.output.Y.value_type, type(self.Y), type(self.output.Y), self, self.output)
 
         print("Forward BertLayer")
 
@@ -2869,6 +2866,10 @@ class BertIntermediate(BertBase):
         self.dense.reset()
 
     def backward(self, compute_nabla_X=True, batch=None):
+        self.activation.nabla_Y = self.nabla_Y
+        self.dense.nabla_Y = self.activation.nabla_X
+        self.dense.nabla_X = self.nabla_X
+
         self.activation.backward(batch)
         self.dense.backward(compute_nabla_X, batch)
 
@@ -2920,6 +2921,12 @@ class BertOutput(BertBase):
 
     def backward(self, compute_nabla_X=True, batch=None):
         print_ln("Not implemented!")
+
+        self.layer_norm.nabla_Y = self.nabla_Y
+        self.dropout.nabla_Y = self.layer_norm.nabla_X
+        self.dense.nabla_Y = self.dropout.nabla_X
+        self.dense.nabla_X = self.nabla_X # TODO: fix the addition
+
         self.layer_norm.backward(compute_nabla_X, batch)
         self.dropout.backward(compute_nabla_X, batch)
         self.dense.backward(compute_nabla_X, batch)
@@ -2945,8 +2952,8 @@ class MultiHeadAttention(BertBase):
 
         self.hidden_size = hidden_size
         self.wq = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.wk = FlexDense(internal_shape, hidden_size, self.all_head_size, self.seq_len)
-        self.wv = FlexDense(internal_shape, hidden_size, self.all_head_size, self.seq_len)
+        self.wk = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
+        self.wv = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
         self.dropout = FlexDropout([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
 
         self.output = BertOutput(internal_shape, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
@@ -2970,20 +2977,19 @@ class MultiHeadAttention(BertBase):
         self.output.Y.address = self.Y.address
 
         self.wq.forward(batch)
+        self.wk.forward(batch)
+        self.wv.forward(batch)
 
         inc_batch = regint.Array(N)
         inc_batch.assign(regint.inc(N))
-        self.wk.forward(inc_batch)
-        self.wv.forward(inc_batch)
 
         print_ln("post forward")
 
         if self.debug_bert_output:
             # print_ln('forward layer wq full %s', self.wq.X.reveal())
-
             print_ln('forward layer wv %s %s', self.wv.Y[0][1][0:10].reveal(), sum(self.wv.Y[0][1].reveal()))
             print_ln('forward layer hidden_state %s', hidden_state[0][1][0:10].reveal())
-            print_ln('forward layer wv full %s', self.wv.Y.reveal())
+            # print_ln('forward layer wv full %s', self.wv.Y.reveal())
 
         # max_size = program.budget // self.attention_head_size
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
@@ -3009,7 +3015,7 @@ class MultiHeadAttention(BertBase):
 
         if self.debug_bert_output:
             print_ln('forward layer attention_scores')
-            print_ln('forward layer attention_scores full %s', self.attention_scores.reveal())
+            # print_ln('forward layer attention_scores full %s', self.attention_scores.reveal())
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
         def _(i, j, k):
@@ -3019,8 +3025,8 @@ class MultiHeadAttention(BertBase):
         self.dropout.X.address = self.attention_scores.address
         self.dropout.forward(batch=inc_batch, training=training)
 
-        if self.debug_bert_output:
-            print_ln('forward layer dropout full %s', self.dropout.Y.reveal())
+        # if self.debug_bert_output:
+        #     print_ln('forward layer dropout full %s', self.dropout.Y.reveal())
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
