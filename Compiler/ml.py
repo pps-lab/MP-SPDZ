@@ -942,44 +942,41 @@ class FlexDense(Dense):
     def compute_f_input(self, batch):
         N = len(batch)
         prod = MultiArray([N, self.d, self.d_out], sfix)
-        @for_range_multithread(self.n_threads, 100, self.d)
-        def _(i):
-            X_sub = sfix.Matrix(N, self.d_in)
-            for j in range(N): # often N=1
-                X_sub[j][:] = self.X[batch[j]][i][:]
-
-            X_sub_out = sfix.Matrix(N, self.d_out)
-            X_sub_out.assign_vector(X_sub.direct_mul(self.W))
-            for j in range(N):
-                prod[j][i][:] = X_sub_out[j][:]
+        # @for_range_multithread(self.n_threads, 100, self.d)
+        # def _(i):
+        #     X_sub = sfix.Matrix(N, self.d_in)
+        #     for j in range(N): # often N=1
+        #         X_sub[j][:] = self.X[batch[j]][i][:]
+        #
+        #     X_sub_out = sfix.Matrix(N, self.d_out)
+        #     X_sub_out.assign_vector(X_sub.direct_mul(self.W))
+        #     for j in range(N):
+        #         prod[j][i][:] = X_sub_out[j][:]
 
         # flattened_array version
         result_matrix = sfix.Matrix(N * self.d, self.d_out)
         max_size = get_program().budget // self.d_out
-
-        print_ln("max_Size %s", max_size)
 
         # for now we assume that batch size is total size
         # assert N == self.N
         # batch contains the indices of the batches in self.N, we want to expand to have self.d too
         # batch_with_d =
 
-        # @multithread(self.n_threads, N * self.d, max_size)
-        # def _(base, size):
-        #     X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
-        #     print_ln("X_sub N d d_in %s %s %s %s %s", self.N, self.d, self.d_in, base, size)
-        #     # result_matrix.assign_part_vector(
-        #     #     X_sub.direct_mul(self.W, indices=(
-        #     #         batch.get_vector(base, size), regint.inc(self.d_in),
-        #     #         regint.inc(self.d_in), regint.inc(self.d_out))), base)
-        #     result_matrix.assign_part_vector(
-        #         X_sub.direct_mul(self.W, indices=(
-        #             regint.inc(size, base=base), regint.inc(self.d_in),
-        #             regint.inc(self.d_in), regint.inc(self.d_out))), base)
-        #     print_ln("result matrix done")
+        @multithread(self.n_threads, N * self.d, max_size)
+        def _(base, size):
+            X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
+            # print_ln("X_sub N d d_in %s %s %s %s %s", self.N, self.d, self.d_in, base, size)
+            # result_matrix.assign_part_vector(
+            #     X_sub.direct_mul(self.W, indices=(
+            #         batch.get_vector(base, size), regint.inc(self.d_in),
+            #         regint.inc(self.d_in), regint.inc(self.d_out))), base)
+            result_matrix.assign_part_vector(
+                X_sub.direct_mul(self.W, indices=(
+                    regint.inc(size, base=base), regint.inc(self.d_in),
+                    regint.inc(self.d_in), regint.inc(self.d_out))), base)
+            # print_ln("result matrix done")
 
-        # prod.address = result_matrix.address
-        # X_sub = sfix.Matrix(N * self.d, self.d_in, address=self.X.address)
+        prod.address = result_matrix.address
 
         if self.input_bias:
             if self.d_out == 1:
@@ -1271,6 +1268,7 @@ class FlexDropout(NoVariableLayer):
         if self.debug_output:
             print_ln('dropout X %s', self.X.reveal_nested())
             print_ln('dropout Y %s', self.Y.reveal_nested())
+
 
     def backward(self, compute_nabla_X=True, batch=None):
         if compute_nabla_X:
@@ -2668,7 +2666,7 @@ class BertPooler(BertBase):
         # batch contains [n_batch, n_heads, n_dim]
         @for_range(len(batch))
         def _(j):
-            self.dense.X[j][:] = self.X[j][0][:]
+            self.dense.X[j][:] = self.X[batch[j]][0][:]
 
         # if self.debug_bert_output:
         #     print_ln("forward layer pooler.dense X %s", self.dense.X.reveal_nested())
@@ -2723,42 +2721,46 @@ class BertLayer(BertBase):
     thetas = lambda self: ()
     nablas = lambda self: () # refer to downstream layers?
 
-    def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1, rsqrt_approx=True):
+    def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1, rsqrt_approx=True, batch_size=None):
         input_shape = [n_examples, seq_len, hidden_state]
-        output_shape = [n_examples, seq_len, hidden_state]
+        output_shape = [n_examples, seq_len, hidden_state] # TODO: we could make this batch_size
         super(BertLayer, self).__init__(input_shape, output_shape)
-        self.multi_head_attention = MultiHeadAttention(n_examples, seq_len, hidden_state, num_attention_heads, dropout, layernorm_eps, rsqrt_approx)
-        self.intermediate = BertIntermediate(n_examples, hidden_state, intermediate_size, seq_len)
-        self.output = BertOutput(n_examples, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps, rsqrt_approx)
 
-        self.hidden_state = sfix.Tensor(input_shape)
+        internal_shape = batch_size if batch_size is not None else n_examples
+        self.multi_head_attention = MultiHeadAttention(internal_shape, seq_len, hidden_state, num_attention_heads, dropout, layernorm_eps, rsqrt_approx)
+        self.intermediate = BertIntermediate(internal_shape, hidden_state, intermediate_size, seq_len)
+        self.output = BertOutput(internal_shape, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps, rsqrt_approx)
+
+        self.hidden_state = sfix.Tensor(input_shape) # TODO: Could also make this smaller
 
         # self.X.address = self.multi_head_attention.X.address
         # self.Y.address = self.output.Y.address
 
         self.d_out = hidden_state
 
-        print("Init BertLayer")
+        print("Init BertLayer", input_shape, output_shape)
 
     def _forward(self, batch):
+        print_ln("Forward batch %s", batch)
+
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
         self.hidden_state.address = self.X.address
 
         self.multi_head_attention._forward(batch, self.hidden_state)
-        if self.debug_bert_output:
-            print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
+        # if self.debug_bert_output:
+            # print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
 
         if self.debug_bert_output:
-            print_ln("forward layer multi_head_attention %s", self.multi_head_attention.Y[0][0][0].reveal())
+            print_ln("forward layer multi_head_attention %s %s", self.multi_head_attention.Y[0][1][0].reveal(), sum(sum(self.multi_head_attention.Y[0].reveal())))
         print("Forward Attention")
 
+        batch_inc = regint.Array(len(batch))
         self.intermediate.X.address = self.multi_head_attention.Y.address
-        self.intermediate.forward(batch)
-        print("Foward Intermediate")
+        self.intermediate.forward(batch_inc)
 
         if self.debug_bert_output:
-            print_ln("forward layer intermediate %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][0][0:20].reveal())
+            print_ln("forward layer intermediate %s %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][1][0:20].reveal(), sum(sum(self.intermediate.Y[0].reveal())))
             print_ln(" ")
         # print_ln("")
         # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
@@ -2766,12 +2768,12 @@ class BertLayer(BertBase):
         # runtime_error("stop here")
 
         self.output.X.address = self.intermediate.Y.address
-        self.output._forward(batch, self.multi_head_attention.Y)
+        self.output._forward(batch_inc, self.multi_head_attention.Y)
 
         if self.debug_bert_output:
-            print_ln("our layer output %s", self.output.Y[0][0][0:20].reveal())
-            print_ln("our output %s", self.Y[0][0][0].reveal())
-
+            print_ln("our layer output %s %s", self.output.Y[0][0][0:20].reveal(), sum(sum(self.output.Y[0].reveal())))
+            print_ln("our output %s %s", self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
+            print_ln("shapes %s %s", self.Y.sizes, self.output.Y.sizes)
         print("Forward BertLayer")
 
     def reset(self):
@@ -2863,38 +2865,24 @@ class BertOutput(BertBase):
         self.layer_norm.X.address = self.dropout.Y.address
         self.layer_norm.Y.address = self.Y.address
 
-        # print_ln("forward layer output.dense X %s", self.dense.X[0].reveal_nested())
-        # print_ln("")
         self.dense.forward(batch)
         if self.debug_bert_output:
             print_ln("forward layer output.dense %s", self.dense.Y[0][0][0:20].reveal())
-            print_ln("")
 
         self.dropout.forward(batch)
-        # print_ln("forward layer output.dropout %s", self.dropout.Y[0].reveal_nested())
-        # print_ln("")
 
-        # TODO: Maybe here also add the input tensor before its passed onto Dense?
-        # self.dense.X
-        # TODO: How does it work with batch and indices?
-        # And also batch_size ??
         # @multithread(self.n_threads, len(batch))
         # def _(base, size):
-        #     self.layer_norm.X.assign_vector(
-        #         self.layer_norm.X.get_vector() +
-        #         self.X.get_vector(base, size))
-
-        # TODO: X is the hidden state, but we want to add the original input here ... how to access??
-        self.layer_norm.X[:] += input_tensor[:]
+        #     self.layer_norm.X.assign_part_vector(
+        #         self.layer_norm.X.get_part_vector(base, size) +
+        #         input_tensor.get_part_vector(base, size), base)
+        self.layer_norm.X[:] += input_tensor[:] # TODO: is it maybe this addition since we take the last value? would be strange
 
         if self.debug_bert_output:
             print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0][0][0:20].reveal())
             print_ln("")
         self.layer_norm.forward(batch)
 
-        #
-        # print_ln("forward layer layer_norm_forward %s", self.layer_norm.Y[0].reveal_nested())
-        # print_ln("")
 
 
     def reset(self):
@@ -2908,13 +2896,17 @@ class BertOutput(BertBase):
 
 class MultiHeadAttention(BertBase):
 
-    def __init__(self, n_examples, seq_len, hidden_size, num_attention_heads, dropout=0.1, layernorm_eps=1e-12, rsqrt_approx=True):
-        self.n_examples = n_examples
+    def __init__(self, n_examples, seq_len, hidden_size, num_attention_heads, dropout=0.1, layernorm_eps=1e-12, rsqrt_approx=True, batch_size=None):
 
-        input_output_shape = [n_examples, seq_len, hidden_size]
-        super().__init__(input_output_shape, input_output_shape)
+        # In the first layer the internal_shape is different from n_examples, afterwards it is the same
+        internal_shape = batch_size if batch_size is not None else n_examples
+        self.n_examples = internal_shape
 
-        print("Multheadattention", rsqrt_approx)
+        input_shape = [n_examples, seq_len, hidden_size]
+        output_shape = [internal_shape, seq_len, hidden_size]
+        super().__init__(input_shape, output_shape)
+
+        print("Multheadattention", rsqrt_approx, input_shape, output_shape)
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = int(hidden_size / num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -2923,15 +2915,21 @@ class MultiHeadAttention(BertBase):
 
         self.hidden_size = hidden_size
         self.wq = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.wk = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.wv = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.dropout = FlexDropout([n_examples, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
+        self.wk = FlexDense(internal_shape, hidden_size, self.all_head_size, self.seq_len)
+        self.wv = FlexDense(internal_shape, hidden_size, self.all_head_size, self.seq_len)
+        self.dropout = FlexDropout([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
 
-        self.output = BertOutput(n_examples, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
-        self.context = sfix.Tensor([n_examples, self.seq_len, hidden_size])
+        self.output = BertOutput(internal_shape, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
+        self.context = sfix.Tensor([internal_shape, self.seq_len, hidden_size])
 
+        self.attention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
     def _forward(self, batch=None, hidden_state=None, training=None):
+
+        # TODO: Make this multi-batch
+        N = len(batch)
+
+        print_offset = 128
 
         # set up layers
         dense_layers = [self.wq, self.wk, self.wv]
@@ -2942,17 +2940,17 @@ class MultiHeadAttention(BertBase):
         self.output.Y.address = self.Y.address
 
         self.wq.forward(batch)
-        self.wk.forward(batch)
-        self.wv.forward(batch)
+
+        self.wk.forward()
+        self.wv.forward()
 
         print_ln("post forward")
 
-        print(self.wk.Y)
-        # For some reason the dense repr has another dimension?
-        # [batch_size, num_attention_heads, seq_len, ???]
-        attention_scores = MultiArray([self.n_examples, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
+        if self.debug_bert_output:
+            print_ln('forward layer wv %s %s', self.wv.Y[0][1][0:10].reveal(), sum(self.wv.Y[0][1].reveal()))
+            print_ln('forward layer hidden_state %s', hidden_state[0][1][0:10].reveal())
 
-        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
+        @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
         # for j in range(self.num_attention_heads):
             query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
@@ -2967,31 +2965,28 @@ class MultiHeadAttention(BertBase):
 
             # print_ln("query_sub %s %s", i, j)
             res = query_sub.direct_mul_trans(key_sub)
-            attention_scores[i].assign_part_vector(res, j)
+            self.attention_scores[i].assign_part_vector(res, j)
 
-        # @for_range_multithread(self.n_threads, 1, [self.n_examples])
-        @for_range(self.n_examples)
+        @for_range(N)
         def _(i):
-            attention_scores[i][:] = attention_scores[i][:] / math.sqrt(self.attention_head_size)
+            self.attention_scores[i][:] = self.attention_scores[i][:] / math.sqrt(self.attention_head_size)
 
-        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads, self.seq_len])
+        if self.debug_bert_output:
+            print_ln('forward layer attention_scores')
+
+        @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
         def _(i, j, k):
             # attention_scores[i][j][k] = attention_scores[i][j][k] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
-            attention_scores[i][j][k][:] = softmax(attention_scores[i][j][k][:])
+            self.attention_scores[i][j][k][:] = softmax(self.attention_scores[i][j][k][:])
 
-        self.dropout.X.address = attention_scores.address
-        self.dropout.forward(batch=batch, training=training)
+        inc_batch = regint.Array(N)
+        self.dropout.X.address = self.attention_scores.address
+        self.dropout.forward(batch=inc_batch, training=training)
 
-        # @for_range_multithread(self.n_threads, 0, self.n_examples)
-        # def _(i):
-        # @for_range_opt(self.n_examples)
-        # def _(i):
-        @for_range_opt_multithread(self.n_threads, [self.n_examples, self.num_attention_heads])
+        @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
-        # for j in range(self.num_attention_heads):
             value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
 
-            # for k in range(self.seq_len):
             @for_range_opt([self.seq_len])
             def _(k):
                 value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
@@ -3015,14 +3010,15 @@ class MultiHeadAttention(BertBase):
         # missing half of the values ?
         # print_ln('forward layer old_context %s', self.old_context[0].get_vector().reveal())
         if self.debug_bert_output:
-            print_ln('forward layer multiheadattention before output %s', self.context[0][0][0:20].get_vector().reveal())
+            print_ln('forward layer multiheadattention before internal output %s', self.context[0][1][0:20].get_vector().reveal())
 
         if self.debug_bert_output:
-            print_ln('forward layer hidden_state %s', hidden_state[0][0][0:20].reveal())
+            print_ln('forward layer hidden_state %s', hidden_state[0][1][0:20].reveal())
 
-        self.output._forward(batch, hidden_state)
+        self.output._forward(inc_batch, hidden_state)
         if self.debug_bert_output:
-            print_ln('forward bertlayer output %s', self.output.Y[0][0][0:20].reveal())
+            print_ln('forward multiheadattention output %s', self.output.Y[0][1][0:20].reveal())
+            print_ln("")
 
     # return context
 
@@ -3154,8 +3150,6 @@ class Optimizer:
             if self.time_layers:
                 start_timer(100 + i)
             if i != len(self.layers) - 1 or run_last:
-                # if hasattr(layer, 'opt'):
-                #     layer.opt = self
                 layer.forward(batch=self.batch_for(layer, batch),
                               training=training)
                 # runtime_error("first layer")
@@ -4239,10 +4233,11 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             seq_len = input_shape[1]
             rsqrt_approx = True
             layer = BertLayer(input_shape[0], seq_len, hidden_state, intermediate_size, num_attention_heads,
-                              layernorm_eps, 0.125, rsqrt_approx)
+                              layernorm_eps, 0.125, rsqrt_approx, batch_size=batch_size)
             if input_via is not None:
                 layer.load_state_dict(item.state_dict(), input_via)
             layers.append(layer)
+            input_shape = [batch_size, seq_len, hidden_state]
         elif name == 'BertPooler':
             layer = BertPooler(input_shape[0], input_shape[1], bert_config.hidden_size)
             if input_via is not None:
