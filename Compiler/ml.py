@@ -3119,6 +3119,8 @@ class MultiHeadAttention(BertBase):
         self.output = BertOutput(internal_shape, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
         self.context = sfix.Tensor([internal_shape, self.seq_len, hidden_size])
 
+        # self.context_nabla
+
         self.attention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
     def _forward(self, batch=None, hidden_state=None, training=None):
@@ -3237,6 +3239,11 @@ class MultiHeadAttention(BertBase):
         dense_layers = [self.wq, self.wk, self.wv]
         for layer in dense_layers:
             layer.nabla_X.address = self.nabla_X.address
+
+        self.output.nabla_Y.address = self.nabla_Y.address
+
+        self.output.nabla_X.alloc()
+        # self.context.nabla_Y.address = self.output.nabla_X.address
     # for layer in dense_layers:
     #     layer.X.address = self.X.address
     #
@@ -3245,10 +3252,10 @@ class MultiHeadAttention(BertBase):
 
 
         print_ln("Not implemented!")
-        self.wq.backward(compute_nabla_X, batch)
-        self.wk.backward(compute_nabla_X, batch)
-        self.wv.backward(compute_nabla_X, batch)
-        self.output.backward(compute_nabla_X, batch)
+        # self.wq.backward(compute_nabla_X, batch)
+        # self.wk.backward(compute_nabla_X, batch)
+        # self.wv.backward(compute_nabla_X, batch)
+        # self.output.backward(compute_nabla_X, batch)
 
 class Optimizer:
     """ Base class for graphs of layers. """
