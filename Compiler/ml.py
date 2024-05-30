@@ -962,6 +962,8 @@ class FlexDense(Dense):
         # batch contains the indices of the batches in self.N, we want to expand to have self.d too
         # batch_with_d =
 
+        # TODO: Make this work with flex batch size?
+
         @multithread(self.n_threads, N * self.d, max_size)
         def _(base, size):
             X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
@@ -2771,9 +2773,13 @@ class BertLayer(BertBase):
         self.output._forward(batch_inc, self.multi_head_attention.Y)
 
         if self.debug_bert_output:
-            print_ln("our layer output %s %s", self.output.Y[0][0][0:20].reveal(), sum(sum(self.output.Y[0].reveal())))
-            print_ln("our output %s %s", self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
+            print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
+            # print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
+            # print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
+
+            print_ln("our layer output %s %s %s %s", self.output.Y.address, len(self.Y[0].reveal()), self.output.Y[0][0][0:20].reveal(), sum(sum(self.output.Y[0].reveal())))
             print_ln("shapes %s %s", self.Y.sizes, self.output.Y.sizes)
+            print_ln("types %s %s %s %s %s %s", self.Y.value_type, self.output.Y.value_type, type(self.Y), type(self.output.Y), self, self.output)
         print("Forward BertLayer")
 
     def reset(self):
@@ -2957,7 +2963,7 @@ class MultiHeadAttention(BertBase):
             key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
             # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
 
-            @for_range(self.seq_len)
+            @for_range_opt(self.seq_len)
             def _(k):
             # for k in range(self.seq_len):
                 query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
@@ -2967,7 +2973,7 @@ class MultiHeadAttention(BertBase):
             res = query_sub.direct_mul_trans(key_sub)
             self.attention_scores[i].assign_part_vector(res, j)
 
-        @for_range(N)
+        @for_range_opt_multithread(self.n_threads, N)
         def _(i):
             self.attention_scores[i][:] = self.attention_scores[i][:] / math.sqrt(self.attention_head_size)
 
