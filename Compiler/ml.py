@@ -941,7 +941,6 @@ class FlexDense(Dense):
 
     def compute_f_input(self, batch):
         N = len(batch)
-        print_ln("Batch len %s", N)
         prod = MultiArray([N, self.d, self.d_out], sfix)
         # @for_range_multithread(self.n_threads, 100, self.d)
         # def _(i):
@@ -963,7 +962,6 @@ class FlexDense(Dense):
         # batch contains the indices of the batches in self.N, we want to expand to have self.d too
         # batch_with_d =
 
-        # TODO: Make this work with flex batch size?
         # we are going to assume the batch is continuous
 
         @multithread(self.n_threads, N * self.d, max_size)
@@ -971,6 +969,7 @@ class FlexDense(Dense):
             batch_offset = batch[0] * self.d
             X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
             offset = regint.inc(size, base=base + batch_offset)
+            print_ln("matmul with offset %s %s", offset, size)
             # array_offset = regint.Array(size)
             # array_offset.assign_all(batch_offset)
             # print_ln("array offset %s", array_offset.reveal())
@@ -1378,33 +1377,21 @@ class Gelu(ElementWiseLayer):
 
     def __init__(self, shape, inputs=None):
         super(Gelu, self).__init__(shape)
-        self.comparisons = MultiArray(shape, sint)
+        self.z0s = MultiArray(shape, sint)
+        self.z1s = MultiArray(shape, sint)
+        self.z2s = MultiArray(shape, sint)
+
+        self.x2s = MultiArray(shape, sfix)
+        self.x3s = MultiArray(shape, sfix)
+        self.x4s = MultiArray(shape, sfix)
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
 
         # return self.compute_gelu_sigmoid(x)
-        return self.compute_gelu_approx(x)
+        return self.compute_gelu_approx(x, base, size)
 
-        # print_ln("")
-        # print_ln("base size %s %s %s %s", base, size, x[196].reveal(), x[0].reveal())
-        # print_ln("")
-        # x = 0.5 * x * (1 + self.tanh(0.79788456 * (x + 0.044715 * x ** 3), base))
-        # print_ln("x after %s", x[196].reveal())
-        # print_ln("x after %s", x[0].reveal())
-        #
-        #
-        # # print_ln("196: x^3 %s, tanh %s, exp %s", (x[196] ** 3).reveal(), self.tanh(x[196]).reveal(), exp(2 * x[196]).reveal())
-        # # print_ln("0:   x^3 %s, tanh %s, exp %s", (x[0] ** 3).reveal(), self.tanh(x[0]).reveal(), exp(2 * x[0]).reveal())
-        #
-        # # Gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-        # # @for_range(0, size)
-        # # def _(i):
-        # #     x[i] = 0.5 * x[i] * (1 + self.tanh(0.79788456 * (x[i] + 0.044715 * x[i] ** 3)))
-        #
-        # return x
-
-    def compute_gelu_approx(self, x):
+    def compute_gelu_approx(self, x, base, size):
         # print_ln("GELU inputs %s", x.reveal())
         poly_f_0_a = -0.5054031199708174
         poly_f_0_b = -0.42226581151983866
@@ -1425,18 +1412,22 @@ class Gelu(ElementWiseLayer):
         z1 = b1 ^ b2 ^ 1
         z2 = b2
 
-        xb = x
-        xc = x ** 2
-        xd = xc * xb
-        xe = xc ** 2
-        xg = xd ** 2
+        x1 = x
+        x2 = x ** 2
+        x3 = x2 * x1
+        x4 = x2 ** 2
+        x6 = x3 ** 2
 
-        f_0 = poly_f_0_a + poly_f_0_b * xb + poly_f_0_c * xc + poly_f_0_d * xd
-        f_1 = poly_f_1_a + poly_f_1_b * xb + poly_f_1_c * xc + poly_f_1_e * xe + poly_f_1_g * xg
+        f_0 = poly_f_0_a + poly_f_0_b * x1 + poly_f_0_c * x2 + poly_f_0_d * x3
+        f_1 = poly_f_1_a + poly_f_1_b * x1 + poly_f_1_c * x2 + poly_f_1_e * x4 + poly_f_1_g * x6
 
-        # print_ln("z_0 * f_0 = %s * %s", z0.reveal(), f_0.reveal())
-        # print_ln("z_1 * f_1 = %s * %s", z1.reveal(), f_1.reveal())
-        # print_ln("z_2 * x = %s * %s", z2.reveal(), x.reveal())
+        self.z0s.assign_vector(z0, base)
+        self.z1s.assign_vector(z1, base)
+        self.z2s.assign_vector(z2, base)
+
+        self.x2s.assign_vector(x2, base)
+        self.x3s.assign_vector(x3, base)
+        self.x4s.assign_vector(x6, base)
 
         return (z0 * f_0) + (z1 * f_1) + (z2 * x)
 
@@ -1451,24 +1442,62 @@ class Gelu(ElementWiseLayer):
 
 
     def f_prime_part(self, base, size):
-        print("Gelu backward not implemnented, check impl of this")
-        return self.X.get_vector(base, size)
-        # return self.comparisons.get_vector(base, size)
+        # what we compute here is all derivatives
+        # we need to compute the derivative of the function at the point
+        poly_f_0_a = -0.5054031199708174
+        poly_f_0_b = -0.42226581151983866
+        poly_f_0_c = -0.11807612951181953
+        poly_f_0_d = -0.011034134030615728
+
+        poly_f_1_a = 0.008526321541038084
+        poly_f_1_b = 0.5
+        poly_f_1_c = 0.3603292692789629
+        poly_f_1_e = -0.037688200365904236
+        poly_f_1_g = 0.0018067462606141187
+
+        poly_prime_f_0_0 = poly_f_0_b
+        poly_prime_f_0_1 = poly_f_0_c * 2
+        poly_prime_f_0_2 = poly_f_0_d * 3
+
+        poly_prime_f_1_0 = poly_f_1_b
+        poly_prime_f_1_1 = poly_f_1_c * 2
+        poly_prime_f_1_3 = poly_f_1_e * 4
+        poly_prime_f_1_5 = poly_f_1_g * 6
+
+        x1 = self.X.get_vector(base, size)
+        x2 = self.x2s.get_vector(base, size)
+        x3 = self.x3s.get_vector(base, size)
+        x4 = self.x4s.get_vector(base, size)
+        x5 = x4 * x1
+
+        f_0_prime = poly_prime_f_0_0 + poly_prime_f_0_1 * x1 + poly_prime_f_0_2 * x2
+        f_1_prime = poly_prime_f_1_0 + poly_prime_f_1_1 * x1 + poly_prime_f_1_3 * x3 + poly_prime_f_1_5 * x5
+
+        z0 = self.z0s.get_vector(base, size)
+        z1 = self.z1s.get_vector(base, size)
+        z2 = self.z2s.get_vector(base, size)
+
+        return (z0 * f_0_prime) + (z1 * f_1_prime) + z2
 
 class Tanh(ElementWiseLayer):
 
+    prime_type = sfix
+
     def __init__(self, shape, inputs=None):
         super(Tanh, self).__init__(shape)
+        self.tanh_computations = MultiArray(shape, sfix)
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
         res = self.tanh(x)
+        self.tanh_computations.assign_vector(res, base)
         return res
 
     def tanh(self, x):
-        # return (exp(2 * x) - 1) / (exp(2 * x) + 1)
-
         return 2 * sigmoid(2 * x) - 1
+
+    def f_prime_part(self, base, size):
+        return 1 - self.tanh_computations.get_vector(base, size) ** 2
 
 
 class Square(ElementWiseLayer):
@@ -1863,6 +1892,10 @@ class LayerNorm(Layer):  # Changed class name
             self.InvertSqrt = lambda x: 1 / mpc_math.sqrt(x)
         self.weights = sfix.Array(shape[-1])  # Changed to match last dimension of shape
         self.bias = sfix.Array(shape[-1])     # Changed to match last dimension of shape
+
+        batch_shape = [shape[0]] + list(self.X.sizes[1:-1])
+        self.mu = sfix.Tensor(batch_shape)
+        self.var = sfix.Tensor(batch_shape)
         self.nabla_weights = sfix.Array(shape[-1])  # Changed to match last dimension of shape
         self.nabla_bias = sfix.Array(shape[-1])     # Changed to match last dimension of shape
 
@@ -1877,7 +1910,12 @@ class LayerNorm(Layer):  # Changed class name
     def _output(self, batch, mu, var):
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
         factor = sfix.Tensor(batch_shape)
-        factor[:] = self.InvertSqrt(var[:] + self.epsilon)
+
+        @multithread(self.n_threads, len(batch))
+        def _(base, size):
+            factor.assign_part_vector(
+                self.InvertSqrt(var.get_part_vector(base, size) + self.epsilon),
+                base)
 
         @for_range_opt_multithread(self.n_threads,
                                    batch_shape)
@@ -1902,9 +1940,6 @@ class LayerNorm(Layer):  # Changed class name
         X_batch.assign_vector(self.X.get_slice_vector(batch))
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
 
-        mu = sfix.Tensor(batch_shape)
-        var = sfix.Tensor(batch_shape)
-
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
             sel = X_batch
@@ -1912,44 +1947,44 @@ class LayerNorm(Layer):  # Changed class name
                 sel = sel[ar]
             res = sum(sel[:])
             if len(arg) == 2:
-                mu[arg[0]][arg[1]] = res
+                self.mu[arg[0]][arg[1]] = res
             else:
                 raise NotImplementedError("Only 3D tensors supported")
 
-        @multithread(self.n_threads, mu.total_size())
+        @multithread(self.n_threads, self.mu.total_size())
         def _(base, size):
             total_dim = self.X.sizes[-1]
-            mu.assign_vector(
-                mu.get_vector(base, size) / total_dim, base)
+            self.mu.assign_vector(
+                self.mu.get_vector(base, size) / total_dim, base)
 
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
             sel = X_batch
-            mu_sel = mu
+            mu_sel = self.mu
             for ar in arg:
                 sel = sel[ar]
                 mu_sel = mu_sel[ar]
             res = sum((sel[:] - mu_sel) ** 2) # Removed self.mu reference
             if len(arg) == 2:
-                var[arg[0]][arg[1]] = res
+                self.var[arg[0]][arg[1]] = res
             else:
                 raise NotImplementedError("Only 3D tensors supported")
 
         # print_ln("var: %s", var.reveal_nested())
 
-        @multithread(self.n_threads, mu.total_size())
+        @multithread(self.n_threads, self.mu.total_size())
         def _(base, size):
             # total_dim = reduce(operator.mul, batch_shape[1:])
             total_dim = self.X.sizes[-1]
-            var.assign_vector(
-                var.get_vector(base, size) / (total_dim),
+            self.var.assign_vector(
+                self.var.get_vector(base, size) / (total_dim),
                 base)
-        self._output(batch, mu, var)  # Simplified to always use current batch statistics
+        self._output(batch, self.mu, self.var)  # Simplified to always use current batch statistics
         if self.print_random_update:
             i = regint.get_random(64) % len(batch)
             j = regint.get_random(64) % d
             k = regint.get_random(64) % d_in
-            for x in mu, var:
+            for x in self.mu, self.var:
                 print_ln('%s at %s: %s', str(x), k, x[k].reveal())
             print_ln('%s at (%s, %s, %s): in=%s out=%s',
                      str(self.Y), i, j, k, self.X[i][j][k].reveal(),
@@ -1957,6 +1992,96 @@ class LayerNorm(Layer):  # Changed class name
 
     def backward(self, batch, compute_nabla_X=True):
         print("Layernorm backward not implemented")
+
+        batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
+        factor = sfix.Tensor(batch_shape)
+        factor[:] = self.InvertSqrt(self.var[:] + self.epsilon) # Can we cache this?
+
+        # Gradients wrt outputs stored in self.nabla_Y
+        norm = self.X.same_shape()  # Gradient wrt scaled input (gamma * nabla_Y)
+        nYdf = self.X.same_shape()  # Used for weights gradient computation
+        dNorm = self.X.same_shape() # only needed for nabla_X comp
+        dNormNorm = self.X.same_shape()
+
+        print("layernorm back ", batch, nYdf.sizes, factor.sizes)
+        print("batch shape", batch_shape, self.nabla_Y.sizes)
+        print(self.nabla_bias.length, self.X.sizes)
+
+        @for_range_opt_multithread(self.n_threads, batch_shape)
+        def _(*arg):
+            sel_X = self.X
+            sel_nY = self.nabla_Y
+            mu_sel = self.mu
+            # var_sel = self.var
+            nYdf_sel = nYdf
+            fac_sel = factor
+            norm_sel = norm
+            dNorm_sel = dNorm
+            dNormNorm_sel = dNormNorm
+            for ar in arg:
+                sel_X = sel_X[ar]
+                sel_nY = sel_nY[ar]
+                mu_sel = mu_sel[ar]
+                nYdf_sel = nYdf_sel[ar]
+                fac_sel = fac_sel[ar]
+                norm_sel = norm_sel[ar]
+                dNorm_sel = dNorm_sel[ar]
+                dNormNorm_sel = dNormNorm_sel[ar]
+            norm_sel[:] = (sel_X[:] - mu_sel) * fac_sel
+            nYdf_sel[:] = sel_nY[:] * norm_sel[:]
+            dNorm_sel[:] = sel_nY[:] * self.weights[:]
+            dNormNorm_sel[:] = dNorm_sel[:] * norm_sel[:]
+
+            # Sum over the appropriate axes for nabla_weights and nabla_bias
+        @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
+        def _(*arg):
+            sel = self.nabla_Y
+            for ar in arg:
+                sel = sel[ar]
+            return sel[:]
+        self.nabla_bias.assign(_())
+
+        @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
+        def _(*arg):
+            sel = nYdf
+            for ar in arg:
+                sel = sel[ar]
+            return sel[:]
+        self.nabla_weights.assign(_())
+
+        if compute_nabla_X:
+            factor3 = sfix.Tensor(batch_shape)
+            factor3[:] = factor[:] ** 3
+            sum_dNorm = sfix.Array(self.X.sizes[-1])
+            sum_dNormNorm = sfix.Array(self.X.sizes[-1])
+
+            @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
+            def _(*arg):
+                sel = dNorm
+                for ar in arg:
+                    sel = sel[ar]
+                return sel[:]
+            sum_dNorm.assign(_())
+
+            @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
+            def _(*arg):
+                sel = dNormNorm
+                for ar in arg:
+                    sel = sel[ar]
+                return sel[:]
+            sum_dNormNorm.assign(_())
+
+            # Compute final gradient wrt input X
+            @for_range_opt_multithread(self.n_threads, batch_shape)
+            def _(*arg):
+                sel_nX = self.nabla_X
+                sel_norm = norm
+                sel_dnorm = dNorm
+                for ar in arg:
+                    sel_nX = sel_nX[ar]
+                    sel_norm = sel_norm[ar]
+                    sel_dnorm = sel_dnorm[ar]
+                sel_nX[:] = sel_dnorm[:] - sum_dNorm - sel_norm[:] * sum_dNormNorm
 
 class QuantBase(object):
     bias_before_reduction = True
@@ -2699,13 +2824,18 @@ class BertPooler(BertBase):
 
     def backward(self, compute_nabla_X=True, batch=None):
         print("Bertpooler backward, not implemented")
+        if batch is None:
+            batch = regint.Array(self.N)
+            batch.assign(regint.inc(self.N))
+
+        self.activation.nabla_X.alloc()
 
         self.activation.nabla_Y.address = self.nabla_Y.address
         self.dense.nabla_Y.address = self.activation.nabla_X.address
         self.dense.nabla_X.address = self.nabla_X.address
 
         self.activation.backward(batch) # TODO: How to do pooling?
-        self.dense.backward(batch)
+        self.dense.backward(compute_nabla_X, batch)
 
 class BertEncoder(BertBase):
 
@@ -2841,14 +2971,18 @@ class BertLayer(BertBase):
         # layer.inputs[0].nabla_Y.address = \
         #     layer.nabla_X.address
         # assign nabla_X and Y
-        self.output.nabla_Y = self.nabla_Y
-        self.intermediate.nabla_Y = self.output.nabla_X
-        self.multi_head_attention.nabla_Y = self.intermediate.nabla_X
-        self.multi_head_attention.nabla_X = self.nabla_X
+        self.multi_head_attention.nabla_X.alloc()
+        self.intermediate.nabla_X.alloc()
+        self.output.nabla_X.alloc()
 
-        # self.output.backward(compute_nabla_X, batch, ) # TODO state here?
-        # self.intermediate.backward(compute_nabla_X, batch)
-        # self.multi_head_attention.backward(compute_nabla_X, batch)
+        self.output.nabla_Y.address = self.nabla_Y.address
+        self.intermediate.nabla_Y.address = self.output.nabla_X.address
+        self.multi_head_attention.nabla_Y.address = self.intermediate.nabla_X.address
+        # self.multi_head_attention.nabla_X.address = self.nabla_X.address
+
+        self.output.backward(compute_nabla_X, batch) # TODO state here?
+        self.intermediate.backward(compute_nabla_X, batch)
+        self.multi_head_attention.backward(compute_nabla_X, batch)
         #
 
 
@@ -2877,9 +3011,11 @@ class BertIntermediate(BertBase):
         self.dense.reset()
 
     def backward(self, compute_nabla_X=True, batch=None):
-        self.activation.nabla_Y = self.nabla_Y
-        self.dense.nabla_Y = self.activation.nabla_X
-        self.dense.nabla_X = self.nabla_X
+        self.activation.nabla_X.alloc()
+
+        self.activation.nabla_Y.address = self.nabla_Y.address
+        self.dense.nabla_Y.address = self.activation.nabla_X.address
+        self.dense.nabla_X.address = self.nabla_X.address
 
         self.activation.backward(batch)
         self.dense.backward(compute_nabla_X, batch)
@@ -2943,12 +3079,15 @@ class BertOutput(BertBase):
     def backward(self, compute_nabla_X=True, batch=None):
         print_ln("Not implemented!")
 
-        self.layer_norm.nabla_Y = self.nabla_Y
-        self.dropout.nabla_Y = self.layer_norm.nabla_X
-        self.dense.nabla_Y = self.dropout.nabla_X
-        self.dense.nabla_X = self.nabla_X # TODO: fix the addition
+        self.layer_norm.nabla_X.alloc()
+        self.dropout.nabla_X.alloc()
 
-        self.layer_norm.backward(compute_nabla_X, batch)
+        self.layer_norm.nabla_Y.address = self.nabla_Y.address
+        self.dropout.nabla_Y.address = self.layer_norm.nabla_X.address
+        self.dense.nabla_Y.address= self.dropout.nabla_X.address
+        self.dense.nabla_X.address = self.nabla_X.address # TODO: fix the addition
+
+        self.layer_norm.backward(batch, compute_nabla_X)
         self.dropout.backward(compute_nabla_X, batch)
         self.dense.backward(compute_nabla_X, batch)
 
