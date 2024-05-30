@@ -968,15 +968,18 @@ class FlexDense(Dense):
 
         @multithread(self.n_threads, N * self.d, max_size)
         def _(base, size):
+            batch_offset = batch[0] * self.d
             X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
-            # print_ln("X_sub N d d_in %s %s %s %s %s", self.N, self.d, self.d_in, base, size)
-            # result_matrix.assign_part_vector(
-            #     X_sub.direct_mul(self.W, indices=(
-            #         batch.get_vector(base, size), regint.inc(self.d_in),
-            #         regint.inc(self.d_in), regint.inc(self.d_out))), base)
+            offset = regint.inc(size, base=base + batch_offset)
+            # array_offset = regint.Array(size)
+            # array_offset.assign_all(batch_offset)
+            # print_ln("array offset %s", array_offset.reveal())
+            # offset[:] += array_offset[:]
+            # print_ln("total offset %s %s", batch_offset, offset)
+
             result_matrix.assign_part_vector(
                 X_sub.direct_mul(self.W, indices=(
-                    regint.inc(size, base=base), regint.inc(self.d_in),
+                    offset, regint.inc(self.d_in),
                     regint.inc(self.d_in), regint.inc(self.d_out))), base)
             # print_ln("result matrix done")
 
@@ -1895,6 +1898,7 @@ class LayerNorm(Layer):  # Changed class name
         d = self.X.sizes[1]
         d_in = self.X.sizes[2]
         X_batch = MultiArray([len(batch), self.X.sizes[1], self.X.sizes[2]], sfix)
+        print("X_batch shape: ", X_batch.sizes, "X shape: ", self.X.sizes)
         X_batch.assign_vector(self.X.get_slice_vector(batch))
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
 
@@ -2696,6 +2700,13 @@ class BertPooler(BertBase):
     def backward(self, compute_nabla_X=True, batch=None):
         print("Bertpooler backward, not implemented")
 
+        self.activation.nabla_Y.address = self.nabla_Y.address
+        self.dense.nabla_Y.address = self.activation.nabla_X.address
+        self.dense.nabla_X.address = self.nabla_X.address
+
+        self.activation.backward(batch) # TODO: How to do pooling?
+        self.dense.backward(batch)
+
 class BertEncoder(BertBase):
 
     # I think this is unused?
@@ -2887,7 +2898,8 @@ class BertOutput(BertBase):
         self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
-    def _forward(self, batch, input_tensor):
+    def _forward(self, batch, input_tensor, input_tensor_batch=None):
+        # Because input_tensor might be the full training data shape
         self.dense.X.address = self.X.address
         self.dropout.X.address = self.dense.Y.address
         self.layer_norm.X.address = self.dropout.Y.address
@@ -2899,13 +2911,22 @@ class BertOutput(BertBase):
 
         self.dropout.forward(batch)
 
-        @multithread(self.n_threads, len(batch))
-        def _(base, size):
-            self.layer_norm.X.assign_part_vector(
-                self.layer_norm.X.get_part_vector(base, size) +
-                input_tensor.get_part_vector(base, size), base)
-        if self.debug_bert_output:
-            print_ln("input tensor %s %s", str(input_tensor[:]), str(self.layer_norm.X[:]))
+        if input_tensor_batch is not None:
+            input_tensor_batch_arr = MultiArray([len(batch), input_tensor.sizes[1], input_tensor.sizes[2]], sfix)
+            input_tensor_batch_arr.assign_vector(input_tensor.get_slice_vector(input_tensor_batch))
+            @multithread(self.n_threads, len(batch))
+            def _(base, size):
+                self.layer_norm.X.assign_part_vector(
+                    self.layer_norm.X.get_part_vector(base, size) +
+                    input_tensor_batch_arr.get_part_vector(base, size), base)
+        else:
+            @multithread(self.n_threads, len(batch))
+            def _(base, size):
+                self.layer_norm.X.assign_part_vector(
+                    self.layer_norm.X.get_part_vector(base, size) +
+                    input_tensor.get_part_vector(base, size), base)
+        # if self.debug_bert_output:
+        #     print_ln("input tensor %s", input_tensor.reveal())
 
         # self.layer_norm.X[:] += input_tensor[:] # TODO: is it maybe this addition since we take the last value? would be strange
 
@@ -3060,7 +3081,7 @@ class MultiHeadAttention(BertBase):
         if self.debug_bert_output:
             print_ln('forward layer hidden_state %s', hidden_state[0][1][0:20].reveal())
 
-        self.output._forward(inc_batch, hidden_state)
+        self.output._forward(inc_batch, hidden_state, batch)
         if self.debug_bert_output:
             print_ln('forward multiheadattention output %s', self.output.Y[0][1][0:20].reveal())
             print_ln("")
@@ -3074,6 +3095,16 @@ class MultiHeadAttention(BertBase):
         self.output.reset()
 
     def backward(self, compute_nabla_X=True, batch=None):
+        dense_layers = [self.wq, self.wk, self.wv]
+        for layer in dense_layers:
+            layer.nabla_X.address = self.nabla_X.address
+    # for layer in dense_layers:
+    #     layer.X.address = self.X.address
+    #
+    # self.output.X.address = self.context.address
+    # self.output.Y.address = self.Y.address
+
+
         print_ln("Not implemented!")
         self.wq.backward(compute_nabla_X, batch)
         self.wk.backward(compute_nabla_X, batch)
