@@ -2964,7 +2964,6 @@ class BertLayer(BertBase):
         self.output.layer_norm.bias = sfix.input_tensor_via(input_via, state_dict['output.LayerNorm.bias'])
 
     def backward(self, compute_nabla_X=True, batch=None):
-        print("Not impl")
         # layer.inputs[0].nabla_Y.address = \
         #     layer.nabla_X.address
         # assign nabla_X and Y
@@ -2977,7 +2976,7 @@ class BertLayer(BertBase):
         self.multi_head_attention.nabla_Y.address = self.intermediate.nabla_X.address
         # self.multi_head_attention.nabla_X.address = self.nabla_X.address
 
-        nabla_y_multi_head_attention_from_layernorm = self.output.backward(compute_nabla_X, batch) # TODO state here?
+        nabla_y_multi_head_attention_from_layernorm = self.output.backward(compute_nabla_X, batch)
         self.intermediate.backward(compute_nabla_X, batch)
 
         # residual, add it to Y because it gave the output of multihadattention to output
@@ -3197,9 +3196,9 @@ class MultiHeadAttention(BertBase):
             res = query_sub.direct_mul_trans(key_sub)
             self.attention_scores[i].assign_part_vector(res, j)
 
-        @for_range_opt_multithread(self.n_threads, N)
-        def _(i):
-            self.attention_scores[i][:] = self.attention_scores[i][:] / math.sqrt(self.attention_head_size)
+        # @for_range_opt_multithread(self.n_threads, N)
+        # def _(i):
+        #     self.attention_scores[i][:] = self.attention_scores[i][:] / math.sqrt(self.attention_head_size)
 
         if self.debug_bert_output:
             print_ln('forward layer attention_scores')
@@ -3207,7 +3206,7 @@ class MultiHeadAttention(BertBase):
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
         def _(i, j, k):
-            # attention_scores[i][j][k] = attention_scores[i][j][k] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
+            self.attention_scores[i][j][k][:] = self.attention_scores[i][j][k][:] / math.sqrt(self.attention_head_size) # TODO: can we make the division faster?
             self.attention_scores[i][j][k][:] = softmax(self.attention_scores[i][j][k][:])
 
         self.dropout.X.address = self.attention_scores.address
