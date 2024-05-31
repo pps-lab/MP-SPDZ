@@ -1025,7 +1025,6 @@ class FlexDense(Dense):
         if compute_nabla_X:
             nabla_X.alloc()
 
-            print_ln("Backward pass FlexDense!")
             @for_range_multithread(self.n_threads, 100, self.d)
             def _(i):
                 X_sub = sfix.Matrix(N, self.d_out)
@@ -1991,8 +1990,6 @@ class LayerNorm(Layer):  # Changed class name
                      self.Y[i][j][k].reveal())
 
     def backward(self, batch, compute_nabla_X=True):
-        print("Layernorm backward not implemented")
-
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
         factor = sfix.Tensor(batch_shape)
         factor[:] = self.InvertSqrt(self.var[:] + self.epsilon) # Can we cache this?
@@ -2003,9 +2000,9 @@ class LayerNorm(Layer):  # Changed class name
         dNorm = self.X.same_shape() # only needed for nabla_X comp
         dNormNorm = self.X.same_shape()
 
-        print("layernorm back ", batch, nYdf.sizes, factor.sizes)
-        print("batch shape", batch_shape, self.nabla_Y.sizes)
-        print(self.nabla_bias.length, self.X.sizes)
+        # print("layernorm back ", batch, nYdf.sizes, factor.sizes)
+        # print("batch shape", batch_shape, self.nabla_Y.sizes)
+        # print(self.nabla_bias.length, self.X.sizes)
 
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
@@ -2779,8 +2776,8 @@ class BertBase(BaseLayer, FixBase):
 
 class BertPooler(BertBase):
 
-    thetas = lambda self: ()
-    nablas = lambda self: () # refer to downstream layers?
+    thetas = lambda self: self.dense.thetas()
+    nablas = lambda self: self.dense.nablas() # refer to downstream layers?
 
     def __init__(self, n_examples, seq_len, hidden_state):
         input_shape = [n_examples, seq_len, hidden_state]
@@ -2823,7 +2820,6 @@ class BertPooler(BertBase):
         self.dense.b = sfix.input_tensor_via(input_via, state_dict['dense.bias'])
 
     def backward(self, compute_nabla_X=True, batch=None):
-        print("Bertpooler backward, not implemented")
         if batch is None:
             batch = regint.Array(self.N)
             batch.assign(regint.inc(self.N))
@@ -2832,9 +2828,9 @@ class BertPooler(BertBase):
 
         self.activation.nabla_Y.address = self.nabla_Y.address
         self.dense.nabla_Y.address = self.activation.nabla_X.address
-        self.dense.nabla_X.address = self.nabla_X.address
+        self.dense.nabla_X.address = self.nabla_X.address # TODO: size mismatch here, but should be okay? cause rest 0s?
 
-        self.activation.backward(batch) # TODO: How to do pooling?
+        self.activation.backward(batch)
         self.dense.backward(compute_nabla_X, batch)
 
 class BertEncoder(BertBase):
@@ -2866,8 +2862,8 @@ class BertEncoder(BertBase):
 
 class BertLayer(BertBase):
 
-    thetas = lambda self: ()
-    nablas = lambda self: () # refer to downstream layers?
+    thetas = lambda self: self.multi_head_attention.thetas() + self.intermediate.thetas() + self.output.thetas() + tuple(self.nabla_hidden_state)
+    nablas = lambda self: self.multi_head_attention.nablas() + self.intermediate.nablas() + self.output.nablas() + tuple(self.nabla_hidden_state)
 
     def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1, rsqrt_approx=True, batch_size=None):
         input_shape = [n_examples, seq_len, hidden_state]
@@ -2880,6 +2876,7 @@ class BertLayer(BertBase):
         self.output = BertOutput(internal_shape, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps, rsqrt_approx)
 
         self.hidden_state = sfix.Tensor(input_shape) # TODO: Could also make this smaller
+        self.nabla_hidden_state = sfix.Tensor(input_shape)
 
         # self.X.address = self.multi_head_attention.X.address
         # self.Y.address = self.output.Y.address
@@ -2980,13 +2977,31 @@ class BertLayer(BertBase):
         self.multi_head_attention.nabla_Y.address = self.intermediate.nabla_X.address
         # self.multi_head_attention.nabla_X.address = self.nabla_X.address
 
-        self.output.backward(compute_nabla_X, batch) # TODO state here?
+        nabla_y_multi_head_attention_from_layernorm = self.output.backward(compute_nabla_X, batch) # TODO state here?
         self.intermediate.backward(compute_nabla_X, batch)
-        self.multi_head_attention.backward(compute_nabla_X, batch)
-        #
+
+        # residual, add it to Y because it gave the output of multihadattention to output
+        @multithread(self.n_threads, len(batch))
+        def _(base, size):
+            self.multi_head_attention.nabla_Y.assign_part_vector(
+                self.multi_head_attention.nabla_Y.get_part_vector(base, size) +
+                nabla_y_multi_head_attention_from_layernorm.get_part_vector(base, size), base)
+
+        nabla_y_hidden_state = self.multi_head_attention.backward(compute_nabla_X, batch)
+
+        if compute_nabla_X:
+            # and add hidden_state back to nabla_X, add to x because we gave x to multi_head_attention
+            @multithread(self.n_threads, len(batch))
+            def _(base, size):
+                self.nabla_X.assign_part_vector(
+                    self.nabla_X.get_part_vector(base, size) +
+                    nabla_y_hidden_state.get_part_vector(base, size), base)
 
 
 class BertIntermediate(BertBase):
+
+    thetas = lambda self: self.dense.thetas()
+    nablas = lambda self: self.dense.nablas()
 
     def __init__(self, n_examples, hidden_size, intermediate_size, seq_len):
         input_shape = [n_examples, seq_len, hidden_size]
@@ -3022,6 +3037,9 @@ class BertIntermediate(BertBase):
 
 
 class BertOutput(BertBase):
+
+    thetas = lambda self: self.dense.thetas() + self.layer_norm.thetas()
+    nablas = lambda self: self.dense.nablas() + self.layer_norm.nablas()
 
     def __init__(self, n_examples, intermediate_size, hidden_size, seq_len, dropout=0.1, layernorm_eps=1e-12, rsqrt_approx=True):
         input_shape = [n_examples, seq_len, intermediate_size]
@@ -3077,21 +3095,26 @@ class BertOutput(BertBase):
         self.dense.reset()
 
     def backward(self, compute_nabla_X=True, batch=None):
-        print_ln("Not implemented!")
-
         self.layer_norm.nabla_X.alloc()
         self.dropout.nabla_X.alloc()
 
         self.layer_norm.nabla_Y.address = self.nabla_Y.address
         self.dropout.nabla_Y.address = self.layer_norm.nabla_X.address
         self.dense.nabla_Y.address= self.dropout.nabla_X.address
-        self.dense.nabla_X.address = self.nabla_X.address # TODO: fix the addition
+        self.dense.nabla_X.address = self.nabla_X.address
+
+        # layer norm flows back to dropout but also to hidden_tensor... nabla hidden state?
 
         self.layer_norm.backward(batch, compute_nabla_X)
         self.dropout.backward(compute_nabla_X, batch)
         self.dense.backward(compute_nabla_X, batch)
 
+        return self.layer_norm.nabla_X
+
 class MultiHeadAttention(BertBase):
+
+    thetas = lambda self: self.wq.thetas() + self.wk.thetas() + self.wv.thetas() + self.output.thetas()
+    nablas = lambda self: self.wq.nablas() + self.wk.nablas() + self.wv.nablas() + self.output.nablas()
 
     def __init__(self, n_examples, seq_len, hidden_size, num_attention_heads, dropout=0.1, layernorm_eps=1e-12, rsqrt_approx=True, batch_size=None):
 
@@ -3118,10 +3141,13 @@ class MultiHeadAttention(BertBase):
 
         self.output = BertOutput(internal_shape, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
         self.context = sfix.Tensor([internal_shape, self.seq_len, hidden_size])
+        self.nabla_context = sfix.Tensor([internal_shape, self.seq_len, hidden_size])
 
         # self.context_nabla
 
         self.attention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
+        self.nabla_attention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
+        self.nabla_preattention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
     def _forward(self, batch=None, hidden_state=None, training=None):
 
@@ -3236,26 +3262,93 @@ class MultiHeadAttention(BertBase):
         self.output.reset()
 
     def backward(self, compute_nabla_X=True, batch=None):
+        N = len(batch)
         dense_layers = [self.wq, self.wk, self.wv]
         for layer in dense_layers:
-            layer.nabla_X.address = self.nabla_X.address
+            layer.nabla_Y.address = self.nabla_X.address
 
         self.output.nabla_Y.address = self.nabla_Y.address
 
         self.output.nabla_X.alloc()
-        # self.context.nabla_Y.address = self.output.nabla_X.address
-    # for layer in dense_layers:
-    #     layer.X.address = self.X.address
-    #
-    # self.output.X.address = self.context.address
-    # self.output.Y.address = self.Y.address
+        self.nabla_context = self.output.nabla_X
+
+        self.nabla_attention_scores.address = self.dropout.nabla_X
+
+        nabla_y_hidden_state = self.output.backward(compute_nabla_X, batch)
+
+        # Backprop context
+        @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
+        def _(i, j):
+            res = sfix.Matrix(self.seq_len, self.attention_head_size)
+            value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+
+            @for_range_opt([self.seq_len])
+            def _(k):
+                res[k].assign_vector(self.nabla_context[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)) # nabla_Y
+                value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size) # TODO: memcpy here
+
+            nabla_value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            nabla_value_sub.assign_vector(self.dropout.Y[i][j].direct_trans_mul(res))
+            self.dropout.nabla_Y[i][j].assign_vector(res.direct_mul_trans(value_sub))
+
+            @for_range_opt([self.seq_len])
+            def _(k):
+                # value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                self.wv.nabla_Y[i][k].assign_part_vector(
+                    nabla_value_sub[k],
+                j * self.attention_head_size)
+
+            print("RES MULTI BACK", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
 
 
-        print_ln("Not implemented!")
-        # self.wq.backward(compute_nabla_X, batch)
-        # self.wk.backward(compute_nabla_X, batch)
-        # self.wv.backward(compute_nabla_X, batch)
-        # self.output.backward(compute_nabla_X, batch)
+        self.dropout.backward(compute_nabla_X, batch)
+
+        # attention to pre
+        @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
+        def _(i, j, k):
+            # regint indicator
+            # indicator = regint.Array(self.seq_len)
+            # indicator.assign(0)
+            # indicator[k] = regint(1)
+            @for_range_opt([self.seq_len, self.seq_len])
+            def _(t1, t2):
+                indicator = regint(t1 == t2)
+                local_deriv = self.attention_scores[i][j][k][t1] * (indicator - self.attention_scores[i][j][k][t2])
+                self.nabla_preattention_scores[i][j][k][t2] += local_deriv * self.dropout.nabla_Y[i][j][k][t1]
+
+        # backward pass 1
+        @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
+        def _(i, j):
+            # for j in range(self.num_attention_heads):
+            query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
+            @for_range_opt(self.seq_len)
+            def _(k): # This mempcopy is ugly
+                # TODO: Fix this memory copy
+                query_sub[k] = self.wq.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+                key_sub[k] = self.wk.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)
+
+            # nabla_query_sub = key_sub.direct_trans_mul(self.nabla_preattention_scores[i][j])
+            # nabla_key_sub = self.nabla_preattention_scores[i][j].direct_mul_trans(key_sub)
+
+            nabla_query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            nabla_key_sub_trans = sfix.Matrix(self.attention_head_size, self.seq_len)
+            nabla_query_sub.assign_vector(self.nabla_preattention_scores[i][j].direct_mul(key_sub))
+            nabla_key_sub_trans.assign_vector(query_sub.direct_trans_mul(self.nabla_preattention_scores[i][j]))
+            nabla_key_sub = nabla_key_sub_trans.transpose()
+
+            # nabla_key_sub is seq_len_seqlen, copy back into wk which is seq_len, all_head_size
+            @for_range_opt(self.seq_len)
+            def _(k): # This mempcopy is ugly?
+                self.wq.nabla_Y[i][k].assign_part_vector(nabla_query_sub[k], j * self.attention_head_size)
+                self.wk.nabla_Y[i][k].assign_part_vector(nabla_key_sub[k], j * self.attention_head_size)
+
+        self.wq.backward(compute_nabla_X, batch)
+        self.wk.backward(compute_nabla_X, batch)
+        self.wv.backward(compute_nabla_X, batch)
+
+        return nabla_y_hidden_state
 
 class Optimizer:
     """ Base class for graphs of layers. """
@@ -3374,8 +3467,6 @@ class Optimizer:
             if i != len(self.layers) - 1 or run_last:
                 layer.forward(batch=self.batch_for(layer, batch),
                               training=training)
-                # runtime_error("first layer")
-                # break
                 if self.print_random_update:
                     print_ln('forward layer %s', layer)
                     # print(layer, i)
