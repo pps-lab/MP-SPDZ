@@ -818,7 +818,7 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     std::cout << "Total length of inputs " << total_length_inputs << endl;
 
     // if bigger than int32_max
-    if (total_length_inputs > pow(2l, 32l)) {
+    if (13 * total_length_inputs > pow(2l, 32l)) {
         // Split in two chunks as input size is "likely" too big.
         // Future implementations should be able to handle this better by actually checking whether the number of elements is too big.
         // split vec into two
