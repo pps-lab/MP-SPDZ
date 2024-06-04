@@ -46,7 +46,6 @@
 
 #include <assert.h>
 
-
 template<class inputShare, class outputShare>
 vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_type::part_type>> sums_one,
                                    const int input_size,
@@ -754,36 +753,10 @@ vector<outputShare> convert_shares_field(const typename vector<inputShare>::iter
 //11111111111111111111111111111111111111111111111100000000000000000
 //                                              -100000000000000000
 
+
 template<class inputShare>
-std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare>& set, std::vector<std::vector<std::string> >& inputs_format_str, const int n_bits_per_input) {
-    // this method loads inputs, distributes them, and returns the shares
-    input_format_type inputs_format = process_format(inputs_format_str);
-
-    std::vector<typename inputShare::clear> inputs;
-    if (inputs_format[P.my_num()].size() > 0) {
-        inputs = read_private_input<typename inputShare::clear>(P, inputs_format[P.my_num()]);
-    }
-
-//    {
-//        // DEBUG: Eval point
-//        P377Element::Scalar beta = bigint("3090174033069088738712039487548204773548520248725210634374129034378083167182");
-//        P377Element::Scalar current_beta = 1;
-//
-//        // Evaluate polynomial defined by inputs at beta
-//        P377Element::Scalar result;
-//        for (int i = 0; i < (int)inputs.size(); i++) { // can we parallelize this?
-//            auto output_f = P377Element::Scalar(bigint(inputs[i]));
-//            result += output_f * current_beta;
-//            current_beta = current_beta * beta;
-//        }
-//        std::cout << "Eval at point beta " << beta << " is " << result << std::endl;
-//        // DEBUG: Eval point
-//    }
-
-//    for (unsigned long i = 0; i < inputs.size(); i++) {
-//        std::cout << "Input " << i << " " << inputs[i] << std::endl;
-//    }
-
+vector<inputShare> exchangeVector(Player &P, MixedProtocolSet<inputShare> &set, const int n_bits_per_input,
+                                  const input_format_type &inputs_format, const vector<typename inputShare::clear> &inputs) {
     typename inputShare::Input& input = set.input;
 
     const typename inputShare::clear shift_up = typename inputShare::clear(1) << (n_bits_per_input - 1);
@@ -811,7 +784,7 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     }
     input.exchange();
 
-    std::vector<inputShare> result;
+    vector<inputShare> result;
     // put shares in order of players
     for (unsigned long i = 0; i < inputs_format.size(); i++) {
         for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
@@ -824,22 +797,49 @@ std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare
     set.check();
 
     return result;
+}
 
-    //    input.reset_all(P);
-//    for (size_t i = begin; i < end; i++)
-//    {
-//        typename T::open_type x[2];
-//        for (int j = 0; j < 2; j++)
-//            this->get_input(triples[i][j], x[j], input_player);
-//        if (P.my_num() == input_player)
-//            input.add_mine(x[0] * x[1], T::default_length);
-//        else
-//            input.add_other(input_player);
-//    }
-//    input.exchange();
-//    for (size_t i = begin; i < end; i++)
-//        triples[i][2] = input.finalize(input_player, T::default_length);
-//
+template<class inputShare>
+std::vector<inputShare> distribute_inputs(Player &P, MixedProtocolSet<inputShare>& set, std::vector<std::vector<std::string> >& inputs_format_str, const int n_bits_per_input) {
+    // this method loads inputs, distributes them, and returns the shares
+    input_format_type inputs_format = process_format(inputs_format_str);
+
+    std::vector<typename inputShare::clear> inputs;
+    if (inputs_format[P.my_num()].size() > 0) {
+        inputs = read_private_input<typename inputShare::clear>(P, inputs_format[P.my_num()]);
+    }
+
+    long long total_length_inputs = 0;
+    for (unsigned long i = 0; i < inputs_format.size(); i++) {
+        for (unsigned long j = 0; j < inputs_format[i].size(); j++) {
+            total_length_inputs += inputs_format[i][j].length;
+        }
+    }
+    std::cout << "Total length of inputs " << total_length_inputs << endl;
+
+    // if bigger than int32_max
+    if (total_length_inputs > pow(2l, 32l)) {
+        // Split in two chunks as input size is "likely" too big.
+        // Future implementations should be able to handle this better by actually checking whether the number of elements is too big.
+        // split vec into two
+        std::cout << "Splitting input reading into two chunks" << endl;
+        input_format_type inputs_format_1;
+        input_format_type inputs_format_2;
+        for (unsigned long i = 0; i < inputs_format.size(); i++) {
+            if (i < inputs_format.size() / 2) {
+                inputs_format_1.push_back(inputs_format[i]);
+            } else {
+                inputs_format_2.push_back(inputs_format[i]);
+            }
+        }
+        std::vector<inputShare> shares_1 = exchangeVector(P, set, n_bits_per_input, inputs_format_1, inputs);
+        std::vector<inputShare> shares_2 = exchangeVector(P, set, n_bits_per_input, inputs_format_2, inputs);
+        shares_1.insert(shares_1.end(), shares_2.begin(), shares_2.end());
+
+        return shares_1;
+    }
+
+    return exchangeVector(P, set, n_bits_per_input, inputs_format, inputs);
 
 }
 
