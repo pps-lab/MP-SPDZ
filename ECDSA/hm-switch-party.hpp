@@ -72,7 +72,7 @@ vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_
     auto stats = P.total_comm();
 
     // Now we are at output
-    std::cout << "Composing bits " << buffer_size << std::endl;
+//    std::cout << "Composing bits " << buffer_size << std::endl;
 
     // rewrite the above loop
     vector <outputShare> edabits_out_a;
@@ -114,7 +114,7 @@ vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_
     bit_adder.add(sums_two, summands_two, begin, end, bit_proc,
                   bt::default_length, 0);
 
-    (P.total_comm() - stats).print(true);
+//    (P.total_comm() - stats).print(true);
 //    stats = P.total_comm();
 //    std::cerr << "After sum" << endl;
 
@@ -160,7 +160,7 @@ vector<outputShare> compose_shares(const vector<vector<typename inputShare::bit_
 
 
 //    cout << "Opening " << input_size * n_bits_per_input << " masked bits: " << timer_bits.elapsed() * 1e3 << " ms" << endl;
-    (P.total_comm() - stats).print(true);
+//    (P.total_comm() - stats).print(true);
 
     // now everyone subtracts c_prime from the mask
 
