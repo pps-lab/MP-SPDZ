@@ -1029,7 +1029,7 @@ void run(int argc, const char** argv, bigint output_field_prime, int bit_length 
     auto has_same_types = is_same<inputShare, outputShare>::value;
     assert(not has_same_types);
 
-//#pragma omp parallel for num_threads(n_threads)
+#pragma omp parallel for num_threads(n_threads)
     for (int j = 0; j < n_threads; j++) {
         bigint::init_thread();
 
