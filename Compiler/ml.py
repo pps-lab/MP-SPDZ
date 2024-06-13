@@ -625,9 +625,14 @@ class MultiOutput(MultiOutputBase):
                 for j in range(self.X.sizes[1]):
                     to_check = self.nabla_X[i][j].reveal()
                     check += (to_check > len(batch)) + (to_check < -len(batch))
-                print_ln_if(check, 'X %s', self.X[i].reveal_nested())
-                print_ln_if(check, 'exp %s', self.exp[i].reveal_nested())
-                print_ln_if(check, 'nabla X %s',
+                # print_ln_if(check, 'X %s', self.X[i].reveal_nested())
+                # print_ln_if(check, 'exp %s', self.exp[i].reveal_nested())
+                # print_ln_if(check, 'nabla X %s',
+                #             self.nabla_X[i].reveal_nested())
+                print_ln('Y %s', self.Y[i].reveal_nested())
+                print_ln('X %s', self.X[i].reveal_nested())
+                print_ln('exp %s', self.exp[i].reveal_nested())
+                print_ln('nabla X %s',
                             self.nabla_X[i].reveal_nested())
 
     def get_extra_debugging(self, i):
@@ -969,7 +974,6 @@ class FlexDense(Dense):
             batch_offset = batch[0] * self.d
             X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
             offset = regint.inc(size, base=base + batch_offset)
-            print_ln("matmul with offset %s %s", offset, size)
             # array_offset = regint.Array(size)
             # array_offset.assign_all(batch_offset)
             # print_ln("array offset %s", array_offset.reveal())
@@ -1206,14 +1210,15 @@ class Dropout(NoVariableLayer):
         if training:
             n_bits = -math.log(self.alpha, 2)
             print("n_bits", n_bits, self.alpha)
-            assert n_bits == int(n_bits)
             n_bits = int(n_bits)
-            @for_range_opt_multithread(self.n_threads, len(batch))
-            def _(i):
-                size = self.d1 * self.d2
-                self.B[i].assign_vector(util.tree_reduce(
-                    util.or_op, (sint.get_random_bit(size=size)
-                                 for i in range(n_bits))))
+            self.B.assign_all(1) # TODO: temp disable for reproducibility
+            self.alpha = 0.0 # TODO: temp disable for reproducibility
+            # @for_range_opt_multithread(self.n_threads, len(batch))
+            # def _(i):
+            #     size = self.d1 * self.d2
+            #     self.B[i].assign_vector(util.tree_reduce(
+            #         util.or_op, (sint.get_random_bit(size=size)
+            #                      for i in range(n_bits))))
             @for_range_opt_multithread(self.n_threads, len(batch))
             def _(i):
                 self.Y[i].assign_vector(1 / (1 - self.alpha) *
@@ -1253,7 +1258,7 @@ class FlexDropout(NoVariableLayer):
         self.B = MultiArray(shape, sint)
 
     def __repr__(self):
-        return '%s(%s, %s, alpha=%s)' % \
+        return '%s(%s, alpha=%s)' % \
             (type(self).__name__, self.shape, self.alpha)
 
     def forward(self, batch, training=False):
@@ -1261,12 +1266,14 @@ class FlexDropout(NoVariableLayer):
             n_bits = -math.log(self.alpha, 2)
             assert n_bits == int(n_bits)
             n_bits = int(n_bits)
-            @for_range_opt_multithread(self.n_threads, len(batch))
-            def _(i):
-                size = reduce(operator.mul, self.shape[1:])
-                self.B[i].assign_vector(util.tree_reduce(
-                    util.or_op, (sint.get_random_bit(size=size)
-                                 for i in range(n_bits))))
+            self.B.assign_all(1)
+            self.alpha = 0.0 # TODO: temp disable for reproducibility
+            # @for_range_opt_multithread(self.n_threads, len(batch))
+            # def _(i):
+            #     size = reduce(operator.mul, self.shape[1:])
+            #     self.B[i].assign_vector(util.tree_reduce(
+            #         util.or_op, (sint.get_random_bit(size=size)
+            #                      for i in range(n_bits))))
             @for_range_opt_multithread(self.n_threads, len(batch))
             def _(i):
                 self.Y[i].assign_vector(1 / (1 - self.alpha) *
@@ -1282,6 +1289,7 @@ class FlexDropout(NoVariableLayer):
 
     def backward(self, compute_nabla_X=True, batch=None):
         if compute_nabla_X:
+            print_ln("compute nabla x %s", len(batch))
             @for_range_opt_multithread(self.n_threads, len(batch))
             def _(i):
                 self.nabla_X[batch[i]].assign_vector(
@@ -1289,6 +1297,7 @@ class FlexDropout(NoVariableLayer):
         if self.debug_output:
             print_ln('dropout nabla_Y %s', self.nabla_Y.reveal_nested())
             print_ln('dropout nabla_X %s', self.nabla_X.reveal_nested())
+
 
 class ElementWiseLayer(NoVariableLayer):
     def __init__(self, shape, inputs=None):
@@ -1374,8 +1383,9 @@ class Gelu(ElementWiseLayer):
     """
     prime_type = sint
 
-    def __init__(self, shape, inputs=None):
+    def __init__(self, shape, inputs=None, approx=True):
         super(Gelu, self).__init__(shape)
+        self.approx = approx
         self.z0s = MultiArray(shape, sint)
         self.z1s = MultiArray(shape, sint)
         self.z2s = MultiArray(shape, sint)
@@ -1387,8 +1397,10 @@ class Gelu(ElementWiseLayer):
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
 
-        # return self.compute_gelu_sigmoid(x)
-        return self.compute_gelu_approx(x, base, size)
+        if self.approx:
+            return self.compute_gelu_approx(x, base, size)
+        else:
+            return self.compute_gelu_sigmoid(x)
 
     def compute_gelu_approx(self, x, base, size):
         # print_ln("GELU inputs %s", x.reveal())
@@ -1992,13 +2004,13 @@ class LayerNorm(Layer):  # Changed class name
     def backward(self, batch, compute_nabla_X=True):
         batch_shape = [len(batch)] + list(self.X.sizes[1:-1])
         factor = sfix.Tensor(batch_shape)
-        factor[:] = self.InvertSqrt(self.var[:] + self.epsilon) # Can we cache this?
+        factor[:] = self.InvertSqrt(self.var[:] + self.epsilon) # TODO: Can we cache this?
 
         # Gradients wrt outputs stored in self.nabla_Y
         norm = self.X.same_shape()  # Gradient wrt scaled input (gamma * nabla_Y)
         nYdf = self.X.same_shape()  # Used for weights gradient computation
         dNorm = self.X.same_shape() # only needed for nabla_X comp
-        dNormNorm = self.X.same_shape()
+        # dNormNorm = self.X.same_shape()
 
         # print("layernorm back ", batch, nYdf.sizes, factor.sizes)
         # print("batch shape", batch_shape, self.nabla_Y.sizes)
@@ -2006,28 +2018,12 @@ class LayerNorm(Layer):  # Changed class name
 
         @for_range_opt_multithread(self.n_threads, batch_shape)
         def _(*arg):
-            sel_X = self.X
-            sel_nY = self.nabla_Y
-            mu_sel = self.mu
-            # var_sel = self.var
-            nYdf_sel = nYdf
-            fac_sel = factor
-            norm_sel = norm
-            dNorm_sel = dNorm
-            dNormNorm_sel = dNormNorm
-            for ar in arg:
-                sel_X = sel_X[ar]
-                sel_nY = sel_nY[ar]
-                mu_sel = mu_sel[ar]
-                nYdf_sel = nYdf_sel[ar]
-                fac_sel = fac_sel[ar]
-                norm_sel = norm_sel[ar]
-                dNorm_sel = dNorm_sel[ar]
-                dNormNorm_sel = dNormNorm_sel[ar]
-            norm_sel[:] = (sel_X[:] - mu_sel) * fac_sel
-            nYdf_sel[:] = sel_nY[:] * norm_sel[:]
-            dNorm_sel[:] = sel_nY[:] * self.weights[:]
-            dNormNorm_sel[:] = dNorm_sel[:] * norm_sel[:]
+            assert len(arg) == 2, "Only 3D tensors supported"
+            norm[arg[0]][arg[1]][:] = (self.X[batch[arg[0]]][arg[1]][:] - self.mu[arg[0]][arg[1]]) * factor[arg[0]][arg[1]] # norm_bti
+            nYdf[arg[0]][arg[1]][:] = self.nabla_Y[batch[arg[0]]][arg[1]][:] * norm[arg[0]][arg[1]][:]
+
+            dNorm[arg[0]][arg[1]][:] = self.nabla_Y[batch[arg[0]]][arg[1]][:] * self.weights[:] # dnorm_i
+            # dNormNorm[arg[0]][arg[1]][:] = dNorm[arg[0]][arg[1]][:] * norm[arg[0]][arg[1]][:]
 
             # Sum over the appropriate axes for nabla_weights and nabla_bias
         @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
@@ -2046,39 +2042,51 @@ class LayerNorm(Layer):  # Changed class name
             return sel[:]
         self.nabla_weights.assign(_())
 
+        print_ln("nabla_y %s", self.nabla_Y[:].reveal()[:128])
+        print_ln("weights %s", self.weights[:].reveal()[:])
+        print_ln("x %s", self.X[:].reveal()[:128])
+        # print_ln("nabla_bias %s", self.nabla_bias[:].reveal())
+        # print_ln("nabla_weights %s", self.nabla_weights[:].reveal())
+
         if compute_nabla_X:
-            factor3 = sfix.Tensor(batch_shape)
-            factor3[:] = factor[:] ** 3
-            sum_dNorm = sfix.Array(self.X.sizes[-1])
-            sum_dNormNorm = sfix.Array(self.X.sizes[-1])
+            # sum_dNorm = sfix.Array(self.X.sizes[-1])
+            # sum_dNormNorm = sfix.Array(self.X.sizes[-1])
+            #
+            # @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
+            # def _(*arg):
+            #     sel = dNormNorm
+            #     for ar in arg:
+            #         sel = sel[ar]
+            #     return sel[:]
+            # sum_dNormNorm.assign(_())
 
-            @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
-            def _(*arg):
-                sel = dNorm
-                for ar in arg:
-                    sel = sel[ar]
-                return sel[:]
-            sum_dNorm.assign(_())
-
-            @map_sum_simple(self.n_threads, batch_shape, sfix, self.X.sizes[-1])
-            def _(*arg):
-                sel = dNormNorm
-                for ar in arg:
-                    sel = sel[ar]
-                return sel[:]
-            sum_dNormNorm.assign(_())
+            # print_ln("sum norm %s", sum_dNorm[:].reveal())
+            # print_ln("sum norm norm %s", sum_dNormNorm[:].reveal())
+            print_ln("norm %s", norm[:].reveal()[:8]) # corr
+            print_ln("dnorm %s", dNorm[:].reveal()[:8])
 
             # Compute final gradient wrt input X
             @for_range_opt_multithread(self.n_threads, batch_shape)
             def _(*arg):
-                sel_nX = self.nabla_X
-                sel_norm = norm
-                sel_dnorm = dNorm
-                for ar in arg:
-                    sel_nX = sel_nX[ar]
-                    sel_norm = sel_norm[ar]
-                    sel_dnorm = sel_dnorm[ar]
-                sel_nX[:] = sel_dnorm[:] - sum_dNorm - sel_norm[:] * sum_dNormNorm
+
+                if len(arg) == 2:
+                    mean_dnorm = sum(dNorm[arg[0]][arg[1]]) / self.X.sizes[-1]
+                    # mean_dnormnorm = sum(dNormNorm[arg[0]][arg[1]]) / self.X.sizes[-1]
+
+                    print_ln("mean dnorm %s %s", mean_dnorm.reveal(), factor[arg[0]][arg[1]].reveal())
+
+                    # self.nabla_X[arg[0]][arg[1]][:] = dNorm[arg[0]][arg[1]][:] - sum_dNorm[:] - norm[arg[0]][arg[1]][:] * sum_dNormNorm[:]
+                    # print("types", type(self.nabla_X[arg[0]][arg[1]][:]), type(factor[arg[0]][arg[1]][:]), self.nabla_X[arg[0]][arg[1]][:], factor[arg[0]][arg[1]][:])
+                    # self.nabla_X[arg[0]][arg[1]][:] = self.nabla_X[arg[0]][arg[1]][:] # * factor[arg[0]][arg[1]]
+                    self.nabla_X[arg[0]][arg[1]][:] = (dNorm[arg[0]][arg[1]][:] - mean_dnorm) * factor[arg[0]][arg[1]]
+                    print_ln("layernorm result compute_x %s", self.nabla_X[arg[0]][arg[1]].reveal()[:8])
+                    mean_dnormnorm = sum(self.nabla_X[arg[0]][arg[1]][:] * norm[arg[0]][arg[1]]) / self.X.sizes[-1]
+                    self.nabla_X[arg[0]][arg[1]][:] -= norm[arg[0]][arg[1]] * mean_dnormnorm
+
+                else:
+                    raise NotImplementedError("Only 3D tensors supported")
+                # sel_nX[:] = sel_dnorm[:] - sum_dNorm - sel_norm[:] * sum_dNormNorm
+                # print_ln("layernorm result compute_x %s", sel_nX[:].reveal())
 
 class QuantBase(object):
     bias_before_reduction = True
@@ -2885,7 +2893,9 @@ class BertLayer(BertBase):
 
         print("Init BertLayer", input_shape, output_shape)
 
-    def _forward(self, batch):
+    def forward(self, batch, training=False):
+        if batch is None:
+            batch = Array.create_from(regint(0))
         print_ln("Forward batch %s", batch)
 
         self.multi_head_attention._X.address = self.X.address
@@ -2893,7 +2903,7 @@ class BertLayer(BertBase):
         self.hidden_state.address = self.X.address
         # self.multi_head_attention.Y.address = self.Y.address
 
-        self.multi_head_attention._forward(batch, self.hidden_state)
+        self.multi_head_attention.forward(batch, self.hidden_state, training)
         # if self.debug_bert_output:
             # print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
 
@@ -2912,13 +2922,9 @@ class BertLayer(BertBase):
             print_ln("forward layer intermediate %s %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][1][0:20].reveal(), sum(sum(self.intermediate.Y[0].reveal())))
 
             print_ln(" ")
-        # print_ln("")
-        # print_ln("output.dense.W %s", self.output.dense.W.reveal_nested())
-        # print_ln("")
-        # runtime_error("stop here")
 
         self.output.X.address = self.intermediate.Y.address
-        self.output._forward(batch_inc, self.multi_head_attention.Y) # TODO renen able
+        self.output.forward(batch_inc, self.multi_head_attention.Y, training)
         # self.output.Y.address = self.output.X.address
 
         if self.debug_bert_output:
@@ -2977,6 +2983,7 @@ class BertLayer(BertBase):
         # self.multi_head_attention.nabla_X.address = self.nabla_X.address
 
         nabla_y_multi_head_attention_from_layernorm = self.output.backward(compute_nabla_X, batch)
+        # print_ln("Backward BertLayer.output.nabla_X %s", self.output.nabla_X.reveal_nested()[:8])
         self.intermediate.backward(compute_nabla_X, batch)
 
         # residual, add it to Y because it gave the output of multihadattention to output
@@ -3027,6 +3034,8 @@ class BertIntermediate(BertBase):
     def backward(self, compute_nabla_X=True, batch=None):
         self.activation.nabla_X.alloc()
 
+        # print_ln("Backward BertIntermediate.nabla_X %s", self.nabla_X.reveal_nested()[:8])
+
         self.activation.nabla_Y.address = self.nabla_Y.address
         self.dense.nabla_Y.address = self.activation.nabla_X.address
         self.dense.nabla_X.address = self.nabla_X.address
@@ -3051,7 +3060,8 @@ class BertOutput(BertBase):
         self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
-    def _forward(self, batch, input_tensor, input_tensor_batch=None):
+    def forward(self, batch, input_tensor, training, input_tensor_batch=None):
+        # TODO: remove explicit training
         # Because input_tensor might be the full training data shape
         self.dense.X.address = self.X.address
         self.dropout.X.address = self.dense.Y.address
@@ -3062,7 +3072,7 @@ class BertOutput(BertBase):
         if self.debug_bert_output:
             print_ln("forward layer output.dense %s", self.dense.Y[0][0][0:20].reveal())
 
-        self.dropout.forward(batch)
+        self.dropout.forward(batch, training)
 
         if input_tensor_batch is not None:
             input_tensor_batch_arr = MultiArray([len(batch), input_tensor.sizes[1], input_tensor.sizes[2]], sfix)
@@ -3148,7 +3158,7 @@ class MultiHeadAttention(BertBase):
         self.nabla_attention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
         self.nabla_preattention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
-    def _forward(self, batch=None, hidden_state=None, training=None):
+    def forward(self, batch=None, hidden_state=None, training=None):
 
         # TODO: Make this multi-batch
         N = len(batch)
@@ -3182,7 +3192,7 @@ class MultiHeadAttention(BertBase):
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
         # for j in range(self.num_attention_heads):
-            query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
+            query_sub = sfix.Matrix(self.seq_len, self.attention_head_size) # this is mem inefficient?
             key_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
             # print(self.wq.Y.shape, "wk Y shape", i, self.attention_head_size, j, self.wq.Y[i], self.wq.Y[i][:])
 
@@ -3195,10 +3205,6 @@ class MultiHeadAttention(BertBase):
             # print_ln("query_sub %s %s", i, j)
             res = query_sub.direct_mul_trans(key_sub)
             self.attention_scores[i].assign_part_vector(res, j)
-
-        # @for_range_opt_multithread(self.n_threads, N)
-        # def _(i):
-        #     self.attention_scores[i][:] = self.attention_scores[i][:] / math.sqrt(self.attention_head_size)
 
         if self.debug_bert_output:
             print_ln('forward layer attention_scores')
@@ -3247,7 +3253,7 @@ class MultiHeadAttention(BertBase):
         if self.debug_bert_output:
             print_ln('forward layer hidden_state %s', hidden_state[0][1][0:20].reveal())
 
-        self.output._forward(inc_batch, hidden_state, batch)
+        self.output.forward(inc_batch, hidden_state, training, batch)
         if self.debug_bert_output:
             print_ln('forward multiheadattention output %s', self.output.Y[0][1][0:20].reveal())
             print_ln("")
@@ -3299,7 +3305,7 @@ class MultiHeadAttention(BertBase):
 
             print("RES MULTI BACK", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
 
-
+        self.dropout.nabla_X.alloc()
         self.dropout.backward(compute_nabla_X, batch)
 
         # attention to pre
@@ -3313,7 +3319,7 @@ class MultiHeadAttention(BertBase):
             def _(t1, t2):
                 indicator = regint(t1 == t2)
                 local_deriv = self.attention_scores[i][j][k][t1] * (indicator - self.attention_scores[i][j][k][t2])
-                self.nabla_preattention_scores[i][j][k][t2] += local_deriv * self.dropout.nabla_Y[i][j][k][t1]
+                self.nabla_preattention_scores[i][j][k][t2] += local_deriv * self.dropout.nabla_X[i][j][k][t1] # x or y?
 
         # backward pass 1
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
@@ -4543,7 +4549,7 @@ def layers_from_torch(sequence, data_input_shape, batch_size, input_via=None,
             num_attention_heads = bert_config.num_attention_heads
             layernorm_eps = bert_config.layer_norm_eps
             seq_len = input_shape[1]
-            rsqrt_approx = True
+            rsqrt_approx = False
             layer = BertLayer(input_shape[0], seq_len, hidden_state, intermediate_size, num_attention_heads,
                               layernorm_eps, 0.125, rsqrt_approx, batch_size=batch_size)
             if input_via is not None:
