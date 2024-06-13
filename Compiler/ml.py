@@ -947,19 +947,9 @@ class FlexDense(Dense):
     def compute_f_input(self, batch):
         N = len(batch)
         prod = MultiArray([N, self.d, self.d_out], sfix)
-        # @for_range_multithread(self.n_threads, 100, self.d)
-        # def _(i):
-        #     X_sub = sfix.Matrix(N, self.d_in)
-        #     for j in range(N): # often N=1
-        #         X_sub[j][:] = self.X[batch[j]][i][:]
-        #
-        #     X_sub_out = sfix.Matrix(N, self.d_out)
-        #     X_sub_out.assign_vector(X_sub.direct_mul(self.W))
-        #     for j in range(N):
-        #         prod[j][i][:] = X_sub_out[j][:]
 
         # flattened_array version
-        result_matrix = sfix.Matrix(N * self.d, self.d_out)
+        result_matrix = sfix.Matrix(N * self.d, self.d_out, address=prod.address)
         max_size = get_program().budget // self.d_out
 
         # for now we assume that batch size is total size
@@ -968,10 +958,10 @@ class FlexDense(Dense):
         # batch_with_d =
 
         # we are going to assume the batch is continuous
-
+        batch_0 = MemValue(batch[0])
         @multithread(self.n_threads, N * self.d, max_size)
         def _(base, size):
-            batch_offset = batch[0] * self.d
+            batch_offset = batch_0 * self.d
             X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
             offset = regint.inc(size, base=base + batch_offset)
             # array_offset = regint.Array(size)
@@ -985,10 +975,6 @@ class FlexDense(Dense):
                     offset, regint.inc(self.d_in),
                     regint.inc(self.d_in), regint.inc(self.d_out))), base)
             # print_ln("result matrix done")
-
-        prod.address = result_matrix.address
-
-        # print_ln("FlexDense result_matrix full %s", prod.reveal())
 
         if self.input_bias:
             if self.d_out == 1:
@@ -1029,16 +1015,20 @@ class FlexDense(Dense):
         if compute_nabla_X:
             nabla_X.alloc()
 
-            @for_range_multithread(self.n_threads, 100, self.d)
-            def _(i):
-                X_sub = sfix.Matrix(N, self.d_out)
-                for j in range(N): # often N=1
-                    X_sub[j][:] = f_schur_Y[batch[j]][i][:]
+            # flattened matrix version
+            max_size = get_program().budget // self.d_in
+            result_matrix = sfix.Matrix(N * self.d, self.d_in, address=nabla_X.address)
+            batch_0 = MemValue(batch[0])
+            @multithread(self.n_threads, N * self.d, max_size)
+            def _(base, size):
+                batch_offset = batch_0 * self.d
+                X_sub = sfix.Matrix(self.N * self.d, self.d_out, address=f_schur_Y.address)
+                offset = regint.inc(size, base=base + batch_offset)
 
-                X_sub_out = sfix.Matrix(N, self.d_in)
-                X_sub_out.assign_vector(X_sub.direct_mul_trans(self.W))
-                for j in range(N):
-                    nabla_X[j][i][:] = X_sub_out[j][:]
+                result_matrix.assign_part_vector(
+                    X_sub.direct_mul_trans(self.W, indices=(
+                        offset, regint.inc(self.d_out),
+                        regint.inc(self.d_out), regint.inc(self.d_in))), base)
 
             if self.print_random_update:
                 print_ln('backward %s', self)
@@ -1051,21 +1041,22 @@ class FlexDense(Dense):
         self.backward_params(f_schur_Y, batch=batch)
 
     def backward_params(self, f_schur_Y, batch):
-
         print("backward params flexdense")
         N = len(batch)
         tmp = Matrix(self.d_in, self.d_out, unreduced_sfix)
+        # tmp.assign_all(0)
 
-        A = sfix.Matrix(N, self.d_out, address=f_schur_Y.address)
-        B = sfix.Matrix(self.N, self.d_in, address=self.X.address)
+        A = sfix.Matrix(N * self.d, self.d_out, address=f_schur_Y.address)
+        B = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
 
         @multithread(self.n_threads, self.d_in)
         def _(base, size):
             mp = B.direct_trans_mul(A, reduce=False,
                                     indices=(regint.inc(size, base),
                                              batch.get_vector(),
-                                             regint.inc(N),
+                                             regint.inc(N * self.d),
                                              regint.inc(self.d_out)))
+
             tmp.assign_part_vector(mp, base)
 
         progress('nabla W (matmul)')
@@ -1381,7 +1372,7 @@ class Gelu(ElementWiseLayer):
 
     :param shape: input/output shape (tuple/list of int)
     """
-    prime_type = sint
+    prime_type = sfix
 
     def __init__(self, shape, inputs=None, approx=True):
         super(Gelu, self).__init__(shape)
@@ -1394,6 +1385,17 @@ class Gelu(ElementWiseLayer):
         self.x3s = MultiArray(shape, sfix)
         self.x4s = MultiArray(shape, sfix)
 
+        self.poly_f_0_0 = -0.5054031199708174
+        self.poly_f_0_1 = -0.42226581151983866
+        self.poly_f_0_2 = -0.11807612951181953
+        self.poly_f_0_3 = -0.011034134030615728
+
+        self.poly_f_1_0 = 0.008526321541038084
+        self.poly_f_1_1 = 0.5
+        self.poly_f_1_2 = 0.3603292692789629
+        self.poly_f_1_4 = -0.037688200365904236
+        self.poly_f_1_6 = 0.0018067462606141187
+
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
 
@@ -1404,17 +1406,6 @@ class Gelu(ElementWiseLayer):
 
     def compute_gelu_approx(self, x, base, size):
         # print_ln("GELU inputs %s", x.reveal())
-        poly_f_0_a = -0.5054031199708174
-        poly_f_0_b = -0.42226581151983866
-        poly_f_0_c = -0.11807612951181953
-        poly_f_0_d = -0.011034134030615728
-
-        poly_f_1_a = 0.008526321541038084
-        poly_f_1_b = 0.5
-        poly_f_1_c = 0.3603292692789629
-        poly_f_1_e = -0.037688200365904236
-        poly_f_1_g = 0.0018067462606141187
-
         b0 = x < -4
         b1 = x < -1.95
         b2 = 3 < x
@@ -1429,8 +1420,8 @@ class Gelu(ElementWiseLayer):
         x4 = x2 ** 2
         x6 = x3 ** 2
 
-        f_0 = poly_f_0_a + poly_f_0_b * x1 + poly_f_0_c * x2 + poly_f_0_d * x3
-        f_1 = poly_f_1_a + poly_f_1_b * x1 + poly_f_1_c * x2 + poly_f_1_e * x4 + poly_f_1_g * x6
+        f_0 = self.poly_f_0_0 + self.poly_f_0_1 * x1 + self.poly_f_0_2 * x2 + self.poly_f_0_3 * x3
+        f_1 = self.poly_f_1_0 + self.poly_f_1_1 * x1 + self.poly_f_1_2 * x2 + self.poly_f_1_4 * x4 + self.poly_f_1_6 * x6
 
         self.z0s.assign_vector(z0, base)
         self.z1s.assign_vector(z1, base)
@@ -1453,27 +1444,22 @@ class Gelu(ElementWiseLayer):
 
 
     def f_prime_part(self, base, size):
+        if self.approx:
+            return self.f_prime_part_approx(base, size)
+        else:
+            return self.f_prime_part_sigmoid(base, size)
+
+    def f_prime_part_approx(self, base, size):
         # what we compute here is all derivatives
         # we need to compute the derivative of the function at the point
-        poly_f_0_a = -0.5054031199708174
-        poly_f_0_b = -0.42226581151983866
-        poly_f_0_c = -0.11807612951181953
-        poly_f_0_d = -0.011034134030615728
+        poly_prime_f_0_0 = self.poly_f_0_1
+        poly_prime_f_0_1 = self.poly_f_0_2 * 2
+        poly_prime_f_0_2 = self.poly_f_0_3 * 3
 
-        poly_f_1_a = 0.008526321541038084
-        poly_f_1_b = 0.5
-        poly_f_1_c = 0.3603292692789629
-        poly_f_1_e = -0.037688200365904236
-        poly_f_1_g = 0.0018067462606141187
-
-        poly_prime_f_0_0 = poly_f_0_b
-        poly_prime_f_0_1 = poly_f_0_c * 2
-        poly_prime_f_0_2 = poly_f_0_d * 3
-
-        poly_prime_f_1_0 = poly_f_1_b
-        poly_prime_f_1_1 = poly_f_1_c * 2
-        poly_prime_f_1_3 = poly_f_1_e * 4
-        poly_prime_f_1_5 = poly_f_1_g * 6
+        poly_prime_f_1_0 = self.poly_f_1_1
+        poly_prime_f_1_1 = self.poly_f_1_2 * 2
+        poly_prime_f_1_3 = self.poly_f_1_4 * 4
+        poly_prime_f_1_5 = self.poly_f_1_6 * 6
 
         x1 = self.X.get_vector(base, size)
         x2 = self.x2s.get_vector(base, size)
@@ -1488,7 +1474,19 @@ class Gelu(ElementWiseLayer):
         z1 = self.z1s.get_vector(base, size)
         z2 = self.z2s.get_vector(base, size)
 
+        print_ln("gelu backward x %s res %s", x1.reveal()[:8], ((z0 * f_0_prime) + (z1 * f_1_prime) + z2).reveal()[:8])
+
         return (z0 * f_0_prime) + (z1 * f_1_prime) + z2
+
+    def f_prime_part_sigmoid(self, base, size):
+        x = self.X.get_vector(base, size)
+        # return 0.5 * (1 + self.tanh(0.0356774 * x ** 3 + 0.797884 * x))
+        print_ln("f sigmoid")
+        x3 = x ** 3
+        exp_term = exp(1.59577 * x + 0.071355 * x3)
+        return (exp(3.19154* x + 0.14271 * x) + exp_term * (1 + 1.59577 * x + 0.214065 * x3)) / (1 + exp_term) ** 2
+
+
 
 class Tanh(ElementWiseLayer):
 
@@ -2042,12 +2040,6 @@ class LayerNorm(Layer):  # Changed class name
             return sel[:]
         self.nabla_weights.assign(_())
 
-        print_ln("nabla_y %s", self.nabla_Y[:].reveal()[:128])
-        print_ln("weights %s", self.weights[:].reveal()[:])
-        print_ln("x %s", self.X[:].reveal()[:128])
-        # print_ln("nabla_bias %s", self.nabla_bias[:].reveal())
-        # print_ln("nabla_weights %s", self.nabla_weights[:].reveal())
-
         if compute_nabla_X:
             # sum_dNorm = sfix.Array(self.X.sizes[-1])
             # sum_dNormNorm = sfix.Array(self.X.sizes[-1])
@@ -2062,8 +2054,8 @@ class LayerNorm(Layer):  # Changed class name
 
             # print_ln("sum norm %s", sum_dNorm[:].reveal())
             # print_ln("sum norm norm %s", sum_dNormNorm[:].reveal())
-            print_ln("norm %s", norm[:].reveal()[:8]) # corr
-            print_ln("dnorm %s", dNorm[:].reveal()[:8])
+            # print_ln("norm %s", norm[:].reveal()[:8]) # corr
+            # print_ln("dnorm %s", dNorm[:].reveal()[:8])
 
             # Compute final gradient wrt input X
             @for_range_opt_multithread(self.n_threads, batch_shape)
@@ -2071,15 +2063,8 @@ class LayerNorm(Layer):  # Changed class name
 
                 if len(arg) == 2:
                     mean_dnorm = sum(dNorm[arg[0]][arg[1]]) / self.X.sizes[-1]
-                    # mean_dnormnorm = sum(dNormNorm[arg[0]][arg[1]]) / self.X.sizes[-1]
 
-                    print_ln("mean dnorm %s %s", mean_dnorm.reveal(), factor[arg[0]][arg[1]].reveal())
-
-                    # self.nabla_X[arg[0]][arg[1]][:] = dNorm[arg[0]][arg[1]][:] - sum_dNorm[:] - norm[arg[0]][arg[1]][:] * sum_dNormNorm[:]
-                    # print("types", type(self.nabla_X[arg[0]][arg[1]][:]), type(factor[arg[0]][arg[1]][:]), self.nabla_X[arg[0]][arg[1]][:], factor[arg[0]][arg[1]][:])
-                    # self.nabla_X[arg[0]][arg[1]][:] = self.nabla_X[arg[0]][arg[1]][:] # * factor[arg[0]][arg[1]]
                     self.nabla_X[arg[0]][arg[1]][:] = (dNorm[arg[0]][arg[1]][:] - mean_dnorm) * factor[arg[0]][arg[1]]
-                    print_ln("layernorm result compute_x %s", self.nabla_X[arg[0]][arg[1]].reveal()[:8])
                     mean_dnormnorm = sum(self.nabla_X[arg[0]][arg[1]][:] * norm[arg[0]][arg[1]]) / self.X.sizes[-1]
                     self.nabla_X[arg[0]][arg[1]][:] -= norm[arg[0]][arg[1]] * mean_dnormnorm
 
@@ -2982,9 +2967,9 @@ class BertLayer(BertBase):
         self.multi_head_attention.nabla_Y.address = self.intermediate.nabla_X.address
         # self.multi_head_attention.nabla_X.address = self.nabla_X.address
 
-        nabla_y_multi_head_attention_from_layernorm = self.output.backward(compute_nabla_X, batch)
+        nabla_y_multi_head_attention_from_layernorm = self.output.backward(True, batch)
         # print_ln("Backward BertLayer.output.nabla_X %s", self.output.nabla_X.reveal_nested()[:8])
-        self.intermediate.backward(compute_nabla_X, batch)
+        self.intermediate.backward(True, batch)
 
         # residual, add it to Y because it gave the output of multihadattention to output
         @multithread(self.n_threads, len(batch))
@@ -2993,9 +2978,13 @@ class BertLayer(BertBase):
                 self.multi_head_attention.nabla_Y.get_part_vector(base, size) +
                 nabla_y_multi_head_attention_from_layernorm.get_part_vector(base, size), base)
 
+        if compute_nabla_X:
+            self.multi_head_attention.nabla_X.address = self.nabla_X.address
+
         nabla_y_hidden_state = self.multi_head_attention.backward(compute_nabla_X, batch)
 
         if compute_nabla_X:
+            print_ln("Bertlayer nabla_x %s %s", nabla_y_hidden_state.get_vector().reveal()[-8:], self.nabla_X.get_vector().reveal()[-8:])
             # and add hidden_state back to nabla_X, add to x because we gave x to multi_head_attention
             @multithread(self.n_threads, len(batch))
             def _(base, size):
@@ -3060,8 +3049,7 @@ class BertOutput(BertBase):
         self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
-    def forward(self, batch, input_tensor, training, input_tensor_batch=None):
-        # TODO: remove explicit training
+    def forward(self, batch, input_tensor, training=False, input_tensor_batch=None):
         # Because input_tensor might be the full training data shape
         self.dense.X.address = self.X.address
         self.dropout.X.address = self.dense.Y.address
@@ -3275,11 +3263,11 @@ class MultiHeadAttention(BertBase):
         self.output.nabla_Y.address = self.nabla_Y.address
 
         self.output.nabla_X.alloc()
-        self.nabla_context = self.output.nabla_X
+        self.nabla_context.address = self.output.nabla_X.address
 
         self.nabla_attention_scores.address = self.dropout.nabla_X
 
-        nabla_y_hidden_state = self.output.backward(compute_nabla_X, batch)
+        nabla_y_hidden_state = self.output.backward(True, batch)
 
         # Backprop context
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
@@ -3289,11 +3277,18 @@ class MultiHeadAttention(BertBase):
 
             @for_range_opt([self.seq_len])
             def _(k):
+                # dout_bth
                 res[k].assign_vector(self.nabla_context[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size)) # nabla_Y
+                # value_t2
                 value_sub[k] = self.wv.Y[i][k].get_part_vector(j * self.attention_head_size, self.attention_head_size) # TODO: memcpy here
 
             nabla_value_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
-            nabla_value_sub.assign_vector(self.dropout.Y[i][j].direct_trans_mul(res))
+
+            # dvalue_t2 = dout_bth * att_bth
+            nabla_value_sub.assign_vector(self.dropout.Y[i][j].direct_trans_mul(res)) # wrong because this is the wrong dout
+            # nabla_value_sub.assign_vector(self.context[i][j].direct_trans_mul(res))
+
+            # datt_bth = dout_bth * value_t2
             self.dropout.nabla_Y[i][j].assign_vector(res.direct_mul_trans(value_sub))
 
             @for_range_opt([self.seq_len])
@@ -3306,7 +3301,7 @@ class MultiHeadAttention(BertBase):
             print("RES MULTI BACK", self.dropout.Y, res, self.num_attention_heads, self.attention_head_size)
 
         self.dropout.nabla_X.alloc()
-        self.dropout.backward(compute_nabla_X, batch)
+        self.dropout.backward(True, batch)
 
         # attention to pre
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
