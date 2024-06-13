@@ -3190,7 +3190,7 @@ class MultiHeadAttention(BertBase):
             self.attention_scores[i].assign_part_vector(res, j)
 
         if self.debug_bert_output:
-            print_ln('forward layer attention_scores')
+            print_ln('forward layer attention_scores %s', self.attention_scores[0][0].reveal())
             # print_ln('forward layer attention_scores full %s', self.attention_scores.reveal())
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
@@ -3265,9 +3265,9 @@ class MultiHeadAttention(BertBase):
 
         nabla_y_hidden_state = self.output.backward(True, batch)
 
-        # if self.debug_bert_output:
-        #     print_ln("backward layer attention output.nabla_Y %s", self.output.nabla_Y.reveal_nested()[:8])
-        #     print_ln("backward layer attention output.nabla_X %s", self.output.nabla_X.reveal_nested()[0][0][:8])
+        if self.debug_bert_output:
+            print_ln("backward layer attention output.nabla_Y %s", self.output.nabla_Y.reveal_nested()[0][0][:8])
+            print_ln("backward layer attention output.nabla_X %s", self.output.nabla_X.reveal_nested()[0][0][:8])
 
         # Backprop context
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
@@ -3304,23 +3304,27 @@ class MultiHeadAttention(BertBase):
         self.dropout.backward(True, batch)
 
         if self.debug_bert_output:
-            print_ln("backward layer attention dropout.nabla_X %s", self.dropout.nabla_X.reveal_nested()[:8])
+            # Dropout nabla y is correct
+            # wv nabla_Y also correct
+            print_ln("backward layer attention dropout.nabla_Y %s", self.dropout.nabla_Y.reveal_nested()[:8])
+            print_ln("backward layer attention wv.nabla_Y %s", self.wv.nabla_Y.reveal_nested()[:8])
 
         # attention to pre
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads, self.seq_len])
         def _(i, j, k):
-            # regint indicator
-            # indicator = regint.Array(self.seq_len)
-            # indicator.assign(0)
-            # indicator[k] = regint(1)
             @for_range_opt([self.seq_len, self.seq_len])
             def _(t1, t2):
-                indicator = regint(t1 == t2)
-                local_deriv = self.attention_scores[i][j][k][t1] * (indicator - self.attention_scores[i][j][k][t2])
+                indicator = cfix(t1 == t2)
+                # local_deriv = self.attention_scores[i][j][k][t1] * (indicator - self.attention_scores[i][j][k][t2])
+                local_deriv = self.dropout.Y[i][j][k][t1] * (indicator - self.dropout.Y[i][j][k][t2])
+
+                # print_ln("indiciator %s %s %s %s %s %s", t1, t2, indicator, local_deriv.reveal(), self.dropout.Y[i][j][k][t1].reveal(), self.attention_scores[i][j][k][t2].reveal())
                 self.nabla_preattention_scores[i][j][k][t2] += local_deriv * self.dropout.nabla_X[i][j][k][t1] # x or y?
 
-        print_ln("attention_scores %s", self.attention_scores.reveal()[0][0])
+        print_ln("attention_scores %s", self.attention_scores.reveal())
         print_ln("nabla preattention scores %s", self.nabla_preattention_scores.reveal())
+
+        scale = 1 / math.sqrt(self.attention_head_size)
         # backward pass 1
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
@@ -3340,11 +3344,12 @@ class MultiHeadAttention(BertBase):
 
             nabla_query_sub = sfix.Matrix(self.seq_len, self.attention_head_size)
             nabla_key_sub_trans = sfix.Matrix(self.attention_head_size, self.seq_len)
-            nabla_query_sub.assign_vector(self.nabla_preattention_scores[i][j].direct_mul(key_sub))
-            nabla_key_sub_trans.assign_vector(query_sub.direct_trans_mul(self.nabla_preattention_scores[i][j]))
+            nabla_query_sub.assign_vector(self.nabla_preattention_scores[i][j].direct_trans_mul(key_sub) * scale)
+            nabla_key_sub_trans.assign_vector(query_sub.direct_trans_mul(self.nabla_preattention_scores[i][j]) * scale)
             nabla_key_sub = nabla_key_sub_trans.transpose()
 
             print_ln("nabla query sub %s", nabla_query_sub.reveal())
+            print_ln("nabla key sub %s", nabla_key_sub.reveal())
 
             # nabla_key_sub is seq_len_seqlen, copy back into wk which is seq_len, all_head_size
             @for_range_opt(self.seq_len)
@@ -3354,6 +3359,9 @@ class MultiHeadAttention(BertBase):
 
         if self.debug_bert_output:
             print_ln("backward layer attention wq.nabla_Y %s", self.wq.nabla_Y.reveal_nested()[:8])
+
+            # wk slightly off
+            print_ln("backward layer attention wk.nabla_Y %s", self.wk.nabla_Y.reveal_nested()[:8])
 
         self.wq.backward(compute_nabla_X, batch)
         self.wk.backward(compute_nabla_X, batch)
@@ -3366,6 +3374,7 @@ class MultiHeadAttention(BertBase):
                 sum_layers, base)
 
         if self.debug_bert_output:
+            # TODO: Wq seems off still
             print_ln("backward layer attention wq.nabla_X %s", self.wq.nabla_X.reveal_nested()[:8])
 
         return nabla_y_hidden_state
