@@ -406,7 +406,7 @@ endif
 
 
 mac-setup: mac-machine-setup
-	brew install openssl boost libsodium gmp yasm ntl cmake
+	brew install openssl boost libsodium gmp yasm ntl cmake libomp
 
 linux-machine-setup:
 mac-machine-setup:
