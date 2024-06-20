@@ -121,6 +121,7 @@ setup: maybe-boost linux-machine-setup
 endif
 
 tldr: setup
+	make -j8 libff
 	$(MAKE) mascot-party.x
 	mkdir Player-Data 2> /dev/null; true
 
