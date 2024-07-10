@@ -3,7 +3,7 @@
  *
  */
 
-#define VERBOSE 1
+//#define VERBOSE 1 # TODO: Somehow setting this to 1 gives weird compilation errors
 
 #include "Math/gfp.hpp"
 #include "Processor/FieldMachine.hpp"
