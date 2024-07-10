@@ -4509,8 +4509,8 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
         return reduce(operator.mul, x)
 
     import torch
-     def process(item, inputs, input_shape, args):
-             nonlocal bert_config # TODO: fix
+    def process(item, inputs, input_shape, args):
+        # nonlocal bert_config # TODO: fix
         if item == torch.cat:
             if len(inputs) > 1:
                 layers.append(
@@ -4606,7 +4606,7 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
                                                            item.weight.detach())
                 layers[-1].bias = sfix.input_tensor_via(input_via,
                                                         item.bias.detach())
-                                                        layers[-1].mu_hat = sfix.input_tensor_via(
+                layers[-1].mu_hat = sfix.input_tensor_via(
                     input_via, item.running_mean.detach())
                 layers[-1].var_hat = sfix.input_tensor_via(
                     input_via, item.running_var.detach())
