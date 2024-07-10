@@ -87,7 +87,7 @@ public:
 
     void buffer_random()
     {
-        for (int i = 0; i < OnlineOptions::singleton.batch_size; i++)
+        for (int i = 0; i < this->buffer_size; i++)
             this->random.push_back(G.get<T>());
     }
 };

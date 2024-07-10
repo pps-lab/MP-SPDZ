@@ -6,6 +6,7 @@
 #include "Protocols/fake-stuff.h"
 
 #include "Protocols/fake-stuff.hpp"
+#include "Protocols/Share.hpp"
 #include "Math/Z2k.hpp"
 
 #include <fstream>

@@ -44,6 +44,7 @@ public:
 
     string progname;
     int nthreads;
+    bool multithread;
 
     ThreadQueues queues;
 
@@ -66,10 +67,14 @@ public:
     template<class T>
     static int batch_size(Dtype type, int buffer_size = 0, int fallback = 0);
     template<class T>
+    static int input_batch_size(int player, int buffer_size = 0);
+    template<class T>
     static int edabit_batch_size(int n_bits, int buffer_size = 0);
     static int edabit_bucket_size(int n_bits);
     static int triple_bucket_size(DataFieldType type);
     static int bucket_size(size_t usage);
+    static int matrix_batch_size(int n_rows, int n_inner, int n_cols);
+    static int matrix_requirement(int n_rows, int n_inner, int n_cols);
 
     BaseMachine();
     virtual ~BaseMachine() {}
@@ -105,6 +110,10 @@ inline OTTripleSetup BaseMachine::fresh_ot_setup(Player& P)
 template<class T>
 int BaseMachine::batch_size(Dtype type, int buffer_size, int fallback)
 {
+    if (OnlineOptions::singleton.has_option("debug_batch_size"))
+        fprintf(stderr, "batch_size buffer_size=%d fallback=%d\n", buffer_size,
+                fallback);
+
     int n_opts;
     int n = 0;
     int res = 0;
@@ -114,7 +123,7 @@ int BaseMachine::batch_size(Dtype type, int buffer_size, int fallback)
     else if (fallback > 0)
         n_opts = fallback;
     else
-        n_opts = OnlineOptions::singleton.batch_size;
+        n_opts = OnlineOptions::singleton.batch_size * T::default_length;
 
     if (buffer_size <= 0 and has_program())
     {
@@ -132,7 +141,6 @@ int BaseMachine::batch_size(Dtype type, int buffer_size, int fallback)
     {
         n = buffer_size;
         buffer_size = 0;
-        n_opts = OnlineOptions::singleton.batch_size;
     }
 
     if (n > 0 and not (buffer_size > 0))
@@ -161,14 +169,31 @@ int BaseMachine::batch_size(Dtype type, int buffer_size, int fallback)
     else
         res = n_opts;
 
-#ifdef DEBUG_BATCH_SIZE
-    cerr << DataPositions::dtype_names[type] << " " << T::type_string()
-            << " res=" << res << " n="
-            << n << " n_opts=" << n_opts << " buffer_size=" << buffer_size << endl;
-#endif
+    if (OnlineOptions::singleton.has_option("debug_batch_size"))
+        cerr << DataPositions::dtype_names[type] << " " << T::type_string()
+                << " res=" << res << " n=" << n << " n_opts=" << n_opts
+                << " buffer_size=" << buffer_size << endl;
 
     assert(res > 0);
     return res;
+}
+
+template<class T>
+int BaseMachine::input_batch_size(int player, int buffer_size)
+{
+    if (buffer_size)
+        return buffer_size;
+
+    if (has_program())
+    {
+        auto res =
+                s().progs[0].get_offline_data_used(
+                        ).inputs[player][T::clear::field_type()];
+        if (res > 0)
+            return res;
+    }
+
+    return OnlineOptions::singleton.batch_size;
 }
 
 template<class T>

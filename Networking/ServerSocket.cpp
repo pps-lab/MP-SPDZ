@@ -205,7 +205,7 @@ int ServerSocket::get_connection_socket(const string& id)
   while (clients.find(id) == clients.end())
   {
       if (data_signal.wait(CONNECTION_TIMEOUT) == ETIMEDOUT)
-          throw runtime_error("Timed out waiting for peer. See "
+          exit_error("Timed out waiting for peer. See "
                   "https://mp-spdz.readthedocs.io/en/latest/networking.html "
                   "for details on networking.");
   }
@@ -230,7 +230,7 @@ void AnonymousServerSocket::init()
 void AnonymousServerSocket::process_client(const string& client_id)
 {
   if (clients.find(client_id) != clients.end())
-    throw runtime_error("client " + client_id + " already connected");
+    exit_error("client " + client_id + " already connected");
   client_connection_queue.push(client_id);
 }
 
@@ -242,7 +242,7 @@ int AnonymousServerSocket::get_connection_socket(string& client_id)
   {
       int res = data_signal.wait(CONNECTION_TIMEOUT);
       if (res == ETIMEDOUT)
-          throw runtime_error("timed out while waiting for client");
+          exit_error("timed out while waiting for client");
       else if (res)
           throw runtime_error("waiting error");
   }

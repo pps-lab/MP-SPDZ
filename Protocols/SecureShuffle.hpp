@@ -58,7 +58,7 @@ SecureShuffle<T>::SecureShuffle(SubProcessor<T>& proc) :
 }
 
 template<class T>
-SecureShuffle<T>::SecureShuffle(vector<T>& a, size_t n, int unit_size,
+SecureShuffle<T>::SecureShuffle(StackedVector<T>& a, size_t n, int unit_size,
         size_t output_base, size_t input_base, SubProcessor<T>& proc) :
         proc(proc), unit_size(unit_size), n_shuffle(0), exact(false)
 {
@@ -71,10 +71,12 @@ SecureShuffle<T>::SecureShuffle(vector<T>& a, size_t n, int unit_size,
 }
 
 template<class T>
-void SecureShuffle<T>::apply(vector<T>& a, size_t n, int unit_size, size_t output_base,
+void SecureShuffle<T>::apply(StackedVector<T>& a, size_t n, int unit_size, size_t output_base,
         size_t input_base, shuffle_type& shuffle, bool reverse)
 {
     this->unit_size = unit_size;
+
+    stats[n / unit_size] += unit_size;
 
     pre(a, n, input_base);
 
@@ -98,7 +100,7 @@ void SecureShuffle<T>::apply(vector<T>& a, size_t n, int unit_size, size_t outpu
 
 
 template<class T>
-void SecureShuffle<T>::inverse_permutation(vector<T> &stack, size_t n, size_t output_base,
+void SecureShuffle<T>::inverse_permutation(StackedVector<T> &stack, size_t n, size_t output_base,
                                            size_t input_base) {
     int alice = 0;
     int bob = 1;
@@ -107,9 +109,11 @@ void SecureShuffle<T>::inverse_permutation(vector<T> &stack, size_t n, size_t ou
     auto &input = proc.input;
 
     // This method only supports two players
-    assert(P.num_players() == 2);
+    if (P.num_players() != 2)
+        throw runtime_error("inverse permutation only implemented for two players");
     // The current implementation assumes a semi-honest environment
-    assert(!T::malicious);
+    if (T::malicious)
+        throw runtime_error("inverse permutation only implemented for semi-honest protocols");
 
     // We are dealing directly with permutations, so the unit_size will always be 1.
     this->unit_size = 1;
@@ -173,7 +177,7 @@ void SecureShuffle<T>::inverse_permutation(vector<T> &stack, size_t n, size_t ou
 }
 
 template<class T>
-void SecureShuffle<T>::pre(vector<T>& a, size_t n, size_t input_base)
+void SecureShuffle<T>::pre(StackedVector<T>& a, size_t n, size_t input_base)
 {
     n_shuffle = n / unit_size;
     assert(unit_size * n_shuffle == n);
@@ -204,7 +208,7 @@ void SecureShuffle<T>::pre(vector<T>& a, size_t n, size_t input_base)
 }
 
 template<class T>
-void SecureShuffle<T>::post(vector<T>& a, size_t n, size_t output_base)
+void SecureShuffle<T>::post(StackedVector<T>& a, size_t n, size_t output_base)
 {
     if (exact)
         for (size_t i = 0; i < n; i++)
@@ -344,7 +348,7 @@ void SecureShuffle<T>::configure(int config_player, vector<int> *perm, int n) {
 }
 
 template<class T>
-void SecureShuffle<T>::waksman(vector<T>& a, int depth, int start)
+void SecureShuffle<T>::waksman(StackedVector<T>& a, int depth, int start)
 {
     int n = a.size();
 

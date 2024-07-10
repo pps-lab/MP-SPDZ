@@ -43,6 +43,8 @@ public:
         this->P = &prep.proc->P;
     }
 
+    int minimum_batch();
+
     void set_protocol(typename ShareMatrix<T>::Protocol&)
     {
     }

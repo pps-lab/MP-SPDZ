@@ -71,17 +71,19 @@ private:
     void configure(int config_player, vector<int>* perm, int n);
     void player_round(int config_player);
 
-    void waksman(vector<T>& a, int depth, int start);
+    void waksman(StackedVector<T>& a, int depth, int start);
     void cond_swap(T& x, T& y, const T& b);
 
     void iter_waksman(bool reverse = false);
     void waksman_round(int size, bool inwards, bool reverse);
 
-    void pre(vector<T>& a, size_t n, size_t input_base);
-    void post(vector<T>& a, size_t n, size_t input_base);
+    void pre(StackedVector<T>& a, size_t n, size_t input_base);
+    void post(StackedVector<T>& a, size_t n, size_t input_base);
 
 public:
-    SecureShuffle(vector<T>& a, size_t n, int unit_size,
+    map<long, long> stats;
+
+    SecureShuffle(StackedVector<T>& a, size_t n, int unit_size,
             size_t output_base, size_t input_base, SubProcessor<T>& proc);
 
     SecureShuffle(SubProcessor<T>& proc);
@@ -101,7 +103,7 @@ public:
      * @param reverse Boolean indicating whether to apply the inverse of the permutation
      * @see SecureShuffle::generate for obtaining a shuffle handle
      */
-    void apply(vector<T>& a, size_t n, int unit_size, size_t output_base,
+    void apply(StackedVector<T>& a, size_t n, int unit_size, size_t output_base,
             size_t input_base, shuffle_type& shuffle, bool reverse);
 
     /**
@@ -117,7 +119,7 @@ public:
      * @param output_base The starting address of the output vector (i.e. the location to write the inverted permutation to)
      * @param input_base The starting address of the input vector (i.e. the location from which to read the permutation)
      */
-    void inverse_permutation(vector<T>& stack, size_t n, size_t output_base, size_t input_base);
+    void inverse_permutation(StackedVector<T>& stack, size_t n, size_t output_base, size_t input_base);
 };
 
 #endif /* PROTOCOLS_SECURESHUFFLE_H_ */

@@ -132,7 +132,7 @@ class modp_
   //  - Can do in human or machine only format (later should be faster)
   //  - If human output appends a space to help with reading
   //    and also convert back/forth from Montgomery if needed
-  void output(ostream& s,const Zp_Data& ZpD,bool human) const;
+  void output(ostream& s, const Zp_Data& ZpD, bool human, bool signed_ = false) const;
   void input(istream& s,const Zp_Data& ZpD,bool human);
 
   template<int X, int K>

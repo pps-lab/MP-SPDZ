@@ -17,7 +17,7 @@ namespace GC
 void Semi::prepare_mult(const SemiSecret& x, const SemiSecret& y, int n,
 		bool repeat)
 {
-    if (repeat and OnlineOptions::singleton.live_prep)
+    if (repeat and OnlineOptions::singleton.live_prep and (n < 0 or n > 1))
     {
         this->triples.push_back({{}});
         auto& triple = this->triples.back();
@@ -35,6 +35,8 @@ void Semi::prepare_mult(const SemiSecret& x, const SemiSecret& y, int n,
 
 void Semi::prepare_mul(const SemiSecret& x, const SemiSecret& y, int n)
 {
+    if (n == -1)
+        n = SemiSecret::default_length;
     super::prepare_mul(x.mask(n), y.mask(n), n);
 }
 

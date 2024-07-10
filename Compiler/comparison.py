@@ -76,13 +76,13 @@ def require_ring_size(k, op):
     program.curr_tape.require_bit_length(k)
 
 @instructions_base.cisc
-def LTZ(s, a, k, kappa):
+def LTZ(s, a, k):
     """
     s = (a ?< 0)
 
     k: bit length of a
     """
-    movs(s, program.non_linear.ltz(a, k, kappa))
+    movs(s, program.non_linear.ltz(a, k))
 
 def LtzRing(a, k):
     from .types import sint, _bitint
@@ -105,14 +105,14 @@ def LtzRing(a, k):
         u = CarryOutRaw(a[::-1], b[::-1])
         return sint.conv(r_bin[m].bit_xor(c_prime >> m).bit_xor(u))
 
-def LessThanZero(a, k, kappa):
+def LessThanZero(a, k):
     from . import types
     res = types.sint()
-    LTZ(res, a, k, kappa)
+    LTZ(res, a, k)
     return res
 
 @instructions_base.cisc
-def Trunc(d, a, k, m, kappa, signed):
+def Trunc(d, a, k, m, signed):
     """
     d = a >> m
 
@@ -124,7 +124,7 @@ def Trunc(d, a, k, m, kappa, signed):
         movs(d, a)
         return
     else:
-        movs(d, program.non_linear.trunc(a, k, m, kappa, signed))
+        movs(d, program.non_linear.trunc(a, k, m, signed=signed))
 
 def TruncRing(d, a, k, m, signed):
     program.curr_tape.require_bit_length(1)
@@ -197,13 +197,13 @@ def TruncLeakyInRing(a, k, m, signed):
     shifted = ((a << (n_shift - m)) + (r << n_shift)).reveal(False)
     masked = shifted >> n_shift
     u = sint()
-    BitLTL(u, masked, r_bits[:n_bits], 0)
+    BitLTL(u, masked, r_bits[:n_bits])
     res = (u << n_bits) + masked - r
     if signed:
         res -= (1 << (n_bits - 1))
     return res
 
-def TruncRoundNearest(a, k, m, kappa, signed=False):
+def TruncRoundNearest(a, k, m, signed=False):
     """
     Returns a / 2^m, rounded to the nearest integer.
 
@@ -212,12 +212,10 @@ def TruncRoundNearest(a, k, m, kappa, signed=False):
     """
     if m == 0:
         return a
-    nl = program.non_linear
-    nl.check_security(kappa)
     return program.non_linear.trunc_round_nearest(a, k, m, signed)
 
 @instructions_base.cisc
-def Mod2m(a_prime, a, k, m, kappa, signed):
+def Mod2m(a_prime, a, k, m, signed):
     """
     a_prime = a % 2^m
 
@@ -225,8 +223,6 @@ def Mod2m(a_prime, a, k, m, kappa, signed):
     m: compile-time integer
     signed: True/False, describes a
     """
-    nl = program.non_linear
-    nl.check_security(kappa)
     movs(a_prime, program.non_linear.mod2m(a, k, m, signed))
 
 def Mod2mRing(a_prime, a, k, m, signed):
@@ -237,13 +233,13 @@ def Mod2mRing(a_prime, a, k, m, signed):
     tmp = a + r_prime
     c_prime = (tmp << shift).reveal(False) >> shift
     u = sint()
-    BitLTL(u, c_prime, r_bin[:m], 0)
+    BitLTL(u, c_prime, r_bin[:m])
     res = (u << m) + c_prime - r_prime
     if a_prime is not None:
         movs(a_prime, res)
     return res
 
-def Mod2mField(a_prime, a, k, m, kappa, signed):
+def Mod2mField(a_prime, a, k, m, signed):
     from .types import sint
     r_dprime = program.curr_block.new_reg('s')
     r_prime = program.curr_block.new_reg('s')
@@ -255,7 +251,7 @@ def Mod2mField(a_prime, a, k, m, kappa, signed):
     t = [program.curr_block.new_reg('s') for i in range(6)]
     c2m = program.curr_block.new_reg('c')
     c2k1 = program.curr_block.new_reg('c')
-    PRandM(r_dprime, r_prime, r, k, m, kappa)
+    PRandM(r_dprime, r_prime, r, k, m)
     ld2i(c2m, m)
     mulm(t[0], r_dprime, c2m)
     if signed:
@@ -268,9 +264,9 @@ def Mod2mField(a_prime, a, k, m, kappa, signed):
     asm_open(True, c, t[3])
     modc(c_prime, c, c2m)
     if const_rounds:
-        BitLTC1(u, c_prime, r, kappa)
+        BitLTC1(u, c_prime, r)
     else:
-        BitLTL(u, c_prime, r, kappa)
+        BitLTL(u, c_prime, r)
     mulm(t[4], u, c2m)
     submr(t[5], c_prime, r_prime)
     adds(a_prime, t[5], t[4])
@@ -288,13 +284,15 @@ def MaskingBitsInRing(m, strict=False):
         r_bin = r
     return sint.bit_compose(r), r_bin
 
-def PRandM(r_dprime, r_prime, b, k, m, kappa, use_dabit=True):
+def PRandM(r_dprime, r_prime, b, k, m, use_dabit=True):
     """
     r_dprime = random secret integer in range [0, 2^(k + kappa - m) - 1]
     r_prime = random secret integer in range [0, 2^m - 1]
     b = array containing bits of r_prime
     """
-    program.curr_tape.require_bit_length(k + kappa)
+    assert k >= m
+    kappa = program.security
+    program.curr_tape.require_bit_length(k + kappa, reason='statistical masking as in https://www.researchgate.net/publication/225092133_Improved_Primitives_for_Secure_Multiparty_Integer_Computation')
     from .types import sint
     if program.use_edabit() and not const_rounds:
         movs(r_dprime, sint.get_edabit(k + kappa - m, True)[0])
@@ -329,7 +327,7 @@ def PRandInt(r, k):
         bit(t[1][i])
         adds(t[2][i], t[0][i], t[1][i])
 
-def BitLTC1(u, a, b, kappa):
+def BitLTC1(u, a, b):
     """
     u = a <? b
 
@@ -375,7 +373,7 @@ def BitLTC1(u, a, b, kappa):
     pre_input.reverse()
     if use_inv:
         if instructions_base.get_global_vector_size() == 1:
-            PreMulC_with_inverses_and_vectors(p, pre_input)
+            PreMulC_with_inverses(p, pre_input)
         else:
             if do_precomp:
                 PreMulC_with_inverses(p, pre_input)
@@ -395,7 +393,7 @@ def BitLTC1(u, a, b, kappa):
         subcfi(c[3][i], a_bits[i], 1)
         mulm(t[3][i], s[i], c[3][i])
         adds(t[4][i], t[4][i-1], t[3][i])
-    Mod2(u, t[4][k-1], k, kappa, False)
+    Mod2(u, t[4][k-1], k, False)
     return p, a_bits, d, s, t, c, b, pre_input
 
 def carry(b, a, compute_p=True):
@@ -414,7 +412,7 @@ def carry(b, a, compute_p=True):
 
 # from WP9 report
 # length of a is even
-def CarryOutAux(a, kappa):
+def CarryOutAux(a):
     k = len(a)
     if k > 1 and k % 2 == 1:
         a.append(None)
@@ -424,12 +422,12 @@ def CarryOutAux(a, kappa):
     if k > 1:
         for i in range(k//2):
             u[i] = carry(a[2*i+1], a[2*i], i != k//2-1)
-        return CarryOutAux(u[:k//2][::-1], kappa)
+        return CarryOutAux(u[:k//2][::-1])
     else:
         return a[0][1]
 
 # carry out with carry-in bit c
-def CarryOut(res, a, b, c=0, kappa=None):
+def CarryOut(res, a, b, c=0):
     """
     res = last carry bit in addition of a and b
 
@@ -456,7 +454,7 @@ def CarryOutRaw(a, b, c=0):
     s[0] = d[-1][0].bit_and(c)
     s[1] = d[-1][1] + s[0]
     d[-1][1] = s[1]
-    return CarryOutAux(d[::-1], None)
+    return CarryOutAux(d[::-1])
 
 def CarryOutRawLE(a, b, c=0):
     """ Little-endian version """
@@ -469,7 +467,7 @@ def CarryOutLE(a, b, c=0):
     CarryOut(res, a[::-1], b[::-1], c)
     return res
 
-def BitLTL(res, a, b, kappa):
+def BitLTL(res, a, b):
     """
     res = a <? b (logarithmic rounds version)
 
@@ -542,6 +540,7 @@ def PreMulC_with_inverses(p, a):
     w[1][0] = r[0][0]
     for i in range(k):
         muls(t[0][i], w[1][i], a[i])
+    for i in range(k):
         asm_open(True, m[i], t[0][i])
     PreMulC_end(p, a, c, m, z)
 
@@ -623,7 +622,7 @@ def KMulC(a):
         PreMulC_without_inverses(p, a)
     return p
 
-def Mod2(a_0, a, k, kappa, signed):
+def Mod2(a_0, a, k, signed):
     """
     a_0 = a % 2
 
@@ -640,7 +639,7 @@ def Mod2(a_0, a, k, kappa, signed):
     tc = program.curr_block.new_reg('c')
     t = [program.curr_block.new_reg('s') for i in range(6)]
     c2k1 = program.curr_block.new_reg('c')
-    PRandM(r_dprime, r_prime, [r_0], k, 1, kappa)
+    PRandM(r_dprime, r_prime, [r_0], k, 1)
     r_0 = r_prime
     mulsi(t[0], r_dprime, 2)
     if signed:

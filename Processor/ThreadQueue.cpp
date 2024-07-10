@@ -33,10 +33,12 @@ void ThreadQueue::finished(const ThreadJob& job)
     out.push(job);
 }
 
-void ThreadQueue::finished(const ThreadJob& job, const NamedCommStats& new_comm_stats)
+void ThreadQueue::finished(const ThreadJob& job,
+        const NamedCommStats& new_comm_stats, const NamedStats& stats)
 {
     finished(job);
     set_comm_stats(new_comm_stats);
+    this->stats = stats;
 }
 
 void ThreadQueue::set_comm_stats(const NamedCommStats& new_comm_stats)

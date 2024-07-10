@@ -117,6 +117,9 @@ void DabitSacrifice<T>::sacrifice_and_check_bits(vector<dabit<T> >& dabits,
         vector<dabit<T> >& check_dabits, SubProcessor<T>& proc,
         ThreadQueues* queues)
 {
+    if (OnlineOptions::singleton.has_option("verbose_dabit"))
+        fprintf(stderr, "checking %zu daBits\n", check_dabits.size());
+
     vector<dabit<T>> to_check;
     sacrifice_without_bit_check(to_check, check_dabits, proc, queues);
     typename T::Protocol protocol(proc.P);
@@ -134,7 +137,7 @@ void DabitSacrifice<T>::sacrifice_and_check_bits(vector<dabit<T> >& dabits,
     }
     else
     {
-        BufferScope<T> scope(proc.DataF, multiplicands.size());
+        BufferScope scope(proc.DataF, multiplicands.size());
         protocol.multiply(products, multiplicands, 0, multiplicands.size(), proc);
     }
     vector<T> check_for_zero;

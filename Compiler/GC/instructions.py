@@ -203,8 +203,10 @@ class andrsvec(base.VarArgsInstruction, base.Mergeable,
     def add_usage(self, req_node):
         for i, n in self.bases(iter(self.args)):
             size = self.args[i + 1]
-            req_node.increment(('bit', 'triple'), size * (n - 3) // 2)
-            req_node.increment(('bit', 'mixed'), size)
+            n = (n - 3) // 2
+            req_node.increment(('bit', 'triple'), size * n)
+            if n > 1:
+                req_node.increment(('bit', 'mixed'), size * ((n + 63) // 64))
 
     def copy(self, size, subs):
         return type(self)(*self.get_new_args(size, subs))

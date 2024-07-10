@@ -21,7 +21,7 @@
 typedef boost::asio::io_service ssl_service;
 
 void check_ssl_file(string filename);
-void ssl_error(string side, string other, string server);
+void ssl_error(string side, string other, string server, exception& e);
 
 class ssl_ctx : public boost::asio::ssl::context
 {
@@ -62,9 +62,9 @@ public:
             try
             {
                 handshake(ssl_socket::client);
-            } catch (...)
+            } catch (exception& e)
             {
-                ssl_error("Client", other, me);
+                ssl_error("Client", other, me, e);
                 throw;
             }
         else
@@ -72,9 +72,9 @@ public:
             try
             {
                 handshake(ssl_socket::server);
-            } catch (...)
+            } catch (exception& e)
             {
-                ssl_error("Server", other, me);
+                ssl_error("Server", other, me, e);
                 throw;
             }
 

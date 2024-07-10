@@ -23,6 +23,7 @@
 #include "Protocols/SpdzWisePrep.hpp"
 #include "Protocols/SpdzWiseInput.hpp"
 #include "Protocols/SpdzWiseShare.hpp"
+#include "Protocols/SpdzWiseRep3Shuffler.hpp"
 #include "Processor/Data_Files.hpp"
 #include "Processor/Instruction.hpp"
 #include "Processor/Machine.hpp"

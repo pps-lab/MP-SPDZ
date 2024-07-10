@@ -70,29 +70,39 @@ void SemiSecret::andrsvec(Processor<SemiSecret>& processor,
     assert(protocol);
     protocol->init_mul();
     auto it = args.begin();
+    int total_bits = 0, total_ops = 0;
     while (it < args.end())
     {
         int n_args = (*it++ - 3) / 2;
         int size = *it++;
+        total_bits += n_args * size;
         it += n_args;
         int base = *it++;
-        assert(n_args <= N_BITS);
         for (int i = 0; i < size; i += N_BITS)
         {
-            square64 square;
-            for (int j = 0; j < n_args; j++)
-                square.rows[j] = processor.S.at(*(it + j) + i / N_BITS).get();
-            int n_ops = min(N_BITS, size - i);
-            square.transpose(n_args, n_ops);
-            for (int j = 0; j < n_ops; j++)
+            for (int k = 0; k < n_args; k += N_BITS)
             {
-                long bit = processor.S.at(base + i / N_BITS).get_bit(j);
-                auto y_ext = SemiSecret(bit).extend_bit();
-                protocol->prepare_mult(square.rows[j], y_ext, n_args, true);
+                int left = min(N_BITS, n_args - k);
+                square64 square;
+                for (int j = 0; j < left; j++)
+                    square.rows[j] = processor.S.at(
+                            *(it + k + j) + i / N_BITS).get();
+                int n_ops = min(N_BITS, size - i);
+                total_ops += n_ops;
+                square.transpose(left, n_ops);
+                for (int j = 0; j < n_ops; j++)
+                {
+                    long bit = processor.S.at(base + i / N_BITS).get_bit(j);
+                    auto y_ext = SemiSecret(bit).extend_bit();
+                    protocol->prepare_mult(square.rows[j], y_ext, left, true);
+                }
             }
         }
         it += n_args;
     }
+
+    if (OnlineOptions::singleton.has_option("verbose_and"))
+        fprintf(stderr, "%d/%d repeat ANDs\n", total_bits, total_ops);
 
     protocol->exchange();
 
@@ -103,13 +113,18 @@ void SemiSecret::andrsvec(Processor<SemiSecret>& processor,
         int size = *it++;
         for (int i = 0; i < size; i += N_BITS)
         {
-            int n_ops = min(N_BITS, size - i);
-            square64 square;
-            for (int j = 0; j < n_ops; j++)
-                square.rows[j] = protocol->finalize_mul(n_args).get();
-            square.transpose(n_ops, n_args);
-            for (int j = 0; j < n_args; j++)
-                processor.S.at(*(it + j) + i / N_BITS) = square.rows[j];
+            for (int base = 0; base < n_args; base += N_BITS)
+            {
+                int left = min(N_BITS, n_args - base);
+                int n_ops = min(N_BITS, size - i);
+                square64 square;
+                for (int j = 0; j < n_ops; j++)
+                    square.rows[j] = protocol->finalize_mul(left).get();
+                square.transpose(n_ops, left);
+                for (int j = 0; j < left; j++)
+                    processor.S.at(*(it + base + j) + i / N_BITS) =
+                            square.rows[j];
+            }
         }
         it += 2 * n_args + 1;
     }
@@ -123,7 +138,7 @@ void SemiSecretBase<T, V>::load_clear(int n, const Integer& x)
 }
 
 template<class T, class V>
-void SemiSecretBase<T, V>::bitcom(Memory<T>& S, const vector<int>& regs)
+void SemiSecretBase<T, V>::bitcom(StackedVector<T>& S, const vector<int>& regs)
 {
     *this = 0;
     for (unsigned int i = 0; i < regs.size(); i++)
@@ -131,7 +146,7 @@ void SemiSecretBase<T, V>::bitcom(Memory<T>& S, const vector<int>& regs)
 }
 
 template<class T, class V>
-void SemiSecretBase<T, V>::bitdec(Memory<T>& S,
+void SemiSecretBase<T, V>::bitdec(StackedVector<T>& S,
         const vector<int>& regs) const
 {
     for (unsigned int i = 0; i < regs.size(); i++)

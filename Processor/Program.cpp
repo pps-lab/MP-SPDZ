@@ -29,6 +29,24 @@ void Program::compute_constants()
 
 void Program::parse(string filename)
 {
+  if (OnlineOptions::singleton.has_option("throw_exceptions"))
+      parse_with_error(filename);
+  else
+    {
+      try
+      {
+          parse_with_error(filename);
+      }
+      catch(exception& e)
+      {
+          cerr << "Error in bytecode: " << e.what() << endl;
+          exit(1);
+      }
+    }
+}
+
+void Program::parse_with_error(string filename)
+{
   ifstream pinp(filename);
   if (pinp.fail())
     throw file_error(filename);

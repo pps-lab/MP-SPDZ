@@ -1,5 +1,22 @@
 The changelog explains changes pulled through from the private development repository. Bug fixes and small enhancements are committed between releases and not documented here.
 
+## 0.3.9 (July 9, 2024)
+
+- Inference with non-sequential PyTorch networks
+- SHA-3 for any input length (@hiddely)
+- Improved client facilities
+- Shuffling with malicious security for SPDZ-wise protocols by [Asharov et al.](https://ia.cr/2022/1595)
+- More reusable bytecode via in-thread calling facility
+- Recursive functions without return values
+- Fewer rounds for parallel matrix multiplications (@vincent-ehrmanntraut)
+- Optimized usage of SoftSpokenOT in semi-honest protocols
+- More integrity checks on storage in MAC-based protocols
+- Use C++17
+- Use glibc 2.18 for the binaries
+- Fixed security bugs: remotely caused buffer overflows (#1382)
+- Fixed security bug: Missing randomization before revealing to client
+- Fixed security bug: Bias in Rep3 secure shuffling
+
 ## 0.3.8 (December 14, 2023)
 
 - Functionality for multiple nodes per party

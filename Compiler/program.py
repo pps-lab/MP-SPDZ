@@ -18,7 +18,7 @@ from functools import reduce
 import Compiler.instructions
 import Compiler.instructions_base
 import Compiler.instructions_base as inst_base
-from Compiler.config import REG_MAX, USER_MEM, COST
+from Compiler.config import REG_MAX, USER_MEM, COST, MEM_MAX
 from Compiler.exceptions import CompilerError
 from Compiler.instructions_base import RegType
 
@@ -103,6 +103,38 @@ class Program(object):
             self.bit_length = int(options.binary) or int(options.field)
             if options.prime:
                 self.prime = int(options.prime)
+                print("WARNING: --prime/-P activates code that usually isn't "
+                      "the most efficient variant. Consider using --field/-F "
+                      "and set the prime only during the actual computation.")
+                if not self.rabbit_gap() and self.prime > 2 ** 50:
+                    print("The chosen prime is particularly inefficient. "
+                          "Consider using a prime that is closer to a power "
+                          "of two", end='')
+                    try:
+                        import gmpy2
+                        bad_prime = self.prime
+                        self.prime = 2 ** int(
+                            round(math.log(self.prime, 2))) + 1
+                        while True:
+                            if self.prime > 2 ** 59:
+                                # LWE compatibility
+                                step = 2 ** 15
+                            else:
+                                step = 1
+                            if self.prime < bad_prime:
+                                self.prime += step
+                            else:
+                                self.prime -= step
+                            if gmpy2.is_prime(self.prime):
+                                break
+                        assert self.rabbit_gap()
+                        print(", for example, %d." % self.prime)
+                        self.prime = bad_prime
+                    except ImportError:
+                        print(".")
+                if options.execute:
+                    print("Use '-- --prime <prime>' to specify the prime for "
+                          "execution only.")
                 max_bit_length = int(options.prime).bit_length() - 2
                 if self.bit_length > max_bit_length:
                     raise CompilerError(
@@ -111,7 +143,7 @@ class Program(object):
                 self.bit_length = self.bit_length or max_bit_length
                 self.non_linear = KnownPrime(self.prime)
             else:
-                self.non_linear = Prime(self.security)
+                self.non_linear = Prime()
                 if not self.bit_length:
                     self.bit_length = 64
         print("Default bit length for compilation:", self.bit_length)
@@ -197,6 +229,8 @@ class Program(object):
         self.cisc_to_function = True
         if not self.options.cisc:
             self.options.cisc = not self.options.optimize_hard
+        self.use_tape_calls = True
+        self.force_cisc_tape = False
 
         Program.prog = self
         from . import comparison, instructions, instructions_base, types
@@ -278,7 +312,8 @@ class Program(object):
         self.non_linear = Ring(ring_size)
         self.options.ring = str(ring_size)
 
-    def new_tape(self, function, args=[], name=None, single_thread=False):
+    def new_tape(self, function, args=[], name=None, single_thread=False,
+                 finalize=True, **kwargs):
         """
         Create a new tape from a function. See
         :py:func:`~Compiler.library.multithread` and
@@ -309,11 +344,12 @@ class Program(object):
         self.curr_tape
         tape_index = len(self.tapes)
         self.tape_stack.append(self.curr_tape)
-        self.curr_tape = Tape(name, self)
+        self.curr_tape = Tape(name, self, **kwargs)
         self.curr_tape.singular = single_thread
         self.tapes.append(self.curr_tape)
         function(*args)
-        self.finalize_tape(self.curr_tape)
+        if finalize:
+            self.finalize_tape(self.curr_tape)
         if self.tape_stack:
             self.curr_tape = self.tape_stack.pop()
         return tape_index
@@ -346,6 +382,7 @@ class Program(object):
         thread_numbers = []
         while len(thread_numbers) < len(args):
             free_threads = self.curr_tape.free_threads
+            self.curr_tape.ran_threads = True
             if free_threads:
                 thread_numbers.append(min(free_threads))
                 free_threads.remove(thread_numbers[-1])
@@ -417,7 +454,10 @@ class Program(object):
 
     def finalize_tape(self, tape):
         if not tape.purged:
+            curr_tape = self.curr_tape
+            self.curr_tape = tape
             tape.optimize(self.options)
+            self.curr_tape = curr_tape
             tape.write_bytes()
             if self.options.asmoutfile:
                 tape.write_str(self.options.asmoutfile + "-" + tape.name)
@@ -472,16 +512,18 @@ class Program(object):
             self.allocated_mem[mem_type] += size
             if len(str(addr)) != len(str(addr + size)) and self.verbose:
                 print("Memory of type '%s' now of size %d" % (mem_type, addr + size))
-            if addr + size >= 2**64:
-                raise CompilerError("allocation exceeded for type '%s'" % mem_type)
+            if addr + size >= MEM_MAX:
+                raise CompilerError(
+                    "allocation exceeded for type '%s' after adding %d" % \
+                    (mem_type, size))
         self.allocated_mem_blocks[addr, mem_type] = size, self.curr_block.alloc_pool
         if single_size:
-            from .library import get_thread_number, runtime_error_if
+            from .library import get_arg, runtime_error_if
             bak = self.curr_tape.active_basicblock
             self.curr_tape.active_basicblock = self.curr_tape.basicblocks[0]
-            tn = get_thread_number()
-            runtime_error_if(tn > self.n_running_threads, "malloc")
-            res = addr + single_size * (tn - 1)
+            arg = get_arg()
+            runtime_error_if(arg >= self.n_running_threads, "malloc")
+            res = addr + single_size * arg
             self.curr_tape.active_basicblock = bak
             self.base_addresses[res] = addr
             return res
@@ -577,7 +619,6 @@ class Program(object):
     def set_security(self, security):
         changed = self._security != security
         self._security = security
-        self.non_linear.set_security(security)
         if changed:
             print("Changed statistical security for comparison etc. to",
                   security)
@@ -783,7 +824,7 @@ class Program(object):
 class Tape:
     """A tape contains a list of basic blocks, onto which instructions are added."""
 
-    def __init__(self, name, program):
+    def __init__(self, name, program, thread_pool=None):
         """Set prime p and the initial instructions and registers."""
         self.program = program
         name += "-%d" % program.get_tape_counter()
@@ -800,12 +841,15 @@ class Tape:
         self.merge_opens = True
         self.if_states = []
         self.req_bit_length = defaultdict(lambda: 0)
+        self.bit_length_reason = None
         self.function_basicblocks = {}
         self.functions = []
         self.singular = True
-        self.free_threads = set()
+        self.free_threads = set() if thread_pool is None else thread_pool
         self.loop_breaks = []
         self.warned_about_mem = False
+        self.return_values = []
+        self.ran_threads = False
 
     class BasicBlock(object):
         def __init__(self, parent, name, scope, exit_condition=None,
@@ -880,7 +924,8 @@ class Tape:
                 self.usage_instructions = list(filter(relevant, self.instructions))
             else:
                 self.usage_instructions = []
-            if len(self.usage_instructions) > 1000:
+            if len(self.usage_instructions) > 1000 and \
+               self.parent.program.verbose:
                 print("Retaining %d instructions" % len(self.usage_instructions))
             del self.instructions
             self.purged = True
@@ -1107,6 +1152,9 @@ class Tape:
                 if addr.program == self and self.basicblocks:
                     allocator.alloc_reg(addr, self.basicblocks[-1].alloc_pool)
 
+            for reg in self.return_values:
+                allocator.alloc_reg(reg, self.basicblocks[-1].alloc_pool)
+
             seen = set()
 
             def alloc(block):
@@ -1214,7 +1262,10 @@ class Tape:
                         Compiler.instructions.reqbl(bl, add_to_prog=False)
                     )
             if self.program.verbose:
-                print("Tape requires prime bit length", self.req_bit_length["p"])
+                print("Tape requires prime bit length",
+                      self.req_bit_length["p"],
+                      ('for %s' % self.bit_length_reason
+                       if self.bit_length_reason else ''))
                 print("Tape requires galois bit length", self.req_bit_length["2"])
 
     @unpurged
@@ -1287,6 +1338,7 @@ class Tape:
         if "Bytecode" not in filename:
             filename = self.program.programs_dir + "/Bytecode/" + filename
         print("Writing to", filename)
+        sys.stdout.flush()
         f = open(filename, "wb")
         h = hashlib.sha256()
         for i in self._get_instructions():
@@ -1395,13 +1447,12 @@ class Tape:
             return repr(dict(self))
 
     class ReqNode(object):
-        __slots__ = ["num", "_children", "name", "blocks", "aggregated"]
-
         def __init__(self, name):
             self._children = []
             self.name = name
             self.blocks = []
             self.aggregated = None
+            self.num = None
 
         @property
         def children(self):
@@ -1411,12 +1462,17 @@ class Tape:
         def aggregate(self, *args):
             if self.aggregated is not None:
                 return self.aggregated
+            self.recursion = self.num is not None
+            if self.recursion:
+                return Tape.ReqNum()
             self.num = Tape.ReqNum()
             for block in self.blocks:
                 block.add_usage(self)
             res = reduce(
                 lambda x, y: x + y.aggregate(self.name), self.children, self.num
             )
+            if self.recursion:
+                res *= float('inf')
             self.aggregated = res
             return res
 
@@ -1442,7 +1498,7 @@ class Tape:
                 n_reps = self.aggregator([1])
                 n_rounds = res["all", "round"]
                 n_invs = res["all", "inv"]
-                if (n_invs / n_rounds) * 1000 < n_reps:
+                if (n_invs / n_rounds) * 1000 < n_reps and Program.prog.verbose:
                     print(
                         self.nodes[0].blocks[0].name,
                         "blowing up rounds: ",
@@ -1468,15 +1524,19 @@ class Tape:
     def close_scope(self, outer_scope, parent_req_node, name):
         self.start_new_basicblock(outer_scope, name, req_node=parent_req_node)
 
-    def require_bit_length(self, bit_length, t="p"):
+    def require_bit_length(self, bit_length, t="p", reason=None):
         if t == "p":
             if self.program.prime:
                 if bit_length >= self.program.prime.bit_length() - 1:
                     raise CompilerError(
                         "required bit length %d too much for %d"
                         % (bit_length, self.program.prime)
+                        + ('(for %s)' % reason if reason else '')
                     )
-            self.req_bit_length[t] = max(bit_length + 1, self.req_bit_length[t])
+            bit_length += 1
+            if bit_length > self.req_bit_length[t]:
+                self.req_bit_length[t] = bit_length
+                self.bit_length_reason = reason
         else:
             self.req_bit_length[t] = max(bit_length, self.req_bit_length)
 
@@ -1497,6 +1557,21 @@ class Tape:
                 "value, most likely a Python integer. "
                 "In some cases, you can fix this by using 'compile.py -l'."
             )
+
+        def __int__(self):
+            raise CompilerError(
+                "It is impossible to convert run-time types to compile-time "
+                "Python types like int or float. The reason for this is that "
+                "%s objects are only a placeholder during the execution in "
+                "Python, the actual value of which is only defined in the "
+                "virtual machine at a later time. See "
+                "https://mp-spdz.readthedocs.io/en/latest/journey.html "
+                "to get an understanding of the overall design. "
+                "In rare cases, you can fix this by using 'compile.py -l'." % \
+                type(self).__name__
+            )
+
+        __float__ = __int__
 
     class Register(_no_truth):
         """
@@ -1619,6 +1694,9 @@ class Tape:
         def copy(self):
             return Tape.Register(self.reg_type, Program.prog.curr_tape)
 
+        def same_type(self):
+            return type(self)(size=self.size)
+
         def link(self, other):
             if Program.prog.options.noreallocate:
                 raise CompilerError("reallocation necessary for linking, "
@@ -1636,10 +1714,8 @@ class Tape:
             :param other: any convertible type
 
             """
-            diff_block = isinstance(other, Tape.Register) and self.block != other.block
             other = type(self)(other)
-            if not diff_block:
-                self.program.start_new_basicblock(name="update")
+            self.program.start_new_basicblock(name="update")
             if self.program != other.program:
                 raise CompilerError(
                     'cannot update register with one from another thread')

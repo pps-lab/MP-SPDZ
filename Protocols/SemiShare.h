@@ -54,6 +54,7 @@ class SemiShare : public T, public ShareInterface
 public:
     typedef T open_type;
     typedef T clear;
+    typedef SemiShare share_type;
 
     typedef SemiMC<SemiShare> MAC_Check;
     typedef DirectSemiMC<SemiShare> Direct_MC;

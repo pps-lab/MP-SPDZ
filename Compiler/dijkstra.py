@@ -558,7 +558,7 @@ def test_stupid_dijkstra_on_cycle(n, n_loops=None):
     @for_range(n)
     def f(i):
         M[i][(i+1)%n] = ExtInt(1)
-        M[i][(i-1)%n] = ExtInt(1)
+        M[i][(i-1+n)%n] = ExtInt(1)
     if n_loops is not None:
         stop_timer(1)
         start_timer()

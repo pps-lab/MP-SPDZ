@@ -108,18 +108,9 @@ ShareParty<T>::ShareParty(int argc, const char** argv, ez::ezOptionParser& opt,
     else
         P = new PlainPlayer(this->N, "shareparty");
 
-    try
-    {
-        read_mac_key(
-                get_prep_sub_dir<typename T::part_type>(PREP_DIR, network_opts.nplayers),
-                this->N,
-                this->mac_key);
-    }
-    catch (exception& e)
-    {
-        SeededPRNG G;
-        this->mac_key.randomize(G);
-    }
+    T::read_or_generate_mac_key(
+            get_prep_sub_dir<typename T::part_type>(PREP_DIR, network_opts.nplayers),
+            *P, this->mac_key);
 
     T::MC::setup(*P);
 

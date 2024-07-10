@@ -88,11 +88,10 @@ OTMultiplier<T>::~OTMultiplier()
 }
 
 template<class T>
-void OTMultiplier<T>::multiply()
+void OTMultiplier<T>::init()
 {
     keyBits.set(generator.get_mac_key());
     rot_ext.extend(keyBits.size(), keyBits);
-    this->outbox.push({});
     senderOutput.resize(keyBits.size());
     for (size_t j = 0; j < keyBits.size(); j++)
     {
@@ -106,10 +105,18 @@ void OTMultiplier<T>::multiply()
     assert(receiverOutput.size() >= keyBits.size());
     receiverOutput.resize(keyBits.size());
     init_authenticator(keyBits, senderOutput, receiverOutput);
+}
 
+template<class T>
+void OTMultiplier<T>::multiply()
+{
+    this->outbox.push({});
     MultJob job;
     while (this->inbox.pop(job))
     {
+        if (receiverOutput.empty())
+            init();
+
         if (job.input)
         {
             if (job.player == generator.my_num
@@ -155,13 +162,14 @@ void SemiMultiplier<T>::multiplyForBits()
     otCorrelator.set_role(role);
 
     BitVector aBits = this->generator.valueBits[0];
-    rot_ext.extend_correlated(aBits);
+    rot_ext.extend(aBits.size(), aBits, not rot_ext.use_kos());
 
     typedef typename T::Rectangle X;
     vector<Matrix<X> >& baseSenderOutputs = otCorrelator.matrices;
     Matrix<X>& baseReceiverOutput = otCorrelator.senderOutputMatrices[0];
 
-    rot_ext.hash_outputs(aBits.size(), baseSenderOutputs, baseReceiverOutput);
+    rot_ext.hash_outputs(aBits.size(), baseSenderOutputs, baseReceiverOutput,
+            rot_ext.use_kos());
 
     int n_squares = otCorrelator.receiverOutputMatrix.squares.size();
     otCorrelator.setup_for_correlation(aBits, baseSenderOutputs,
@@ -201,12 +209,13 @@ void SemiMultiplier<T>::multiplyForMixed()
             this->generator.players[this->thread_num], BOTH, true);
 
     BitVector aBits = this->generator.valueBits[0];
-    rot_ext.extend_correlated(aBits);
+    rot_ext.extend(aBits.size(), aBits, not rot_ext.use_kos());
 
     auto& baseSenderOutputs = otCorrelator.matrices;
     auto& baseReceiverOutput = otCorrelator.senderOutputMatrices[0];
 
-    rot_ext.hash_outputs(aBits.size(), baseSenderOutputs, baseReceiverOutput);
+    rot_ext.hash_outputs(aBits.size(), baseSenderOutputs, baseReceiverOutput,
+            rot_ext.use_kos());
 
     if (this->generator.get_player().num_players() == 2)
     {
@@ -265,16 +274,17 @@ void OTMultiplier<W>::multiplyForTriples()
         //timers["Extension"].start();
         if (generator.machine.use_extension)
         {
-#ifdef USE_KOS
-            rot_ext.extend_correlated(aBits);
-#else
-            rot_ext.extend(aBits.size(), aBits);
-            corr_hash = false;
-#endif
+            if (rot_ext.use_kos())
+                rot_ext.extend_correlated(aBits);
+            else
+            {
+                rot_ext.extend(aBits.size(), aBits);
+                corr_hash = false;
+            }
         }
         else
         {
-            BaseOT bot(aBits.size(), -1, generator.players[thread_num]);
+            BaseOT bot(aBits.size(), generator.players[thread_num]);
             bot.set_receiver_inputs(aBits);
             bot.exec_base(false);
             for (size_t i = 0; i < aBits.size(); i++)

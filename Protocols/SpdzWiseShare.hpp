@@ -40,6 +40,8 @@ void SpdzWiseShare<T>::read_or_generate_mac_key(string directory, Player& P, T& 
 
     if (fresh)
         mac_key = typename T::Honest::Protocol(P).get_random();
+
+    super::set_mac_key(mac_key);
 }
 
 template<class T>

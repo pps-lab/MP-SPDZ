@@ -13,13 +13,18 @@ from Compiler.types import _bitint, _number, _fix, _structure, _bit, _vec, sint,
 from Compiler.types import vectorized_classmethod
 from Compiler.program import Tape, Program
 from Compiler.exceptions import *
-from Compiler import util, oram, floatingpoint, library
+from Compiler import util, oram, floatingpoint, library, comparison
 from Compiler import instructions_base
 import Compiler.GC.instructions as inst
 import operator
 import math
 import itertools
 from functools import reduce
+
+class _binary:
+    def reveal_to(self, *args, **kwargs):
+        raise CompilerError(
+            '%s does not support revealing to indivual players' % type(self))
 
 class bits(Tape.Register, _structure, _bit):
     n = 40
@@ -149,6 +154,12 @@ class bits(Tape.Register, _structure, _bit):
         self.n = n
     def set_size(self, size):
         pass
+    def load_int(self, value):
+        n_limbs = math.ceil(self.n / self.unit)
+        for i in range(n_limbs):
+            self.conv_regint(min(self.unit, self.n - i * self.unit),
+                             self[i], regint(value % 2 ** self.unit))
+            value >>= self.unit
     def load_other(self, other):
         if isinstance(other, cint):
             assert(self.n == other.size)
@@ -236,12 +247,14 @@ class bits(Tape.Register, _structure, _bit):
         return res
     def if_else(self, x, y):
         """
-        Vectorized oblivious selection::
+        Bit-wise oblivious selection::
 
             sb32 = sbits.get_type(32)
             print_ln('%s', sb32(3).if_else(sb32(5), sb32(2)).reveal())
 
-        This will output 1.
+        This will output 1 because it selects the two least
+        significant bits from 5 and the rest of the bits from 2.
+
         """
         return result_conv(x, y)(self & (x ^ y) ^ y)
     def zero_if_not(self, condition):
@@ -268,6 +281,9 @@ class bits(Tape.Register, _structure, _bit):
                  self.bit_compose(source.bit_decompose()[base:base + size]))
     def vector_size(self):
         return self.n
+    @staticmethod
+    def size_for_mem():
+        return 1
 
 class cbits(bits):
     """ Clear bits register. Helper type with limited functionality. """
@@ -302,13 +318,6 @@ class cbits(bits):
         else:
             return super(cbits, cls).conv(other)
     types = {}
-    def load_int(self, value):
-        n_limbs = math.ceil(self.n / self.unit)
-        tmp = regint(size=n_limbs)
-        for i in range(n_limbs):
-            tmp[i].load_int(value % 2 ** self.unit)
-            value >>= self.unit
-        self.load_other(tmp)
     def store_in_dynamic_mem(self, address):
         inst.stmsdci(self, cbits.conv(address))
     def clear_op(self, other, c_inst, ci_inst, op):
@@ -350,11 +359,14 @@ class cbits(bits):
         else:
             return self.clear_op(other, None, inst.xorcbi, operator.xor)
     def _and(self, other):
-        return NotImplemented
+        try:
+            return cbits.get_type(self.n)(regint(self) & regint(other))
+        except CompilerError:
+            return NotImplemented
     __radd__ = __add__
     def __mul__(self, other):
         if isinstance(other, cbits):
-            return NotImplemented
+            return cbits.get_type(self.n)(regint(self) * regint(other))
         else:
             try:
                 res = cbits.get_type(min(self.max_length,
@@ -386,8 +398,11 @@ class cbits(bits):
         inst.cond_print_strb(self, string)
     def output_if(self, cond):
         if Program.prog.options.binary:
-            raise CompilerError('conditional output not supported')
-        cint(self).output_if(cond)
+            @library.if_(cond)
+            def _():
+                self.print_reg_plain()
+        else:
+            cint(self).output_if(cond)
     def reveal(self):
         return self
     def to_regint(self, dest=None):
@@ -496,11 +511,7 @@ class sbits(bits):
         if self.n <= 32:
             inst.ldbits(self, self.n, value)
         else:
-            size = math.ceil(self.n / self.unit)
-            tmp = regint(size=size)
-            for i in range(size):
-                tmp[i].load_int((value >> (i * 64)) % 2**64)
-            self.load_other(tmp)
+            bits.load_int(self, value)
     def load_other(self, other):
         if isinstance(other, cbits) and self.n == other.n:
             inst.convcbit2s(self.n, self, other)
@@ -536,6 +547,13 @@ class sbits(bits):
     def __mul__(self, other):
         if isinstance(other, int):
             return self.mul_int(other)
+        elif isinstance(other, cint):
+            try:
+                other = cbits.get_type(self.unit)(regint(other))
+            except CompilerError:
+                return NotImplemented
+            if self.n == 1:
+                return self.bit_compose([self] * self.unit) & other
         try:
             if (self.n, other.n) == (1, 1):
                 return self & other
@@ -662,7 +680,7 @@ class sbits(bits):
     def ripple_carry_adder(*args, **kwargs):
         return sbitint.ripple_carry_adder(*args, **kwargs)
 
-class sbitvec(_vec, _bit):
+class sbitvec(_vec, _bit, _binary):
     """ Vector of registers of secret bits, effectively a matrix of secret bits.
     This facilitates parallel arithmetic operations in binary circuits.
     Container types are not supported, use :py:obj:`sbitvec.get_type` for that.
@@ -719,15 +737,16 @@ class sbitvec(_vec, _bit):
         :py:obj:`v` and the columns by calling :py:obj:`elements`.
         """
         class sbitvecn(cls, _structure):
-            @staticmethod
-            def malloc(size, creator_tape=None):
-                return sbit.malloc(size * n, creator_tape=creator_tape)
+            @classmethod
+            def malloc(cls, size, creator_tape=None):
+                return sbit.malloc(
+                    size * cls.mem_size(), creator_tape=creator_tape)
             @staticmethod
             def n_elements():
                 return 1
             @staticmethod
             def mem_size():
-                return n
+                return sbits.get_type(n).mem_size()
             @classmethod
             def get_input_from(cls, player, size=1, f=0):
                 """ Secret input from :py:obj:`player`. The input is decomposed
@@ -767,35 +786,28 @@ class sbitvec(_vec, _bit):
                         self.v = sbits.get_type(n)(other).bit_decompose()
                     assert len(self.v) == n
                     assert size is None or size == self.v[0].n
-            @vectorized_classmethod
-            def load_mem(cls, address):
-                size = instructions_base.get_global_vector_size()
-                if size not in (None, 1):
-                    assert isinstance(address, int) or len(address) == 1
-                    sb = sbits.get_type(size)
-                    return cls.from_vec(sb.bit_compose(
-                        sbit.load_mem(address + i + j * n) for j in range(size))
-                                        for i in range(n))
-                if not isinstance(address, int) and len(address) == n:
-                    return cls.from_vec(sbit.load_mem(x) for x in address)
+            @classmethod
+            def load_mem(cls, address, size=None):
+                if isinstance(address, int) or len(address) == 1:
+                    address = [address + i for i in range(size or 1)]
                 else:
-                    return cls.from_vec(sbit.load_mem(address + i)
-                                        for i in range(n))
+                    assert size == None
+                return cls(
+                    [sbits.get_type(n).load_mem(x) for x in address])
             def store_in_mem(self, address):
                 size = 1
                 for x in self.v:
                     if not util.is_constant(x):
                         size = max(size, x.n)
-                v = [sbits.get_type(size).conv(x) for x in self.v]
-                if not isinstance(address, int) and len(address) == n:
-                    assert max_n == 1
-                    for x, y in zip(v, address):
-                        x.store_in_mem(y)
+                if isinstance(address, int):
+                    address = range(address, address + size)
+                elif len(address) == 1:
+                    address = [address + i * self.mem_size()
+                               for i in range(size)]
                 else:
-                    assert isinstance(address, int) or len(address) == 1
-                    for i in range(n):
-                        for j, x in enumerate(v[i].bit_decompose()):
-                            x.store_in_mem(address + i + j * n)
+                    assert size == len(address)
+                for x, dest in zip(self.elements(), address):
+                    x.store_in_mem(dest)
             @classmethod
             def two_power(cls, nn, size=1):
                 return cls.from_vec(
@@ -848,7 +860,7 @@ class sbitvec(_vec, _bit):
             assert isinstance(elements, sint)
             if Program.prog.use_split():
                 x = elements.split_to_two_summands(length)
-                v = sbitint.carry_lookahead_adder(x[0], x[1], fewer_inv=True)
+                v = sbitint.bit_adder(x[0], x[1])
             else:
                 prog = Program.prog
                 if not prog.options.ring:
@@ -861,6 +873,7 @@ class sbitvec(_vec, _bit):
                         length, prog.security)
                     prog.use_edabit(backup)
                     return
+                comparison.require_ring_size(length, 'A2B conversion')
                 l = int(Program.prog.options.ring)
                 r, r_bits = sint.get_edabit(length, size=elements.size)
                 c = ((elements - r) << (l - length)).reveal()
@@ -869,6 +882,8 @@ class sbitvec(_vec, _bit):
                 x = sbitintvec.from_vec(r_bits) + sbitintvec.from_vec(cb)
                 v = x.v
             self.v = v[:length]
+        elif isinstance(elements, sbitvec):
+            self.v = elements.v
         elif elements is not None and not (util.is_constant(elements) and \
              elements == 0):
             self.v = sbits.trans(elements)
@@ -1027,6 +1042,8 @@ class sbitvec(_vec, _bit):
             [self.v[i:i + 8] for i in range(0, len(self.v), 8)]), []))
     def reveal_print_hex(self):
         """ Reveal and print in hexademical (one line per element). """
+        if len(self.v) % 64 != 0:
+            raise CompilerError('only works for lengths divisible by 64')
         for x in self.reverse_bytes().elements():
             x.reveal().print_reg()
     def update(self, other):
@@ -1132,7 +1149,7 @@ class DynamicArray(Array):
         else:
             cbits.conv(value).store_in_dynamic_mem(address)
 
-sbits.dynamic_array = DynamicArray
+sbits.dynamic_array = Array
 cbits.dynamic_array = Array
 
 def _complement_two_extend(bits, k):
@@ -1329,13 +1346,19 @@ class sbitintvec(sbitvec, _bitint, _number, _sbitintbase):
     def __add__(self, other):
         if util.is_zero(other):
             return self
-        a, b = self.expand(other)
+        try:
+            a, b = self.expand(other)
+        except:
+            return NotImplemented
         v = sbitint.bit_adder(a, b)
         return self.get_type(len(v)).from_vec(v)
     __radd__ = __add__
     __sub__ = _bitint.__sub__
     def __rsub__(self, other):
-        a, b = self.expand(other)
+        try:
+            a, b = self.expand(other)
+        except:
+            return NotImplemented
         return self.from_vec(b) - self.from_vec(a)
     def __mul__(self, other):
         if isinstance(other, sbits):
@@ -1429,7 +1452,7 @@ class cbitfix(object):
         inst.print_float_plainb(v, cbits.get_type(32)(-self.f), cbits(0),
                                 cbits(0), cbits(0))
 
-class sbitfix(_fix):
+class sbitfix(_fix, _binary):
     """ Secret signed fixed-point number in one binary register.
     Use :py:obj:`set_precision()` to change the precision.
 
@@ -1497,7 +1520,7 @@ class sbitfix(_fix):
         cls.set_precision(f, k)
         return cls._new(cls.int_type(other), k, f)
 
-class sbitfixvec(_fix, _vec):
+class sbitfixvec(_fix, _vec, _binary):
     """ Vector of fixed-point numbers for parallel binary computation.
 
     Use :py:obj:`set_precision()` to change the precision.

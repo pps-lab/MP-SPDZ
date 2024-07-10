@@ -53,7 +53,7 @@ endif
 endif
 
 # used for dependency generation
-OBJS = $(patsubst %.cpp,%.o,$(wildcard */*.cpp)) $(STATIC_OTE)
+OBJS = $(patsubst %.cpp,%.o,$(wildcard */*.cpp */*/*.cpp)) $(STATIC_OTE)
 DEPS := $(wildcard */*.d */*/*.d)
 
 # never delete
@@ -93,7 +93,7 @@ externalIO: bankers-bonus-client.x
 
 bmr: bmr-program-party.x bmr-program-tparty.x
 
-real-bmr: $(patsubst Machines/%.cpp,%.x,$(wildcard Machines/*-bmr-party.cpp))
+real-bmr: $(patsubst Machines/BMR/%.cpp,%.x,$(wildcard Machines/BMR/*-bmr-party.cpp))
 
 yao: yao-party.x
 
@@ -163,13 +163,17 @@ static/%.x: Machines/%.o $(LIBRELEASE) $(LIBSIMPLEOT) local/lib/libcryptoTools.a
 	$(MAKE) static-dir
 	$(CXX) -o $@ $(CFLAGS) $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(LIBRELEASE) -llibOTe -lcryptoTools $(LIBSIMPLEOT) $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
 
+static/%.x: Machines/BMR/%.o $(LIBRELEASE) $(LIBSIMPLEOT) local/lib/libcryptoTools.a local/lib/liblibOTe.a
+	$(MAKE) static-dir
+	$(CXX) -o $@ $(CFLAGS) $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(LIBRELEASE) -llibOTe -lcryptoTools $(LIBSIMPLEOT) $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
+
 static/%.x: ECDSA/%.o ECDSA/P256Element.o $(VMOBJS) $(OT) $(LIBSIMPLEOT)
 	$(CXX) $(CFLAGS) -o $@ $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
 
 static-dir:
 	@ mkdir static 2> /dev/null; true
 
-static-release: static-dir $(patsubst Machines/%.cpp, static/%.x, $(wildcard Machines/*-party.cpp)) static/emulate.x
+static-release: static-dir $(patsubst Machines/%.cpp, static/%.x, $(wildcard Machines/*-party.cpp))  $(patsubst Machines/BMR/%.cpp, static/%.x, $(wildcard Machines/BMR/*-party.cpp)) static/emulate.x
 
 Fake-ECDSA.x: ECDSA/Fake-ECDSA.cpp ECDSA/P256Element.o $(COMMON) Processor/PrepBase.o
 	$(CXX) -o $@ $^ $(CFLAGS) $(LDLIBS)
@@ -181,10 +185,10 @@ ot-offline.x: $(OT) $(LIBSIMPLEOT) Machines/TripleMachine.o
 
 gc-emulate.x: $(VM) GC/FakeSecret.o GC/square64.o
 
-bmr-%.x: $(BMR) $(VM) Machines/bmr-%.cpp $(LIBSIMPLEOT)
+bmr-%.x: $(BMR) $(VM) Machines/BMR/bmr-%.cpp $(LIBSIMPLEOT)
 	$(CXX) -o $@ $(CFLAGS) $^ $(BOOST) $(LDLIBS)
 
-%-bmr-party.x: Machines/%-bmr-party.o $(BMR) $(SHAREDLIB) $(MINI_OT)
+%-bmr-party.x: Machines/BMR/%-bmr-party.o $(BMR) $(SHAREDLIB) $(MINI_OT)
 	$(CXX) -o $@ $(CFLAGS) $^ $(BOOST) $(LDLIBS)
 
 bmr-clean:
@@ -269,10 +273,11 @@ mama-party.x: $(TINIER)
 ps-rep-ring-party.x: Protocols/MalRepRingOptions.o
 malicious-rep-ring-party.x: Protocols/MalRepRingOptions.o
 sy-rep-ring-party.x: Protocols/MalRepRingOptions.o
-rep4-ring-party.x: GC/Rep4Secret.o
+rep4-ring-party.x: GC/Rep4Secret.o GC/Rep4Prep.o
 no-party.x: Protocols/ShareInterface.o
 semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
+rep4-ecdsa-party.x: GC/Rep4Prep.o
 mascot-pe-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-pc-party.x: $(OT) $(LIBSIMPLEOT)
 mascot-switch-party.x: $(OT) $(LIBSIMPLEOT) $(SPDZ) $(TINIER)
@@ -287,8 +292,8 @@ emulate.x: GC/FakeSecret.o
 semi-bmr-party.x: $(GC_SEMI) $(OT)
 real-bmr-party.x: $(OT)
 paper-example.x: $(VM) $(OT) $(FHEOFFLINE)
-binary-example.x: $(VM) $(OT) GC/PostSacriBin.o $(GC_SEMI) GC/AtlasSecret.o
-mixed-example.x: $(VM) $(OT) GC/PostSacriBin.o $(GC_SEMI) GC/AtlasSecret.o Machines/Tinier.o
+binary-example.x: $(VM) $(OT) GC/PostSacriBin.o $(GC_SEMI) GC/AtlasSecret.o GC/Rep4Prep.o
+mixed-example.x: $(VM) $(OT) GC/PostSacriBin.o $(GC_SEMI) GC/AtlasSecret.o GC/Rep4Prep.o Machines/Tinier.o
 l2h-example.x: $(VM) $(OT) Machines/Tinier.o
 he-example.x: $(FHEOFFLINE)
 mascot-offline.x: $(VM) $(TINIER)
@@ -382,7 +387,7 @@ cmake:
 	wget https://github.com/Kitware/CMake/releases/download/v3.24.1/cmake-3.24.1.tar.gz
 	tar xzvf cmake-3.24.1.tar.gz
 	cd cmake-3.24.1; \
-	./bootstrap --parallel=8 --prefix=../local && make && make install
+	./bootstrap --parallel=8 --prefix=../local && make -j8 && make install
 
 #local/lib/libff.a: libff
 

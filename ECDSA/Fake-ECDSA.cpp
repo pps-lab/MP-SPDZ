@@ -15,7 +15,7 @@
 int main()
 {
     P256Element::init();
-    P256Element::Scalar key;
+    KeySetup<Share<P256Element::Scalar>> key;
     string prefix = PREP_DIR "ECDSA/";
     mkdir_p(prefix.c_str());
     write_online_setup(prefix, P256Element::Scalar::pr());

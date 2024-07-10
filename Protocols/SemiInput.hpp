@@ -18,9 +18,17 @@ SemiInput<T>::SemiInput(SubProcessor<T>* proc, PlayerBase& P) :
 }
 
 template<class T>
-PairwiseKeyInput<T>::PairwiseKeyInput(SubProcessor<T>* proc, PlayerBase& P) :
+PairwiseKeyInput<T>::PairwiseKeyInput(SubProcessor<T>* proc, PlayerBase&) :
         PrepLessInput<T>(proc)
 {
+}
+
+template<class T>
+void PairwiseKeyInput<T>::maybe_init(PlayerBase& P)
+{
+    if (send_prngs.size() > 0)
+        return;
+
     vector<octetStream> to_send(P.num_players()), to_receive;
     for (int i = 0; i < P.num_players(); i++)
     {
@@ -44,6 +52,7 @@ void SemiInput<T>::reset(int player)
 template<class T>
 void SemiInput<T>::add_mine(const typename T::clear& input, int)
 {
+	this->maybe_init(P);
 	auto& P = this->P;
 	typename T::open_type sum, share;
 	for (int i = 0; i < P.num_players(); i++)
@@ -57,6 +66,7 @@ void SemiInput<T>::add_mine(const typename T::clear& input, int)
 template<class T>
 void SemiInput<T>::add_other(int, int)
 {
+    this->maybe_init(P);
 }
 
 template<class T>

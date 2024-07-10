@@ -29,10 +29,12 @@ public:
 
     Conv2dTuple(const vector<int>& args, int start);
 
+    array<int, 3> matrix_dimensions();
+
     template<class T>
-    void pre(vector<T>& S, typename T::Protocol& protocol);
+    void pre(StackedVector<T>& S, typename T::Protocol& protocol);
     template<class T>
-    void post(vector<T>& S, typename T::Protocol& protocol);
+    void post(StackedVector<T>& S, typename T::Protocol& protocol);
 
     template<class T>
     void run_matrix(SubProcessor<T>& processor);

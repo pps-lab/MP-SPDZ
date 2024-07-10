@@ -147,6 +147,8 @@ class octetStream
   // Return pointer to next l octets and advance pointer
   octet* consume(size_t l);
 
+  void flush_bits();
+
   /* Now store and restore different types of data (with padding for decoding) */
 
   void store_bytes(octet* x, const size_t l); //not really "bytes"...
@@ -180,6 +182,14 @@ class octetStream
 
   void store_bit(char a);
   char get_bit();
+
+  template<int N_BITS>
+  void store_bits(char a);
+  template<int N_BITS>
+  char get_bits();
+
+  void store_bits(char a, int n_bits);
+  char get_bits(int n_bits);
 
   /// Append big integer
   void store(const bigint& x);
@@ -243,7 +253,7 @@ class octetStream
   /// Input from stream, overwriting current content
   void input(istream& s);
   /// Output to stream
-  void output(ostream& s);
+  void output(ostream& s) const;
 
   /// Send on ``socket_num`` while receiving on ``receiving_socket``,
   /// overwriting current content
@@ -309,9 +319,7 @@ inline octet* octetStream::append(const size_t l)
 {
   if (bits[0].n)
     {
-      bits[0].n = 0;
-      store_int<1>(bits[0].buffer);
-      bits[0].buffer = 0;
+      flush_bits();
     }
 
   if (len+l>mxlen)
@@ -376,28 +384,66 @@ inline size_t octetStream::get_int()
 
 inline void octetStream::store_bit(char a)
 {
+  store_bits<1>(a);
+}
+
+template<int N_BITS>
+inline void octetStream::store_bits(char a)
+{
   auto& n = bits[0].n;
   auto& buffer = bits[0].buffer;
 
-  if (n == 8)
+  if (n > 8 - N_BITS)
     append(0);
 
-  buffer |= (a & 1) << n;
-  n++;
+  buffer |= (a & ((1 << N_BITS) - 1)) << n;
+  n += N_BITS;
 }
 
 inline char octetStream::get_bit()
 {
+  return get_bits<1>();
+}
+
+template<int N_BITS>
+inline char octetStream::get_bits()
+{
   auto& n = bits[1].n;
   auto& buffer = bits[1].buffer;
 
-  if (n == 0)
+  if (n < N_BITS)
     {
       buffer = get_int<1>();
       n = 8;
     }
 
-  return (buffer >> (8 - n--)) & 1;
+  auto res = (buffer >> (8 - n)) & ((1 << N_BITS) - 1);
+  n -= N_BITS;
+  return res;
+}
+
+inline void octetStream::store_bits(char a, int n_bits)
+{
+  switch (n_bits)
+  {
+#define X(N) case N: store_bits<N>(a); break;
+  X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+#undef X
+  default:
+    throw runtime_error("wrong number of bits");
+  }
+}
+
+inline char octetStream::get_bits(int n_bits)
+{
+  switch (n_bits)
+  {
+#define X(N) case N: return get_bits<N>();
+  X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+#undef X
+  default:
+    throw runtime_error("wrong number of bits");
+  }
 }
 
 
@@ -448,6 +494,12 @@ inline int octetStream::get()
     return get_int(sizeof(int));
 }
 
+template<>
+inline size_t octetStream::get()
+{
+    return get_int(sizeof(size_t));
+}
+
 template<class T>
 void octetStream::store(const vector<T>& v)
 {
@@ -461,6 +513,7 @@ void octetStream::get(vector<T>& v, const T& init)
 {
   size_t size;
   get(size);
+  v.clear();
   v.reserve(size);
   for (size_t i = 0; i < size; i++)
     {

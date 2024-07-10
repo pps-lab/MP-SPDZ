@@ -19,17 +19,19 @@ private:
     SubProcessor<T>& proc;
 
 public:
-    Rep3Shuffler(vector<T>& a, size_t n, int unit_size, size_t output_base,
+    map<long, long> stats;
+
+    Rep3Shuffler(StackedVector<T>& a, size_t n, int unit_size, size_t output_base,
             size_t input_base, SubProcessor<T>& proc);
 
     Rep3Shuffler(SubProcessor<T>& proc);
 
     int generate(int n_shuffle, store_type& store);
 
-    void apply(vector<T>& a, size_t n, int unit_size, size_t output_base,
+    void apply(StackedVector<T>& a, size_t n, int unit_size, size_t output_base,
             size_t input_base, shuffle_type& shuffle, bool reverse);
 
-    void inverse_permutation(vector<T>& stack, size_t n, size_t output_base,
+    void inverse_permutation(StackedVector<T>& stack, size_t n, size_t output_base,
             size_t input_base);
 };
 

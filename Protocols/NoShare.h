@@ -21,6 +21,8 @@ class NoShare : public ShareInterface
     typedef NoShare This;
 
 public:
+    typedef This share_type;
+
     // type for clear values in relevant domain
     typedef T clear;
     typedef clear open_type;
@@ -170,9 +172,10 @@ public:
             throw runtime_error("no human-readable input");
         else
         {
-            char buf[size()];
+            char* buf = new char[size()];
             is.read(buf, size());
             assign(buf);
+            delete[] buf;
         }
     }
 

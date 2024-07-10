@@ -8,7 +8,7 @@
 #include "GC/square64.h"
 
 template<class T>
-void FakeShare<T>::split(vector<bit_type>& dest,
+void FakeShare<T>::split(StackedVector<bit_type>& dest,
         const vector<int>& regs, int n_bits, const This* source, int n_inputs,
         GC::FakeSecret::Protocol&)
 {

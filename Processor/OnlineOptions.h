@@ -37,6 +37,7 @@ public:
     bool receive_threads;
     std::string disk_memory;
     vector<long> args;
+    vector<string> options;
 
     OnlineOptions();
     OnlineOptions(ez::ezOptionParser& opt, int argc, const char** argv,
@@ -66,6 +67,11 @@ public:
         if (prime)
             lgp = numBits(prime);
         return get_prep_sub_dir<T>(PREP_DIR, nplayers, lgp);
+    }
+
+    bool has_option(const string& option)
+    {
+        return find(options.begin(), options.end(), option) != options.end();
     }
 };
 

@@ -79,6 +79,9 @@ array<SemiSecret, 3> SemiPrep::get_mixed_triple(int n)
     if (mixed_triples.empty())
     {
         assert(this->triple_generator);
+        this->triple_generator->set_batch_size(
+                BaseMachine::batch_size<SemiSecret>(DATA_MIXED,
+                        this->buffer_size));
         this->triple_generator->generateMixedTriples();
         for (auto& x : this->triple_generator->mixedTriples)
         {

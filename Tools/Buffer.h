@@ -14,6 +14,8 @@ using namespace std;
 #include "Math/field_types.h"
 #include "Tools/time-func.h"
 #include "Tools/octetStream.h"
+#include "Tools/pprint.h"
+#include "Processor/OnlineOptions.h"
 
 #ifndef BUFFER_SIZE
 #define BUFFER_SIZE 101
@@ -71,10 +73,17 @@ public:
 };
 
 template<class T>
-octetStream file_signature()
+octetStream file_signature(const typename T::mac_type& mac_key = {})
 {
     octetStream res(T::type_string());
     T::specification(res);
+    if (T::has_mac)
+    {
+        if (mac_key == typename T::mac_type())
+            T::get_mac_key().pack(res);
+        else
+            mac_key.pack(res);
+    }
     return res;
 }
 
@@ -94,14 +103,22 @@ octetStream check_file_signature(ifstream& file, const string& filename)
     {
         throw signature_mismatch(filename);
     }
-    if (file_signature<T>() != file_spec) {
-        std::cout << file_signature<T>() << " != " << file_spec << std::endl;
+    if (file_signature<T>() != file_spec)
+    {
+#ifndef DEBUG_FILE_SIGNATURE
+        if (OnlineOptions::singleton.has_option("debug_file_signature"))
+#endif
+        {
+            auto exp = file_signature<T>();
+            pprint_bytes("found   ", file_spec.get_data(), file_spec.get_length());
+            pprint_bytes("expected", exp.get_data(), exp.get_length());
+        }
         throw signature_mismatch(filename);
     }
     return file_spec;
 }
 
-template<class U, class V>
+template<class U, class V, class W = U>
 class BufferOwner : public Buffer<U, V>
 {
     ifstream* file;
@@ -137,7 +154,7 @@ public:
         BufferBase::file = file;
         if (file->good())
         {
-            auto file_spec = check_file_signature<U>(*file, this->filename);
+            auto file_spec = check_file_signature<W>(*file, this->filename);
             this->header_length = file_spec.get_length()
                     + sizeof(file_spec.get_length());
         }
@@ -186,11 +203,12 @@ inline void Buffer<T, U>::fill_buffer()
     }
   else
     {
-      char read_buffer[BUFFER_SIZE * T::size()];
+      char* read_buffer = new char[BUFFER_SIZE * T::size()];
       read(read_buffer);
       //memset(buffer, 0, sizeof(buffer));
       for (int i = 0; i < BUFFER_SIZE; i++)
         buffer[i].assign(&read_buffer[i*T::size()]);
+      delete[] read_buffer;
     }
 }
 

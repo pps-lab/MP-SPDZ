@@ -235,6 +235,7 @@ size_t Machine<sint, sgf2n>::load_program(const string& threadname,
   M2.minimum_size(SGF2N, CGF2N, progs[i], threadname);
   Mp.minimum_size(SINT, CINT, progs[i], threadname);
   Mi.minimum_size(NONE, INT, progs[i], threadname);
+  bit_memories.reset(progs[i]);
   return progs.back().size();
 }
 
@@ -340,14 +341,15 @@ void Machine<sint, sgf2n>::fill_matmul(int thread_number, int tape_number,
                   auto subdim = it->first;
                   subdim[1] = min(subdim[1] - j, max_inner);
                   subdim[2] = min(subdim[2] - k, max_cols);
-                  auto& source =
-                      dynamic_cast<Hemi<sint>&>(source_proc.protocol).get_matrix_prep(
+                  auto& source_proto = dynamic_cast<Hemi<sint>&>(source_proc.protocol);
+                  auto& source = source_proto.get_matrix_prep(
                           subdim, source_proc);
                   auto& dest =
                       dynamic_cast<Hemi<sint>&>(tinfo[thread_number].processor->Procp.protocol).get_matrix_prep(
                           subdim, tinfo[thread_number].processor->Procp);
-                  for (int i = 0; i < it->second; i++)
-                    dest.push_triple(source.get_triple_no_count(-1));
+                  if (not source_proto.use_plain_matmul(subdim, source_proc))
+                    for (int i = 0; i < it->second; i++)
+                      dest.push_triple(source.get_triple_no_count(-1));
                 }
             }
       }
@@ -434,7 +436,13 @@ pair<DataPositions, NamedCommStats> Machine<sint, sgf2n>::stop_threads()
   auto comm_stats = total_comm();
 
   if (OnlineOptions::singleton.verbose)
-    queues.print_breakdown();
+    {
+      NamedStats total;
+      for (auto queue : queues)
+        total += queue->stats;
+      total.print();
+      queues.print_breakdown();
+    }
 
   for (auto& queue : queues)
     delete queue;
@@ -464,7 +472,7 @@ void Machine<sint, sgf2n>::run(const string& progname)
   finish_timer.start();
 
   // actual usage
-  bool multithread = nthreads > 1;
+  multithread = nthreads > 1;
   auto res = stop_threads();
   DataPositions& pos = res.first;
 
@@ -519,14 +527,15 @@ void Machine<sint, sgf2n>::run(const string& progname)
     cerr << "Full broadcast" << endl;
 #endif
 
-#ifdef CHOP_MEMORY
-  // Reduce memory size to speed up
-  unsigned max_size = 1 << 20;
-  if (M2.size_s() > max_size)
-    M2.resize_s(max_size);
-  if (Mp.size_s() > max_size)
-    Mp.resize_s(max_size);
-#endif
+  if (not OnlineOptions::singleton.has_option("output_full_memory"))
+    {
+      // Reduce memory size to speed up
+      unsigned max_size = 1 << 20;
+      if (M2.size_s() > max_size)
+        M2.resize_s(max_size);
+      if (Mp.size_s() > max_size)
+        Mp.resize_s(max_size);
+    }
 
   // Write out the memory to use next time
   ofstream outf(memory_filename(), ios::out | ios::binary);

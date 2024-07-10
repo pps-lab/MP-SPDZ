@@ -12,8 +12,10 @@
 #include "Networking/Player.h"
 #include "Protocols/edabit.h"
 #include "PrepBase.h"
+#include "PrepBuffer.h"
 #include "EdabitBuffer.h"
 #include "Tools/TimerWithComm.h"
+#include "Tools/CheckVector.h"
 
 #include <fstream>
 #include <map>
@@ -104,8 +106,6 @@ class Preprocessing : public PrepBase
 protected:
   static const bool use_part = false;
 
-  DataPositions& usage;
-
   bool do_count;
 
   void count(Dtype dtype, int n = 1)
@@ -115,9 +115,9 @@ protected:
 
   template<int>
   void get_edabits(bool strict, size_t size, T* a,
-      vector<typename T::bit_type>& Sb, const vector<int>& regs, false_type);
+      StackedVector<typename T::bit_type>& Sb, const vector<int>& regs, false_type);
   template<int>
-  void get_edabits(bool, size_t, T*, vector<typename T::bit_type>&,
+  void get_edabits(bool, size_t, T*, StackedVector<typename T::bit_type>&,
       const vector<int>&, true_type)
   { throw not_implemented(); }
 
@@ -126,6 +126,8 @@ protected:
   T get_random_from_inputs(int nplayers);
 
 public:
+  int buffer_size;
+
   template<class U, class V>
   static Preprocessing<T>* get_new(Machine<U, V>& machine, DataPositions& usage,
       SubProcessor<T>* proc);
@@ -135,7 +137,8 @@ public:
   static Preprocessing<T>* get_live_prep(SubProcessor<T>* proc,
       DataPositions& usage);
 
-  Preprocessing(DataPositions& usage) : usage(usage), do_count(true) {}
+  Preprocessing(DataPositions& usage) :
+      PrepBase(usage), do_count(true), buffer_size(0) {}
   virtual ~Preprocessing() {}
 
   virtual void set_protocol(typename T::Protocol&) {};
@@ -151,7 +154,7 @@ public:
   virtual void get_one_no_count(Dtype, T&) { throw not_implemented(); }
   virtual void get_input_no_count(T&, typename T::open_type&, int)
   { throw not_implemented() ; }
-  virtual void get_no_count(vector<T>&, DataTag, const vector<int>&, int)
+  virtual void get_no_count(StackedVector<T>&, DataTag, const vector<int>&, int)
   { throw not_implemented(); }
 
   void get(Dtype dtype, T* a);
@@ -159,7 +162,7 @@ public:
   void get_two(Dtype dtype, T& a, T& b);
   void get_one(Dtype dtype, T& a);
   void get_input(T& a, typename T::open_type& x, int i);
-  void get(vector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
+  void get(StackedVector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
 
   /// Get fresh random multiplication triple
   virtual array<T, 3> get_triple(int n_bits);
@@ -174,7 +177,7 @@ public:
   virtual void get_dabit(T& a, typename T::bit_type& b);
   virtual void get_dabit_no_count(T&, typename T::bit_type&) { throw runtime_error("no daBit"); }
   virtual void get_edabits(bool strict, size_t size, T* a,
-          vector<typename T::bit_type>& Sb, const vector<int>& regs)
+          StackedVector<typename T::bit_type>& Sb, const vector<int>& regs)
   { get_edabits<0>(strict, size, a, Sb, regs, T::clear::characteristic_two); }
   virtual void get_edabit_no_count(bool, int, edabit<T>&)
   { throw runtime_error("no edaBits"); }
@@ -201,11 +204,11 @@ class Sub_Data_Files : public Preprocessing<T>
 
   static int tuple_length(int dtype);
 
-  BufferOwner<T, T> buffers[N_DTYPE];
-  vector<BufferOwner<T, T>> input_buffers;
-  BufferOwner<InputTuple<T>, RefInputTuple<T>> my_input_buffers;
-  map<DataTag, BufferOwner<T, T> > extended;
-  BufferOwner<dabit<T>, dabit<T>> dabit_buffer;
+  array<PrepBuffer<T>, N_DTYPE> buffers;
+  vector<PrepBuffer<T>> input_buffers;
+  PrepBuffer<InputTuple<T>, RefInputTuple<T>, T> my_input_buffers;
+  map<DataTag, PrepBuffer<T> > extended;
+  PrepBuffer<dabit<T>, dabit<T>, T> dabit_buffer;
   map<int, EdabitBuffer<T>> edabit_buffers;
   map<int, edabitvec<T>> my_edabits;
 
@@ -284,7 +287,7 @@ public:
   }
 
   void setup_extended(const DataTag& tag, int tuple_size = 0);
-  void get_no_count(vector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
+  void get_no_count(StackedVector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
   void get_dabit_no_count(T& a, typename T::bit_type& b);
 
   part_type& get_part();
@@ -397,7 +400,7 @@ inline void Preprocessing<T>::get_input(T& a, typename T::open_type& x, int i)
 }
 
 template<class T>
-inline void Preprocessing<T>::get(vector<T>& S, DataTag tag,
+inline void Preprocessing<T>::get(StackedVector<T>& S, DataTag tag,
     const vector<int>& regs, int vector_size)
 {
   usage.count(T::clear::field_type(), tag, vector_size);

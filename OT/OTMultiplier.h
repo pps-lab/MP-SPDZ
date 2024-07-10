@@ -77,6 +77,8 @@ public:
 
     OTMultiplier(OTTripleGenerator<T>& generator, int thread_num);
     virtual ~OTMultiplier();
+
+    void init();
     void multiply();
 };
 

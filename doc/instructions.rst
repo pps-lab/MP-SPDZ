@@ -65,7 +65,10 @@ potentially be used. The length 106 is composed as follows: assuming
 64-bit integers, the difference used for comparison is a 65-bit
 integer, to which 40 bits are added for statistical masking, resulting
 in a 105 bits, and it takes a 106-bit prime to able to contain all
-105-bit numbers.
+105-bit numbers. Finally, the last line indicates which compile-time
+options would change the program. This supports the virtual machine
+in suggesting options that are compatible with the protocol
+implementation.
 
 
 Bytecode

@@ -26,6 +26,11 @@ public:
     {
     }
 
+    int minimum_batch()
+    {
+        return -1;
+    }
+
     void buffer_triples();
 };
 

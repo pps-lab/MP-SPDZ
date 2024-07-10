@@ -151,6 +151,8 @@ the sixth indicates the compilation command line. The remaining lines
 indicate further options used during compilation.
 
 
+.. _execution:
+
 Execution
 ---------
 

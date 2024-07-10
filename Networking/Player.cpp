@@ -7,6 +7,7 @@
 #include "Networking/Server.h"
 #include "Networking/ServerSocket.h"
 #include "Networking/Exchanger.h"
+#include "Processor/OnlineOptions.h"
 
 #include <sys/select.h>
 #include <utility>
@@ -78,7 +79,7 @@ void Names::init(int player, int pnb, const string& filename, int nplayers_wante
     }
   }
   if (nplayers_wanted > 0 and nplayers_wanted != nplayers)
-    throw runtime_error("not enough hosts in " + filename);
+    exit_error("not enough hosts in " + filename);
 #ifdef DEBUG_NETWORKING
   cerr << "Got list of " << nplayers << " players from file: " << endl;
   for (unsigned int i = 0; i < names.size(); i++)
@@ -127,7 +128,17 @@ void Names::setup_names(const char *servername, int my_port)
 
   int socket_num;
   int pn = portnum_base;
-  set_up_client_socket(socket_num, servername, pn);
+
+  try
+  {
+    set_up_client_socket(socket_num, servername, pn);
+  }
+  catch (exception& e)
+  {
+    exit_error(
+        string("cannot reach coordination server: ") + e.what());
+  }
+
   octetStream("P" + to_string(player_no)).Send(socket_num);
 #ifdef DEBUG_NETWORKING
   cerr << "Sent " << player_no << " to " << servername << ":" << pn << endl;
@@ -155,11 +166,11 @@ void Names::setup_names(const char *servername, int my_port)
   }
   catch (exception& e)
   {
-    throw runtime_error(string("error in network setup: ") + e.what());
+    exit_error(string("error in network setup: ") + e.what());
   }
 
   if (names.size() != ports.size())
-    throw runtime_error("invalid network setup");
+    exit_error("invalid network setup");
   nplayers = names.size();
 #ifdef VERBOSE
   for (int i = 0; i < nplayers; i++)
@@ -288,7 +299,15 @@ void PlainPlayer::setup_sockets(const vector<string>& names,
               "Setting up send to self socket to %s:%d with id %s\n",
               localhost, ports[i], pn.c_str());
 #endif
-          set_up_client_socket(sockets[i],localhost,ports[i]);
+          try
+          {
+            set_up_client_socket(sockets[i],localhost,ports[i]);
+          }
+          catch (exception& e)
+          {
+            exit_error("cannot connect to myself, "
+                "maybe check your firewall configuration");
+          }
         } else {
 #ifdef DEBUG_NETWORKING
             fprintf(stderr, "Setting up client to %s:%d with id %s\n",
@@ -762,7 +781,7 @@ NamedCommStats& NamedCommStats::operator +=(const NamedCommStats& other)
 {
   sent += other.sent;
   for (auto it = other.begin(); it != other.end(); it++)
-    (*this)[it->first] += it->second;
+    map<string, CommStats>::operator[](it->first) += it->second;
   return *this;
 }
 
@@ -786,7 +805,7 @@ NamedCommStats NamedCommStats::operator -(const NamedCommStats& other) const
   NamedCommStats res = *this;
   res.sent = sent - other.sent;
   for (auto it = other.begin(); it != other.end(); it++)
-    res[it->first] -= it->second;
+    res.map<string, CommStats>::operator[](it->first) -= it->second;
   return res;
 }
 
@@ -818,9 +837,25 @@ Timer& NamedCommStats::add_to_last_round(const string& name, size_t length)
     }
 }
 
-void PlayerBase::reset_stats()
+Timer& CommStatsWithName::add_length_only(size_t length)
+{
+  if (OnlineOptions::singleton.has_option("verbose_comm"))
+    fprintf(stderr, "%s %zu bytes in same round\n", name.c_str(), length);
+  return stats.add_length_only(length);
+}
+
+Timer& CommStatsWithName::add(const octetStream& os)
+{
+  if (OnlineOptions::singleton.has_option("verbose_comm"))
+    fprintf(stderr, "%s %zu bytes\n", name.c_str(), os.get_length());
+  return stats.add(os);
+}
+
+void Player::reset_stats()
 {
   comm_stats.reset();
+  for (auto& x : thread_stats)
+      x.reset();
 }
 
 NamedCommStats Player::total_comm() const

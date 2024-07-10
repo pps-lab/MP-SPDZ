@@ -197,7 +197,7 @@ Secret<T> Secret<T>::operator>>(int i) const
 
 template <class T>
 template <class U>
-void Secret<T>::bitcom(Memory<U>& S, const vector<int>& regs)
+void Secret<T>::bitcom(StackedVector<U>& S, const vector<int>& regs)
 {
     registers.clear();
     for (unsigned int i = 0; i < regs.size(); i++)
@@ -210,7 +210,7 @@ void Secret<T>::bitcom(Memory<U>& S, const vector<int>& regs)
 
 template <class T>
 template <class U>
-void Secret<T>::bitdec(Memory<U>& S, const vector<int>& regs) const
+void Secret<T>::bitdec(StackedVector<U>& S, const vector<int>& regs) const
 {
     if (regs.size() > registers.size())
         throw overflow("not enough bits for bit decomposition", regs.size(),

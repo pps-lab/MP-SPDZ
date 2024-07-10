@@ -69,8 +69,6 @@ Tree_MAC_Check<U>::Tree_MAC_Check(const typename U::mac_key_type::Scalar& ai, in
 {
   popen_cnt=0;
   this->alphai=ai;
-  vals.reserve(2 * POPEN_MAX);
-  macs.reserve(2 * POPEN_MAX);
 }
 
 template<class T>
@@ -89,6 +87,7 @@ template<class U>
 void Tree_MAC_Check<U>::init_open(const Player&, int n)
 {
   macs.reserve(macs.size() + n);
+  vals.reserve(vals.size() + n);
   this->secrets.clear();
   this->values.clear();
   this->secrets.reserve(n);

@@ -34,6 +34,7 @@ void ReplicatedMC<T>::prepare(const vector<T>& S)
     to_send.reserve(S.size() * T::value_type::size());
     for (auto& x : S)
         x[0].pack(to_send);
+    this->values_opened += S.size();
 }
 
 template<class T>

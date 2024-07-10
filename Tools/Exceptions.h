@@ -7,6 +7,8 @@
 #include <stdexcept>
 using namespace std;
 
+void exit_error(const string& message);
+
 class not_implemented: public exception
     { virtual const char* what() const throw()
         { return "Case not implemented"; }

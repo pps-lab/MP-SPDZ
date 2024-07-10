@@ -40,7 +40,7 @@ from Compiler import ml
 
 ml.set_n_threads(int(program.args[2]))
 
-layers = ml.layers_from_torch(net, data[0][1].shape, 128)
+layers = ml.layers_from_torch(net, data[0][1].shape, 128, program=program)
 layers[0].X = data[0][1]
 layers[-1].Y = data[0][0]
 

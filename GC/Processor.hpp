@@ -18,7 +18,7 @@ using namespace std;
 #include "Math/BitVec.h"
 
 #include "GC/Machine.hpp"
-#include "Processor/ProcessorBase.hpp"
+#include "Processor/Processor.hpp"
 #include "Processor/IntInput.hpp"
 #include "Math/bigint.hpp"
 
@@ -53,9 +53,9 @@ template <class T>
 template <class U>
 void Processor<T>::reset(const U& program, int arg)
 {
-    S.resize(program.num_reg(SBIT), "registers");
-    C.resize(program.num_reg(CBIT), "registers");
-    I.resize(program.num_reg(INT), "registers");
+    S.resize(program.num_reg(SBIT));
+    C.resize(program.num_reg(CBIT));
+    I.resize(program.num_reg(INT));
     set_arg(arg);
     PC = 0;
 }
@@ -202,14 +202,14 @@ void GC::Processor<T>::store_clear_in_dynamic(const vector<int>& args,
 }
 
 template<class T>
-template<class U>
-void Processor<T>::mem_op(int n, Memory<U>& dest, const Memory<U>& source,
+template<class U, class V>
+void Processor<T>::mem_op(int n, U& dest, const V& source,
         Integer dest_address, Integer source_address)
 {
     dest.check_index(dest_address + n - 1);
     source.check_index(source_address + n - 1);
-    auto d = &dest[dest_address];
-    auto s = &source[source_address];
+    auto d = &dest[dest_address.get()];
+    auto s = &source[source_address.get()];
     for (int i = 0; i < n; i++)
     {
         *d++ = *s++;
@@ -388,16 +388,44 @@ void Processor<T>::convcbit2s(const BaseInstruction& instruction)
                 min(size_t(unit), instruction.get_n() - i * unit));
 }
 
+template<class T>
+void Processor<T>::convcbitvec(const BaseInstruction& instruction,
+        StackedVector<Integer>& Ci, Player* P)
+{
+    vector<Integer> bits;
+    auto n = instruction.get_n();
+    bits.reserve(n);
+    for (size_t i = 0; i < instruction.get_n(); i++)
+    {
+        int i1 = i / GC::Clear::N_BITS;
+        int i2 = i % GC::Clear::N_BITS;
+        auto bit = C[instruction.get_r(1) + i1].get_bit(i2);
+        bits.push_back(bit);
+    }
+
+    if (P)
+        sync<T>(bits, *P);
+    else if (not T::symmetric)
+        sync<T>(bits, *Thread<T>::s().P);
+
+    for (size_t i = 0; i < n; i++)
+        Ci[instruction.get_r(0) + i] = bits[i];
+}
+
 template <class T>
 void Processor<T>::print_reg(int reg, int n, int size)
 {
 #ifdef DEBUG_VALUES
     cout << "print_reg " << typeid(T).name() << " " << reg << " " << &C[reg] << endl;
 #endif
-    bigint output;
+    out << "Reg[" << reg << "] = 0x" << hex << noshowbase;
     for (int i = 0; i < size; i++)
-        output += bigint((unsigned long)C[reg + i].get()) << (T::default_length * i);
-    out << "Reg[" << reg << "] = " << hex << showbase << output << dec << " # ";
+    {
+        out.fill('0');
+        out.width(16);
+        out << (unsigned long)C[reg + size - 1 - i].get();
+    }
+    out << dec << " # ";
     print_str(n);
     out << endl << flush;
 }
@@ -413,7 +441,7 @@ void Processor<T>::print_reg_signed(unsigned n_bits, Integer reg)
 {
     if (n_bits <= Clear::N_BITS)
     {
-        auto value = C[reg];
+        auto value = C[reg.get()];
         unsigned n_shift = 0;
         if (n_bits > 1)
             n_shift = sizeof(value.get()) * 8 - n_bits;
@@ -458,6 +486,69 @@ template <class T>
 void Processor<T>::print_float_prec(int n)
 {
     out << setprecision(n);
+}
+
+template<class T>
+void Processor<T>::incint(const BaseInstruction& instruction)
+{
+    auto dest = &I[instruction.get_r(0)];
+    auto base = I[instruction.get_r(1)];
+    auto& start = instruction.get_start();
+    for (int i = 0; i < instruction.get_size(); i++)
+    {
+        int inc = (i / start[0]) % start[1];
+        *dest++ = base + inc * int(instruction.get_n());
+    }
+}
+
+template<class T>
+void GC::Processor<T>::push_stack()
+{
+    S.push_stack();
+    C.push_stack();
+}
+
+template<class T>
+void GC::Processor<T>::push_args(const vector<int>& args)
+{
+    S.push_args(args, SBIT);
+    C.push_args(args, CBIT);
+}
+
+template<class T>
+void GC::Processor<T>::pop_stack(const vector<int>& results)
+{
+    S.pop_stack(results, SBIT);
+    C.pop_stack(results, CBIT);
+}
+
+template<class T>
+template<class U>
+void Processor<T>::call_tape(const BaseInstruction& instruction, U& dynamic_memory)
+{
+    auto new_arg = I.at(instruction.get_r(1)).get();
+
+    PC_stack.push_back(PC);
+    arg_stack.push_back(this->arg);
+    push_stack();
+    I.push_stack();
+
+    auto& tape = machine->progs.at(instruction.get_r(0));
+    reset(tape, new_arg);
+
+    auto& args = instruction.get_start();
+    push_args(args);
+    I.push_args(args, INT);
+
+    tape.execute(*this, dynamic_memory, PC);
+
+    pop_stack(args);
+    I.pop_stack(args, INT);
+
+    PC = PC_stack.back();
+    PC_stack.pop_back();
+    this->arg = arg_stack.back();
+    arg_stack.pop_back();
 }
 
 } /* namespace GC */

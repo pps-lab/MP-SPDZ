@@ -68,6 +68,8 @@ opcodes = dict(
     USE_MATMUL = 0x1F,
     ACTIVE = 0xE9,
     CMDLINEARG = 0xEB,
+    CALL_TAPE = 0xEC,
+    CALL_ARG = 0xED,
     # Addition
     ADDC = 0x20,
     ADDS = 0x21,
@@ -85,6 +87,7 @@ opcodes = dict(
     PREFIXSUMS = 0x2D,
     PICKS = 0x2E,
     CONCATS = 0x2F,
+    ZIPS = 0x3F,
     # Multiplication/division
     MULC = 0x30,
     MULM = 0x31,
@@ -220,6 +223,17 @@ opcodes = dict(
     # Secure socket
     INITSECURESOCKET = 0x1BA,
     RESPSECURESOCKET = 0x1BB
+)
+
+
+vm_types = dict(
+    ci = 0,
+    sb = 1,
+    cb = 2,
+    s = 4,
+    c = 5,
+    sg = 6,
+    cg = 7,
 )
 
 
@@ -491,7 +505,8 @@ def cisc(function, n_outputs=1):
                 reset_global_vector_size()
                 program.curr_tape = old_tape
                 for x, bl in tape.req_bit_length.items():
-                    old_tape.require_bit_length(bl - 1, x)
+                    old_tape.require_bit_length(
+                        bl - 1, x, tape.bit_length_reason if x == 'p' else '')
                 from Compiler.allocator import Merger
                 merger = Merger(block, program.options,
                                 tuple(program.to_merge))
@@ -516,40 +531,48 @@ def cisc(function, n_outputs=1):
                 inst.copy(size, subs)
             reset_global_vector_size()
 
-        def expand_to_function(self, size, new_regs):
-            key = size, program.curr_tape, \
-                tuple(arg for arg, reg in zip(self.args, new_regs) if reg is None), \
-                tuple(type(reg) for reg in new_regs)
-            if key not in self.functions:
-                from Compiler import library, types
+        class Arg:
+            def __init__(self, reg):
                 from Compiler.GC.types import bits
-                class Arg:
-                    def __init__(self, reg):
-                        self.type = type(reg)
-                        self.binary = isinstance(reg, bits)
-                        self.reg = reg
-                        # if reg is not None:
-                        #     program.base_addresses[reg] = None
-                    def new(self):
-                        if self.binary:
-                            return self.type()
-                        else:
-                            return self.type(size=size)
-                    def load(self):
-                        return self.reg
-                    def store(self, reg):
-                        if self.type != type(None):
-                            self.reg.update(reg)
-                args = [Arg(x) for x in new_regs]
+                self.type = type(reg)
+                self.binary = isinstance(reg, bits)
+                self.reg = reg
+            def new(self, size):
+                if self.binary:
+                    return self.type()
+                else:
+                    return self.type(size=size)
+            def load(self):
+                return self.reg
+            def store(self, reg):
+                if self.type != type(None):
+                    self.reg.update(reg)
+            def is_real(self):
+                return self.reg is not None
+
+        def base_key(self, size, new_regs):
+            return size, tuple(
+                arg for arg, reg in zip(self.args, new_regs) if reg is None), \
+                tuple(type(reg) for reg in new_regs)
+
+        @staticmethod
+        def get_name(key):
+            return '_'.join(['%s(%d)' % (function.__name__, key[0])] +
+                            [str(x) for x in key[1]])
+
+        def expand_to_function(self, size, new_regs):
+            key = self.base_key(size, new_regs) + (program.curr_tape,)
+            if key not in self.functions:
+                args = [self.Arg(x) for x in new_regs]
+                from Compiler import library, types
                 @library.function_block
                 def f():
-                    res = [arg.new() for arg in args[:n_outputs]]
-                    self.new_instructions(size,
-                                          res + [arg.load() for arg in args[n_outputs:]])
+                    res = [arg.new(size) for arg in args[:n_outputs]]
+                    self.new_instructions(
+                        size, res + [arg.load() for arg in args[n_outputs:]])
                     for reg, arg in zip(res, args):
                         arg.store(reg)
-                f.name =  '_'.join(['%s(%d)' % (function.__name__, size)] +
-                                   [str(x) for x in key[2]])
+                f.name = self.get_name(key)
                 self.functions[key] = f, args
             f, args = self.functions[key]
             for i in range(len(new_regs) - n_outputs):
@@ -557,6 +580,31 @@ def cisc(function, n_outputs=1):
             f()
             for i in range(n_outputs):
                 new_regs[i].link(args[i].load())
+
+        def expand_to_tape(self, size, new_regs):
+            key = self.base_key(size, new_regs)
+            args = [self.Arg(x) for x in new_regs]
+            if key not in self.functions:
+                from Compiler import library, types
+                @library.function_call_tape
+                def f(*in_args):
+                    res = [arg.new(size) for arg in args[:n_outputs]]
+                    in_args = list(in_args)
+                    my_args = list(res)
+                    for arg in args[n_outputs:]:
+                        if arg.is_real():
+                            my_args.append(in_args.pop(0))
+                        else:
+                            my_args.append(arg.reg)
+                    self.new_instructions(size, my_args)
+                    return res
+                f.name =  self.get_name(key)
+                self.functions[key] = f
+            f = self.functions[key]
+            in_args = filter(lambda arg: arg.is_real(), args[n_outputs:])
+            res = util.tuplify(f(*(arg.load() for arg in in_args)))
+            for i in range(n_outputs):
+                new_regs[i].link(res[i])
 
         def expand_merged(self, skip):
             if function.__name__ in skip:
@@ -595,7 +643,11 @@ def cisc(function, n_outputs=1):
                     raise
             if program.cisc_to_function and \
                (program.curr_tape.singular or program.n_running_threads):
-                self.expand_to_function(size, new_regs)
+                if (program.options.garbled or program.options.binary or \
+                    not program.use_tape_calls) and not program.force_cisc_tape:
+                    self.expand_to_function(size, new_regs)
+                else:
+                    self.expand_to_tape(size, new_regs)
             else:
                 self.new_instructions(size, new_regs)
                 program.curr_block.n_rounds += self.n_rounds - 1
@@ -795,6 +847,12 @@ class ClearIntAF(RegisterArgFormat):
     reg_type = RegType.ClearInt
     name = 'regint'
 
+class AnyRegAF(RegisterArgFormat):
+    reg_type = '*'
+    @staticmethod
+    def check(arg):
+        assert isinstance(arg, program.curr_tape.Register)
+
 class IntArgFormat(ArgFormat):
     n_bits = 32
 
@@ -898,6 +956,8 @@ ArgFormats = {
     'sgw': SecretGF2NAF,
     'ci': ClearIntAF,
     'ciw': ClearIntAF,
+    '*': AnyRegAF,
+    '*w': AnyRegAF,
     'i': ImmediateModpAF,
     'ig': ImmediateGF2NAF,
     'int': IntArgFormat,
@@ -938,6 +998,7 @@ class Instruction(object):
         Instruction.count += 1
         if Instruction.count % 100000 == 0:
             print("Compiled %d lines at" % self.__class__.count, time.asctime())
+            sys.stdout.flush()
             if Instruction.count > 10 ** 7:
                 print("Compilation produced more that 10 million instructions. "
                       "Consider using './compile.py -l' or replacing for loops "

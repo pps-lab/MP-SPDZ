@@ -44,10 +44,10 @@ public:
   virtual const T& at(size_t i) const = 0;
 
   template<class U>
-  void indirect_read(const Instruction& inst, vector<T>& regs,
+  void indirect_read(const Instruction& inst, StackedVector<T>& regs,
       const U& indices);
   template<class U>
-  void indirect_write(const Instruction& inst, vector<T>& regs,
+  void indirect_write(const Instruction& inst, StackedVector<T>& regs,
       const U& indices);
 
   void minimum_size(size_t size);

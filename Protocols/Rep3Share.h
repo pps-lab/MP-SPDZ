@@ -29,6 +29,7 @@ class RepShare : public FixedVec<T, L>, public ShareInterface
 public:
     typedef T clear;
     typedef T open_type;
+    typedef This share_type;
 
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;

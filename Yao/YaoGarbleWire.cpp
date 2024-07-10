@@ -95,7 +95,7 @@ void YaoGarbleWire::and_singlethread(GC::Processor<GC::Secret<YaoGarbleWire> >& 
 	garbler.counter += counter - garbler.get_gate_id();
 }
 
-void YaoGarbleWire::and_(GC::Memory<GC::Secret<YaoGarbleWire> >& S,
+void YaoGarbleWire::and_(StackedVector<GC::Secret<YaoGarbleWire> >& S,
 		const vector<int>& args, size_t start, size_t end, size_t,
 		YaoGate* gate, long& counter, PRNG& prng, map<string, Timer>& timers,
 		bool repeat, YaoGarbler& garbler)
@@ -135,7 +135,7 @@ void YaoGarbleWire::and_(GC::Memory<GC::Secret<YaoGarbleWire> >& S,
 				for (int k = 0; k < left; k++)
 				{
 					auto& left_wire = S[*(it + 2) + j].get_reg(k);
-					auto& right_wire = S[*(it + 3) + j].get_reg(
+					auto& right_wire = S[*(it + 3) + (repeat ? 0 : j)].get_reg(
 							repeat ? 0 : k);
 					counter++;
 					YaoGate::E_inputs(labels, left_wire,

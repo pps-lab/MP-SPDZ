@@ -24,6 +24,13 @@ Client::Client(const vector<string>& hostnames, int port_base,
                 "P" + to_string(i), "C" + to_string(my_client_id), true);
         if (i == 0)
             specification.Receive(sockets[0]);
+        else
+        {
+            octetStream spec;
+            spec.Receive(sockets[i]);
+            if (spec != specification)
+                throw runtime_error("inconsistent specification");
+        }
     }
 }
 

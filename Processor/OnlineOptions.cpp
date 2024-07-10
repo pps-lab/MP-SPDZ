@@ -112,6 +112,15 @@ OnlineOptions::OnlineOptions(ez::ezOptionParser& opt, int argc,
             "-B", // Flag token.
             "--bucket-size" // Flag token.
     );
+    opt.add(
+            "", // Default.
+            0, // Required?
+            -1, // Number of args expected.
+            ',', // Delimiter if expecting multiple args.
+            "Further options", // Help description.
+            "-o", // Flag token.
+            "--options" // Flag token.
+    );
 
     if (security)
         opt.add(
@@ -136,6 +145,12 @@ OnlineOptions::OnlineOptions(ez::ezOptionParser& opt, int argc,
 
 #ifndef VERBOSE
     verbose = opt.isSet("--verbose");
+#endif
+
+    opt.get("--options")->getStrings(options);
+
+#ifdef THROW_EXCEPTIONS
+    options.push_back("throw_exceptions");
 #endif
 
     if (security)

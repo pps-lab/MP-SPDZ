@@ -109,7 +109,7 @@ class SqrtOram(Generic[T, B]):
         self.shuffle_used = cint.Array(self.n)
         # Random permutation on the data
         self.shufflei = Array.create_from(
-            [self.index_type(i) for i in range(self.n)])
+            self.index_type(regint.inc(self.n)))
         # Calculate the period if not given
         # upon recursion, the period should stay the same ("in sync"),
         # therefore it can be passed as a constructor parameter
@@ -122,7 +122,7 @@ class SqrtOram(Generic[T, B]):
         # Note that self.shuffle_the_shuffle mutates this field
         #   Why don't we pass it as an argument then? Well, this way we don't have to allocate memory while shuffling, which keeps open the possibility for multithreading
         self.permutation = Array.create_from(
-            [self.index_type(i) for i in range(self.n)])
+            self.index_type(regint.inc(self.n)))
         # We allow the caller to postpone the initialization of the shuffle
         # This is the most expensive operation, and can be done in a thread (only if you know what you're doing)
         # Note that if you do not initialize, the ORAM is insecure
@@ -141,7 +141,8 @@ class SqrtOram(Generic[T, B]):
         else:
             print('You are opting out of default initialization for SqrtORAM. Be sure to call refresh before using the SqrtORAM, otherwise the ORAM is not secure.')
         # Initialize position map (recursive oram)
-        self.position_map = PositionMap.create(self.permutation, k + 1, self.T)
+        self.position_map = PositionMap.create(self.permutation, k + 1,
+                                               self.T, initialize=initialize)
 
         # Initialize stash
         self.stash = MultiArray((self.T, entry_length), value_type=value_type)
@@ -255,7 +256,6 @@ class SqrtOram(Generic[T, B]):
 
         return result
 
-    @lib.method_block
     def write(self, index: T, *value: T):
         global trace, n_parallel
         if trace:
@@ -270,7 +270,12 @@ class SqrtOram(Generic[T, B]):
         else:
             raise Exception("Cannot handle type of value passed")
         print(self.entry_length, value, type(value),len(value))
-        value = MemValue(value)
+
+        self._write(index, *value)
+
+    @lib.method_block
+    def _write(self, index: T, *value: T):
+        value = MemValue(self.value_type(value))
         index = MemValue(index)
 
         # Refresh if we have performed T (period) accesses
@@ -512,14 +517,14 @@ class SqrtOram(Generic[T, B]):
         # Since the underlying memory of the position map is already aligned in
         # this packed structure, we can simply overwrite the memory while
         # maintaining the structure.
-        self.position_map.reinitialize(*self.permutation)
+        self.position_map.reinitialize(self.permutation)
 
-    def reinitialize(self, *data: T):
+    def reinitialize(self, data: T):
         # Note that this method is only used during refresh, and as such is
         # only called with a permutation as data.
 
         # The logical addresses of some previous permutation are irrelevant and must be reset
-        self.shufflei.assign([self.index_type(i) for i in range(self.n)])
+        self.shufflei.assign_vector(self.index_type(regint.inc(self.n)))
         # Reset the clock
         self.t.write(0)
         # Reset shuffle_used
@@ -529,10 +534,10 @@ class SqrtOram(Generic[T, B]):
         # This structure is preserved while overwriting the values using
         # assign_vector
         self.shuffle.assign_vector(self.value_type(
-            data, size=self.n * self.entry_length))
+            data[:], size=self.n * self.entry_length))
         # Note that this updates self.permutation (see constructor for explanation)
         self.shuffle_the_shuffle()
-        self.position_map.reinitialize(*self.permutation)
+        self.position_map.reinitialize(self.permutation)
 
     def _reset_shuffle_used(self):
         global allow_memory_allocation
@@ -567,7 +572,7 @@ class PositionMap(Generic[T, B]):
             print_at_depth(self.depth, 'Scanning %s for logical address %s (fake=%s)',
                          self.__class__.__name__, logical_address.reveal(), sintbit(fake).reveal())
 
-    def reinitialize(self, *permutation: T):
+    def reinitialize(self, permutation: T):
         """Reinitialize this PositionMap.
 
         Since the reinitialization occurs at runtime (`on SqrtORAM.refresh()`),
@@ -577,7 +582,8 @@ class PositionMap(Generic[T, B]):
         ...
 
     @classmethod
-    def create(cls, permutation: Array, k: int, period: int, value_type: Type[T] = sint) -> PositionMap:
+    def create(cls, permutation: Array, k: int, period: int,
+               value_type: Type[T] = sint, **kwargs) -> PositionMap:
         """Creates a new PositionMap. This is the method one should call when
         needing a new position map. Depending on the size of the given data, it
         will either instantiate a RecursivePositionMap or
@@ -594,14 +600,16 @@ class PositionMap(Generic[T, B]):
             if debug:
                 lib.print_ln(
                     'Initializing RecursivePositionMap at depth %s of size %s', k, n)
-            res = RecursivePositionMap(permutation, period, value_type, k=k)
+            res = RecursivePositionMap(permutation, period, value_type, k=k,
+                                       **kwargs)
 
         return res
 
 
 class RecursivePositionMap(PositionMap[T, B], SqrtOram[T, B]):
 
-    def __init__(self, permutation: Array, period: int, value_type: Type[T] = sint, k: int = -1) -> None:
+    def __init__(self, permutation: Array, period: int,
+                 value_type: Type[T] = sint, k: int = -1, **kwargs) -> None:
         PositionMap.__init__(self, len(permutation), k=k)
         pack = PositionMap.PACK
 
@@ -609,12 +617,14 @@ class RecursivePositionMap(PositionMap[T, B], SqrtOram[T, B]):
         packed_size = int(math.ceil(self.n / pack))
         packed_structure = MultiArray(
             (packed_size, pack), value_type=value_type)
-        for i in range(packed_size):
+        @lib.for_range(packed_size)
+        def _(i):
             packed_structure[i] = Array.create_from(
-                permutation[i*pack:(i+1)*pack])
+                permutation.get_vector(base=i * pack, size=pack))
 
         SqrtOram.__init__(self, packed_structure, value_type=value_type,
-                          period=period, entry_length=pack, k=self.depth)
+                          period=period, entry_length=pack, k=self.depth,
+                          **kwargs)
 
         # Initialize random temp variables needed during the computation
         self.block_index_demux: Array = self.bit_type.Array(self.T)
@@ -633,7 +643,8 @@ class RecursivePositionMap(PositionMap[T, B], SqrtOram[T, B]):
         program = Program.prog
         h = MemValue(self.value_type.bit_compose(sbits.get_type(program.bit_length)(
             logical_address).right_shift(pack_log, program.bit_length)))
-        l = self.value_type.bit_compose(sbits(logical_address) & (pack - 1))
+        l = self.value_type.bit_compose(
+            sbits.get_type(program.bit_length)(logical_address) & (pack - 1))
 
         global trace
         if trace:
@@ -714,8 +725,8 @@ class RecursivePositionMap(PositionMap[T, B], SqrtOram[T, B]):
 
         return p.reveal()
 
-    def reinitialize(self, *permutation: T):
-        SqrtOram.reinitialize(self, *permutation)
+    def reinitialize(self, permutation: T):
+        SqrtOram.reinitialize(self, permutation)
 
 
 class LinearPositionMap(PositionMap):
@@ -784,8 +795,8 @@ class LinearPositionMap(PositionMap):
 
         return p.reveal()
 
-    def reinitialize(self, *data: T):
-        self.physical.assign_vector(data)
+    def reinitialize(self, data : T):
+        self.physical.assign(data)
 
         global allow_memory_allocation
         if allow_memory_allocation:

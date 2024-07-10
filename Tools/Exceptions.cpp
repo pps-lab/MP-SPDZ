@@ -5,6 +5,16 @@
 
 #include "Exceptions.h"
 #include "Math/bigint.h"
+#include "Processor/OnlineOptions.h"
+
+void exit_error(const string& message)
+{
+    if (OnlineOptions::singleton.has_option("throw_exceptions"))
+        throw runtime_error(message);
+
+    cerr << message << endl;
+    exit(1);
+}
 
 IO_Error::IO_Error(const string& m)
 {

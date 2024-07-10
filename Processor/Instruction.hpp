@@ -92,6 +92,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case DIVINT:
       case CONDPRINTPLAIN:
       case INPUTMASKREG:
+      case ZIPS:
         get_ints(r, s, 3);
         break;
       // instructions with 2 register operands
@@ -146,6 +147,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case JMPI:
       case GBIT:
       case GPRINTREGPLAIN:
+      case GPRINTREGPLAINS:
       case JOIN_TAPE:
       case PUSHINT:
       case POPINT:
@@ -244,6 +246,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case CONDPRINTSTRB:
       case RANDOMS:
       case GENSECSHUFFLE:
+      case CALL_ARG:
         r[0]=get_int(s);
         n = get_int(s);
         break;
@@ -322,13 +325,14 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
         get_vector(num_var_args, start, s);
         break;
       case MATMULSM:
-        get_ints(r, s, 3);
-        get_vector(9, start, s);
+        num_var_args = get_int(s);
+        get_vector(num_var_args, start, s);
         break;
 
       // read from file, input is opcode num_args, 
       //   start_file_posn (read), end_file_posn(write) var1, var2, ...
       case READFILESHARE:
+      case CALL_TAPE:
         num_var_args = get_int(s) - 2;
         r[0] = get_int(s);
         r[1] = get_int(s);
@@ -587,6 +591,7 @@ int BaseInstruction::get_reg_type() const
     case ACCEPTCLIENTCONNECTION:
     case GENSECSHUFFLE:
     case CMDLINEARG:
+    case CALL_TAPE:
       return INT;
     case PREP:
     case GPREP:
@@ -595,7 +600,6 @@ int BaseInstruction::get_reg_type() const
     case USE_EDABIT:
     case USE_MATMUL:
     case RUN_TAPE:
-    case CISC:
       // those use r[] not for registers
       return NONE;
     case LDI:
@@ -638,6 +642,8 @@ int BaseInstruction::get_reg_type() const
     case PRIVATEOUTPUT:
     case FIXINPUT:
       return CINT;
+    case CALL_ARG:
+      return n;
     default:
       if (is_gf2n_instruction())
         {
@@ -705,6 +711,14 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
       }
       else
           return 0;
+  case CALL_TAPE:
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += 5)
+          if (it[1] == reg_type)
+              res = max(res, (*it ? it[3] : it[4]) + it[2]);
+      return res;
+  }
   default:
       if (get_reg_type() != reg_type)
           return 0;
@@ -712,6 +726,21 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
 
   switch (opcode)
   {
+  case CISC:
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += *it)
+      {
+          assert(it + *it <= start.end());
+          res = max(res, it[1] + it[2]);
+      }
+      return res;
+  }
+  case MULS:
+      skip = 4;
+      offset = 1;
+      size_offset = -1;
+      break;
   case DOTPRODS:
   {
       int res = 0;
@@ -736,7 +765,14 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
       return res;
   }
   case MATMULSM:
-      return r[0] + start[0] * start[2];
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += 12)
+      {
+          res = max(res, *it + *(it + 3) * *(it + 5));
+      }
+      return res;
+  }
   case CONV2DS:
   {
       unsigned res = 0;
@@ -955,6 +991,17 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
             }
           return;
         }
+      case ZIPS:
+        {
+          auto& S = Proc.Procp.get_S();
+          auto dest = S.begin() + r[0];
+          for (int i = 0; i < get_size(); i++)
+            {
+              *dest++ = S[r[1] + i];
+              *dest++ = S[r[2] + i];
+            }
+          return;
+        }
       case DIVC:
         Proc.write_Cp(r[0], Proc.read_Cp(r[1]) / sanitize(Proc.Procp, r[2]));
         break;
@@ -1116,8 +1163,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Proc.Procp.matmuls(Proc.Procp.get_S(), *this);
         return;
       case MATMULSM:
-        Proc.Procp.protocol.matmulsm(Proc.Procp, Proc.machine.Mp.MS, *this,
-            Proc.read_Ci(r[1]), Proc.read_Ci(r[2]));
+        Proc.Procp.protocol.matmulsm(Proc.Procp, Proc.machine.Mp.MS, *this);
         return;
       case CONV2DS:
         Proc.Procp.protocol.conv2ds(Proc.Procp, *this);
@@ -1181,6 +1227,9 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case PRINTREGPLAINS:
         Proc.out << Proc.read_Sp(r[0]);
         return;
+      case GPRINTREGPLAINS:
+        Proc.out << Proc.read_S2(r[0]);
+        return;
       case CONDPRINTPLAIN:
         if (not Proc.read_Cp(r[0]).is_zero())
           {
@@ -1229,6 +1278,9 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case JOIN_TAPE:
         Proc.machine.join_tape(r[0]);
         break;
+      case CALL_TAPE:
+        Proc.call_tape(r[0], Proc.read_Ci(r[1]), start);
+        break;
       case CRASH:
         if (Proc.read_Ci(r[0]))
           throw crash_requested();
@@ -1274,7 +1326,6 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         // get client connection at port number n + my_num())
         int client_handle = Proc.external_clients.get_client_connection(
             Proc.read_Ci(r[1]));
-        if (Proc.P.my_num() == 0)
         {
           octetStream os;
           os.store(int(sint::open_type::type_char()));
@@ -1418,7 +1469,8 @@ void Program::execute(Processor<sint, sgf2n>& Proc) const
 #endif
 
 #ifdef OUTPUT_INSTRUCTIONS
-      cerr << instruction << endl;
+      if (OnlineOptions::singleton.has_option("output_instructions"))
+          cerr << instruction << endl;
 #endif
 
       Proc.PC++;
@@ -1458,7 +1510,7 @@ void Instruction::print(SwitchableOutput& out, T* v, T* p, T* s, T* z, T* nan) c
   for (int i = 0; i < size; i++)
     {
       if (p == 0 or (*p == 0 and s == 0))
-        out << v[i];
+        out.signed_output(v[i]);
       else if (s == 0)
         out << bigint::get_float(v[i], p[i], {}, {});
       else

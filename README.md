@@ -32,8 +32,8 @@ as well as information on how to solve common issues.
 
 #### TL;DR (Binary Distribution on Linux or Source Distribution on macOS)
 
-This requires either a Linux distribution originally released 2014 or
-later (glibc 2.17) or macOS High Sierra or later as well as Python 3
+This requires either a Linux distribution originally released 2018 or
+later (glibc 2.18) or macOS High Sierra or later as well as Python 3
 and basic command-line utilities.
 
 Download and unpack the
@@ -56,7 +56,7 @@ parties and malicious security.
 On Linux, this requires a working toolchain and [all
 requirements](#requirements). On Ubuntu, the following might suffice:
 ```
-sudo apt-get install automake build-essential clang cmake git libboost-dev libboost-thread-dev libgmp-dev libntl-dev libsodium-dev libssl-dev libtool python3
+sudo apt-get install automake build-essential clang cmake git libboost-dev libboost-iostreams-dev libboost-thread-dev libgmp-dev libntl-dev libsodium-dev libssl-dev libtool python3
 ```
 On MacOS, this requires [brew](https://brew.sh) to be installed,
 which will be used for all dependencies.
@@ -68,7 +68,7 @@ security.
 make setup
 echo 1 2 3 4 > Player-Data/Input-P0-0
 echo 1 2 3 4 > Player-Data/Input-P1-0
-Scripts/compile-run.py -E mascot tutorial
+Scripts/compile-run.py mascot tutorial
 ```
 
 On strong enough hardware setups (several cores and GB of RAM), you
@@ -84,7 +84,7 @@ docker build --tag mpspdz:mascot-party --build-arg machine=mascot-party.x .
 Run the [the tutorial](Programs/Source/tutorial.mpc):
 
 ```
-docker run --rm -it mpspdz:mascot-party ./Scripts/mascot.sh tutorial
+docker run --rm -it mpspdz:mascot-party ./Scripts/compile-run.py mascot tutorial
 ```
 
 See the [`Dockerfile`](./Dockerfile) for examples of how it can be used.
@@ -191,7 +191,7 @@ there are a few things to consider:
       preprocessing in smaller batches at a higher asymptotic cost.
     - `--batch-size`: Preprocessing in smaller batches avoids generating
       too much but larger batches save communication rounds.
-    - `--direct`: In dishonest-majority protocols, direct communication
+    - `--direct`: In protocols with any number of parties, direct communication
       instead of star-shaped saves communication rounds at the expense
       of a quadratic amount. This might be beneficial with a small
       number of parties.
@@ -242,8 +242,9 @@ AES-NI pipelining (for garbled circuits).
 
 The software uses two different bytecode sets, one for
 arithmetic circuits and one for boolean circuits. The high-level code
-slightly differs between the two variants, but we aim to keep these
-differences a at minimum.
+differs between the two variants. Most computation functionality is
+available in both, but binary circuits are lacking some input-output
+functionality.
 
 In the section on computation we will explain how to compile a
 high-level program for the various computation domains and then how to
@@ -256,9 +257,9 @@ compute the preprocessing time for a particular computation.
 
 #### Requirements
 
- - GCC 5 or later (tested with up to 11) or LLVM/clang 6 or later
-   (tested with up to 14). The default is to use clang because it performs
-   better. Note that GCC 5/6 and clang 9 don't support libOTe, so you
+ - GCC 7 or later (tested with up to 11) or LLVM/clang 6 or later
+   (tested with up to 19). The default is to use clang because it performs
+   better. clang 9 doesn't support libOTe, so you
    need to deactivate its use for these compilers (see the next
    section).
  - For protocols using oblivious transfer, libOTe with [the necessary
@@ -309,9 +310,7 @@ compute the preprocessing time for a particular computation.
     - `SSL_DIR` should point to a local, unversioned directory to store ssl keys (the default is `Player-Data` in the current directory).
     - For homomorphic encryption with GF(2^40), set `USE_NTL = 1`.
     - To use KOS instead of SoftSpokenOT, add `USE_KOS = 1` and
-      `SECURE = -DINSECURE` to `CONFIG.mine`. This is necessary with
-      GCC 5 and 6 because these compilers don't support the C++
-      standard used by libOTe.
+      `SECURE = -DINSECURE` to `CONFIG.mine`.
     - On macOS, there have been issues with non-system compilers. Add
       `CXX = /usr/bin/g++` to fix them.
 
@@ -399,8 +398,13 @@ the integer length. Note that `-P` is optional, and it involves
 algorithms that are more expensive while allowing for a wider range of
 integer lengths.
 
+The command-line options primarily affects non-linear computation such
+as comparisons. See the [documentation on non-linear
+computation](https://mp-spdz.readthedocs.io/en/latest/non-linear.html)
+for more details and pointers to relevant papers.
+
 Note that in this context integers do not wrap around according to the
-bit integer bit length but the length is used for non-linear
+integer bit length but the length is used for non-linear
 computations such as comparison.
 Overflow in secret integers might have security implications if no
 concrete prime is given.
@@ -584,6 +588,14 @@ $ ../MP-SPDZ/Scripts/rep-field.sh test
 
 ### TensorFlow inference
 
+**Note: All networks mentioned below are now supported by the
+[PyTorch
+interface](https://mp-spdz.readthedocs.io/en/latest/machine-learning.html#loading-pre-trained-models),
+which is better integrated and thus easier to use. This section is
+merely kept to document the approach used for [an earlier
+paper](https://eprint.iacr.org/2019/131), but it is recommended to use
+the PyTorch interface.**
+
 MP-SPDZ supports inference with selected TensorFlow graphs, in
 particular DenseNet, ResNet, and SqueezeNet as used in
 [CrypTFlow](https://github.com/mpc-msri/EzPC). For example, you can
@@ -621,7 +633,8 @@ can emulate the computation as follows:
 
 ``` ./emulate.x <program> ```
 
-This runs the compiled bytecode in cleartext computation.
+This runs the compiled bytecode in cleartext computation, that is,
+*no* multi-party computation is performed.
 
 ## Dishonest majority
 
@@ -647,7 +660,7 @@ The following table shows all programs for dishonest-majority computation using 
 | `cowgear-party.x` | Adapted [LowGear](https://eprint.iacr.org/2017/1230) | Mod prime | Covert | `cowgear.sh` |
 | `chaigear-party.x` | Adapted [HighGear](https://eprint.iacr.org/2017/1230) | Mod prime | Covert | `chaigear.sh` |
 | `hemi-party.x` | Semi-homomorphic encryption | Mod prime | Semi-honest | `hemi.sh` |
-| `temi-party.x` | Adapted [CDN01](https://eprint.iacr.org/2000/055) | Mod prime | Semi-honest | `temi.sh` |
+| `temi-party.x` | Adapted [CDN01](https://eprint.iacr.org/2022/933) | Mod prime | Semi-honest | `temi.sh` |
 | `soho-party.x` | Somewhat homomorphic encryption | Mod prime | Semi-honest | `soho.sh` |
 | `semi-bin-party.x` | OT-based | Binary | Semi-honest | `semi-bin.sh` |
 | `tiny-party.x` | Adapted SPDZ2k | Binary | Malicious | `tiny.sh` |
@@ -669,6 +682,9 @@ Tiny denotes the adaption of SPDZ2k to the binary setting. In
 particular, the SPDZ2k sacrifice does not work for bits, so we replace
 it by cut-and-choose according to [Furukawa et
 al.](https://eprint.iacr.org/2016/944)
+Tinier on the other hand denotes the protocol by [Frederiksen et
+al.](https://eprint.iacr.org/2015/901) also using the cut-and-choose
+sacrifice by Furukawa et al.
 
 The virtual machines for LowGear and HighGear run a key generation
 similar to the one by [Rotaru et
@@ -684,7 +700,8 @@ security similar to Semi, that is, generating additively shared Beaver
 triples using semi-homomorphic encryption.
 Temi in turn denotes the adaption of
 [Cramer et al.](https://eprint.iacr.org/2000/055) to LWE-based
-semi-homomorphic encryption.
+semi-homomorphic encryption as described in Appendix B of [this
+work](https://eprint.iacr.org/2022/933).
 Both Hemi and Temi use the diagonal packing by [Halevi and
 Shoup](https://eprint.iacr.org/2014/106) for matrix multiplication.
 

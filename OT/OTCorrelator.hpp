@@ -78,6 +78,11 @@ void OTCorrelator<U>::correlate(int start, int slice,
     Slice<U> t1Slice(t1, start, slice);
     Slice<U> uSlice(u, start, slice);
 
+    if (OnlineOptions::singleton.has_option("verbose_correlate"))
+        fprintf(stderr, "correlate %d matrices of size %d*%d, %u bits\n", slice,
+                int(U::PartType::n_rows()), int(U::PartType::n_columns()),
+                newReceiverInput.size());
+
     // create correlation
     if (ot_role & RECEIVER)
     {

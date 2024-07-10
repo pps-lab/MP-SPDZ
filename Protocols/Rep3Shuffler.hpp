@@ -9,7 +9,7 @@
 #include "Rep3Shuffler.h"
 
 template<class T>
-Rep3Shuffler<T>::Rep3Shuffler(vector<T>& a, size_t n, int unit_size,
+Rep3Shuffler<T>::Rep3Shuffler(StackedVector<T>& a, size_t n, int unit_size,
         size_t output_base, size_t input_base, SubProcessor<T>& proc) :
         proc(proc)
 {
@@ -38,14 +38,14 @@ int Rep3Shuffler<T>::generate(int n_shuffle, store_type& store)
         for (int j = 0; j < n_shuffle; j++)
         {
             int k = proc.protocol.shared_prngs[i].get_uint(n_shuffle - j);
-            swap(perm[k], perm[k + j]);
+            swap(perm[j], perm[k + j]);
         }
     }
     return res;
 }
 
 template<class T>
-void Rep3Shuffler<T>::apply(vector<T>& a, size_t n, int unit_size,
+void Rep3Shuffler<T>::apply(StackedVector<T>& a, size_t n, int unit_size,
         size_t output_base, size_t input_base, shuffle_type& shuffle,
         bool reverse)
 {
@@ -56,6 +56,8 @@ void Rep3Shuffler<T>::apply(vector<T>& a, size_t n, int unit_size,
 
     if (shuffle.empty())
         throw runtime_error("shuffle has been deleted");
+
+    stats[n / unit_size] += unit_size;
 
     vector<T> to_shuffle;
     for (size_t i = 0; i < n; i++)
@@ -120,7 +122,7 @@ void Rep3Shuffler<T>::apply(vector<T>& a, size_t n, int unit_size,
 }
 
 template<class T>
-void Rep3Shuffler<T>::inverse_permutation(vector<T>&, size_t, size_t, size_t)
+void Rep3Shuffler<T>::inverse_permutation(StackedVector<T>&, size_t, size_t, size_t)
 {
     throw runtime_error("inverse permutation not implemented");
 }

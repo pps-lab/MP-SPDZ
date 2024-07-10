@@ -54,17 +54,20 @@ class ProtocolBase
 protected:
     vector<T> random;
 
-    int trunc_pr_counter;
-    int rounds, trunc_rounds;
-    int dot_counter;
-    int bit_counter;
+    void add_mul(int n);
 
 public:
     typedef T share_type;
 
     typedef SecureShuffle<T> Shuffler;
 
-    int counter;
+    long trunc_pr_counter;
+    long rounds, trunc_rounds;
+    long dot_counter;
+    long bit_counter;
+    long counter;
+
+    int buffer_size;
 
     ProtocolBase();
     virtual ~ProtocolBase();
@@ -107,12 +110,12 @@ public:
     { (void) regs, (void) size; (void) proc; throw runtime_error("trunc_pr not implemented"); }
 
     virtual void randoms(T&, int) { throw runtime_error("randoms not implemented"); }
-    virtual void randoms_inst(vector<T>&, const Instruction&);
+    virtual void randoms_inst(StackedVector<T>&, const Instruction&);
 
     template<int = 0>
     void matmulsm(SubProcessor<T> & proc, MemoryPart<T>& source,
-            const Instruction& instruction, int a, int b)
-    { proc.matmulsm(source, instruction, a, b); }
+            const Instruction& instruction)
+    { proc.matmulsm(source, instruction.get_start()); }
 
     template<int = 0>
     void conv2ds(SubProcessor<T>& proc, const Instruction& instruction)

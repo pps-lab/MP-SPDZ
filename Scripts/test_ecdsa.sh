@@ -6,16 +6,17 @@ touch ECDSA/Fake-ECDSA.cpp
 
 make -j4 ecdsa Fake-ECDSA.x
 
+port=${PORT:-$((RANDOM%10000+10000))}
+
 run()
 {
     echo $1
-    port=$[RANDOM+1024]
     if ! {
 	    for j in $(seq 0 $2); do
-		./$1-ecdsa-party.x -pn $port -p $j 1 2>/dev/null & true
+		./$1-ecdsa-party.x -pn $port -p $j 1 2>logs/ecdsa-$j & true
 	    done
 	    wait
-	} | grep "Online checking"; then
+	} | tee logs/ecdsa | grep "Online checking"; then
 	exit 1
     fi
 }

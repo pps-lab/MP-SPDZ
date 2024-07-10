@@ -62,8 +62,7 @@ public:
 template<class T>
 BufferPrep<T>::BufferPrep(DataPositions& usage) :
         Preprocessing<T>(usage), n_bit_rounds(0),
-		proc(0), P(0),
-        buffer_size(0)
+		proc(0), P(0)
 {
 }
 
@@ -200,6 +199,7 @@ void generate_triples_initialized(vector<array<T, 3>>& triples, int n_triples,
         U* protocol, int n_bits = -1)
 {
     triples.resize(n_triples);
+    BufferScope scope(*protocol, 2 * triples.size());
     for (size_t i = 0; i < triples.size(); i++)
     {
         auto& triple = triples[i];
@@ -220,6 +220,8 @@ void BufferPrep<T>::get_three_no_count(Dtype dtype, T& a, T& b, T& c)
 
     if (triples.empty())
     {
+        if (OnlineOptions::singleton.has_option("verbose_triples"))
+            fprintf(stderr, "out of %s triples\n", T::type_string().c_str());
         InScope in_scope(this->do_count, false, *this);
         buffer_triples();
         assert(not triples.empty());
@@ -403,7 +405,7 @@ template<class T>
 template<int>
 void SemiHonestRingPrep<T>::buffer_bits(true_type, false_type)
 {
-    if (this->protocol->get_n_relevant_players() > 10
+    if (this->protocol->get_n_relevant_players() > T::bit_generation_threshold
             or OnlineOptions::singleton.bits_from_squares
             or T::dishonest_majority)
         buffer_bits_from_squares(*this);
@@ -470,6 +472,9 @@ template<int>
 void MaliciousRingPrep<T>::buffer_personal_dabits_without_check(
         int input_player, vector<dabit<T>>& to_check, int buffer_size)
 {
+    if (OnlineOptions::singleton.has_option("verbose_dabit"))
+        fprintf(stderr, "generating %d personal dabits\n", buffer_size);
+
     assert(this->proc != 0);
     auto& P = this->proc->P;
     auto &party = GC::ShareThread<typename T::bit_type>::s();
@@ -508,9 +513,9 @@ void RingPrep<T>::buffer_personal_edabits_without_check(int n_bits,
         vector<T>& sums, vector<vector<BT> >& bits, SubProcessor<BT>& proc,
         int input_player, int begin, int end)
 {
-#ifdef VERBOSE_EDA
-    fprintf(stderr, "generate personal edaBits %d to %d\n", begin, end);
-#endif
+    if (OnlineOptions::singleton.has_option("verbose_eda"))
+        fprintf(stderr, "generate personal edaBits %d to %d\n", begin, end);
+
     InScope in_scope(this->do_count, false, *this);
     assert(this->proc != 0);
     auto& P = proc.P;
@@ -520,6 +525,8 @@ void RingPrep<T>::buffer_personal_edabits_without_check(int n_bits,
     bit_input.reset_all(P);
     assert(begin % BT::default_length == 0);
     int buffer_size = end - begin;
+    BufferScope _(this->proc->DataF, buffer_size);
+    BufferScope __(proc.DataF, buffer_size);
     buffer_personal_edabits_without_check_pre(n_bits, P, input, bit_input,
             input_player, buffer_size);
     input.exchange();
@@ -680,7 +687,7 @@ void BitPrep<T>::buffer_ring_bits_without_check(vector<T>& bits, PRNG& G,
     int n_relevant_players = protocol->get_n_relevant_players();
     vector<vector<T>> player_bits;
     auto stat = proc->P.total_comm();
-    BufferScope<T> _(*this, buffer_size);
+    BufferScope _(*this, buffer_size);
     buffer_bits_from_players(player_bits, G, *proc, this->base_player,
             buffer_size, 1);
     auto& prot = *protocol;
@@ -727,6 +734,9 @@ void SemiRep3Prep<T>::buffer_dabits(ThreadQueues*)
             BT::default_length);
     int n_bits = n_blocks * BT::default_length;
 
+    if (OnlineOptions::singleton.has_option("verbose_dabit"))
+        fprintf(stderr, "generating %d daBits\n", n_bits);
+
     vector<BT> b(n_blocks);
 
     vector<array<T, 3>> a(n_bits);
@@ -746,7 +756,8 @@ void SemiRep3Prep<T>::buffer_dabits(ThreadQueues*)
 
     // the first multiplication
     vector<T> first(n_bits), second(n_bits);
-    typename T::Input input(P);
+    typename T::Input& input = this->proc->input;
+    input.reset_all(P);
 
     if (P.my_num() == 0)
     {
@@ -957,7 +968,7 @@ void RingPrep<T>::buffer_sedabits_from_edabits(int n_bits, false_type)
     fprintf(stderr, "sedabit buffer size %zu\n", buffer_size);
 #endif
     auto& loose = this->edabits[{false, n_bits}];
-    BufferScope<T> scope(*this, buffer_size * edabitvec<T>::MAX_SIZE);
+    BufferScope scope(*this, buffer_size * edabitvec<T>::MAX_SIZE);
     while (loose.size() < buffer_size)
         this->buffer_edabits(false, n_bits);
     sanitize<0>(loose, n_bits);
@@ -990,15 +1001,14 @@ template<int>
 void RingPrep<T>::sanitize(vector<edabit<T>>& edabits, int n_bits, int player,
         int begin, int end)
 {
-#ifdef VERBOSE_EDA
-    fprintf(stderr, "sanitize edaBits %d to %d in %d\n", begin, end,
-        BaseMachine::thread_num);
-#endif
+    if (OnlineOptions::singleton.has_option("verbose_eda"))
+        fprintf(stderr, "sanitize edaBits %d to %d in %d\n", begin, end,
+                BaseMachine::thread_num);
 
     vector<T> dabits;
     typedef typename T::bit_type::part_type::small_type BT;
     vector<BT> to_open;
-    BufferScope<T> scope(*this, (end - begin));
+    BufferScope scope(*this, (end - begin));
     for (int i = begin; i < end; i++)
     {
         auto& x = edabits[i];
@@ -1047,7 +1057,7 @@ void RingPrep<T>::sanitize(vector<edabitvec<T>>& edabits, int n_bits)
     vector<T> dabits;
     typedef typename T::bit_type::part_type BT;
     vector<BT> to_open;
-    BufferScope<T> scope(*this, edabits.size() * edabits[0].size());
+    BufferScope scope(*this, edabits.size() * edabits[0].size());
 
 #ifdef DEBUG_BATCH_SIZE
     cerr << this->dabits.size() << " daBits left before" << endl;
@@ -1163,6 +1173,7 @@ void BufferPrep<T>::get_input_no_count(T& a, typename T::open_type& x, int i)
     {
         InScope in_scope(this->do_count, false, *this);
         buffer_inputs(i);
+        assert(not inputs.empty());
     }
     a = inputs[i].back().share;
     x = inputs[i].back().value;
@@ -1256,7 +1267,7 @@ void BufferPrep<T>::buffer_edabits_with_queues(bool strict, int n_bits)
 template<class T>
 template<int>
 void Preprocessing<T>::get_edabits(bool strict, size_t size, T* a,
-        vector<typename T::bit_type>& Sb, const vector<int>& regs, false_type)
+        StackedVector<typename T::bit_type>& Sb, const vector<int>& regs, false_type)
 {
     int n_bits = regs.size();
     edabit<T> eb;
@@ -1345,7 +1356,7 @@ void BufferPrep<T>::buffer_inputs_as_usual(int player, SubProcessor<T>* proc)
 }
 
 template<class T>
-void BufferPrep<T>::get_no_count(vector<T>& S, DataTag tag,
+void BufferPrep<T>::get_no_count(StackedVector<T>& S, DataTag tag,
         const vector<int>& regs, int vector_size)
 {
     (void) S, (void) tag, (void) regs, (void) vector_size;
@@ -1377,7 +1388,7 @@ T BufferPrep<T>::get_random()
 template<class T>
 void BufferPrep<T>::buffer_extra(Dtype type, int n_items)
 {
-    BufferScope<T> scope(*this, n_items);
+    BufferScope scope(*this, n_items);
 
     switch (type)
     {

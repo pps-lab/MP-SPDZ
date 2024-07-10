@@ -340,6 +340,13 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   cerr << endl;
 #endif
 
+  if (num == 0 and OnlineOptions::singleton.verbose
+      and machine.queues.size() > 1)
+    {
+      cerr << "Main thread communication:" << endl;
+      P.total_comm().print();
+    }
+
   // wind down thread by thread
   machine.stats += Proc.stats;
   queues->timers["wait"] = wait_timer + queues->wait_timer;
@@ -347,11 +354,43 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   queues->timers["online"] = online_timer - online_prep_timer - queues->wait_timer;
   queues->timers["prep"] = timer - queues->timers["wait"] - queues->timers["online"];
 
+  NamedStats stats;
+  stats["integer multiplications"] = Proc.Procp.protocol.counter;
+  stats["integer multiplication rounds"] = Proc.Procp.protocol.rounds;
+  stats["probabilistic truncations"] = Proc.Procp.protocol.trunc_pr_counter;
+  stats["probabilistic truncation rounds"] = Proc.Procp.protocol.trunc_rounds;
+  stats["ANDs"] = Proc.share_thread.protocol->bit_counter;
+  stats["AND rounds"] = Proc.share_thread.protocol->rounds;
+  stats["integer openings"] = MCp->values_opened;
+  stats["integer inputs"] = Proc.Procp.input.values_input;
+  for (auto x : Proc.Procp.shuffler.stats)
+    stats["shuffles of length " + to_string(x.first)] = x.second;
+
+  try
+  {
+      auto proc = dynamic_cast<RingPrep<sint>&>(Proc.DataF.DataFp).bit_part_proc;
+      if (proc)
+        stats["ANDs in preprocessing"] = proc->protocol.bit_counter;
+  }
+  catch (...)
+  {
+  }
+
+  try
+  {
+      auto protocol = dynamic_cast<BitPrep<sint>&>(Proc.DataF.DataFp).protocol;
+      if (protocol)
+        stats["integer multiplications in preprocessing"] = protocol->counter;
+  }
+  catch (...)
+  {
+  }
+
   // prevent faulty usage message
   Proc.DataF.set_usage(actual_usage);
   delete processor;
 
-  queues->finished(actual_usage, P.total_comm());
+  queues->finished(actual_usage, P.total_comm(), stats);
 
   delete MC2;
   delete MCp;
@@ -367,6 +406,27 @@ template<class sint, class sgf2n>
 void* thread_info<sint, sgf2n>::Main_Func(void* ptr)
 {
   auto& ti = *(thread_info<sint, sgf2n>*)(ptr);
+  if (OnlineOptions::singleton.has_option("throw_exceptions"))
+    ti.Main_Func_With_Purge();
+  else
+    {
+      try
+      {
+          ti.Main_Func_With_Purge();
+      }
+      catch (exception& e)
+      {
+          cerr << "Fatal error: " << e.what() << endl;
+          exit(1);
+      }
+    }
+  return 0;
+}
+
+template<class sint, class sgf2n>
+void thread_info<sint, sgf2n>::Main_Func_With_Purge()
+{
+  auto& ti = *this;
 #ifdef INSECURE
   ti.Sub_Main_Func();
 #else
@@ -383,12 +443,10 @@ void* thread_info<sint, sgf2n>::Main_Func(void* ptr)
     }
     catch (...)
     {
-      thread_info<sint, sgf2n>* ti = (thread_info<sint, sgf2n>*)ptr;
-      ti->purge_preprocessing(ti->machine->get_N(), ti->thread_num);
+      purge_preprocessing(machine->get_N(), thread_num);
       throw;
     }
 #endif
-  return 0;
 }
 
 

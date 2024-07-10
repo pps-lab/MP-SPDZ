@@ -168,8 +168,13 @@ Server* Server::start_networking(Names& N, int my_num, int nplayers,
   cerr << "Starting networking for " << my_num << "/" << nplayers
       << " with server on " << hostname << ":" << (portnum) << endl;
 #endif
-  assert(my_num >= 0);
-  assert(my_num < nplayers);
+  if (my_num < 0 or my_num >= nplayers)
+  {
+        cerr << "Player number " << my_num << " outside range: 0-"
+                << nplayers - 1 << endl;
+        exit(1);
+  }
+
   Server* server = 0;
   pthread_t thread;
   if (my_num == 0)

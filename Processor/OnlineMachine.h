@@ -36,6 +36,8 @@ public:
 
     template<class T, class U>
     int run();
+    template<class T, class U>
+    int run_with_error();
 
     Player* new_player(const string& id_base);
 

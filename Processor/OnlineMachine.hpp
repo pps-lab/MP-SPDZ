@@ -174,6 +174,25 @@ Player* OnlineMachine::new_player(const string& id_base)
 template<class T, class U>
 int OnlineMachine::run()
 {
+    if (online_opts.has_option("throw_exception"))
+        return run_with_error<T, U>();
+    else
+    {
+        try
+        {
+            return run_with_error<T, U>();
+        }
+        catch (exception& e)
+        {
+            cerr << "Fatal error: " << e.what() << endl;
+            exit(1);
+        }
+    }
+}
+
+template<class T, class U>
+int OnlineMachine::run_with_error()
+{
 #ifndef INSECURE
     try
 #endif

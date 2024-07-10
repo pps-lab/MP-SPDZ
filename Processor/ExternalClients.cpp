@@ -81,7 +81,6 @@ int ExternalClients::init_client_connection(const string& host, int portnum,
   auto socket = new client_socket(io_service, *peer_ctxs[my_client_id],
       plain_socket, "P" + to_string(party_num), "C" + to_string(my_client_id),
       true);
-  if (party_num == 0)
     {
       octetStream specification;
       specification.Receive(socket);

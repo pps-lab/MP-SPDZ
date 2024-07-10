@@ -80,14 +80,15 @@
     X(INPUTBVEC, T::inputbvec(PROC, Proc, EXTRA)) \
     X(CONVSINT, S0.load_clear(IMM, Proc.read_Ci(REG1))) \
     X(CONVCINT, C0 = Proc.read_Ci(REG1)) \
-    X(CONVCBIT, Proc.write_Ci(R0, PC1.get())) \
+    X(CONVCBIT, Proc.write_Ci(R0, Proc.sync(PC1.get()))) \
     X(CONVCINTVEC, Proc.convcintvec(instruction)) \
-    X(CONVCBITVEC, Proc.convcbitvec(instruction)) \
+    X(CONVCBITVEC, Proc.Procb.convcbitvec(instruction, Proc.get_Ci(), &Proc.P)) \
     X(CONVCBIT2S, PROC.convcbit2s(instruction)) \
     X(DABIT, Proc.dabit(INST)) \
     X(EDABIT, Proc.edabit(INST)) \
     X(SEDABIT, Proc.edabit(INST, true)) \
     X(SPLIT, Proc.split(INST)) \
+    X(CALL_ARG, ) \
 
 #define GC_INSTRUCTIONS \
     X(INPUTB, T::inputb(PROC, EXTRA)) \
@@ -101,6 +102,7 @@
     X(CONVCINT, C0 = PI1) \
     X(CONVCBIT, T::convcbit(I0, PC1, PROC)) \
     X(CONVCBIT2S, T::convcbit2s(PROC, instruction)) \
+    X(CONVCBITVEC, PROC.convcbitvec(instruction, Ci, 0)) \
     X(PRINTCHR, PROC.print_chr(IMM)) \
     X(PRINTSTR, PROC.print_str(IMM)) \
     X(PRINTFLOATPREC, PROC.print_float_prec(IMM)) \
@@ -109,6 +111,7 @@
     X(SUBINT, I0 = PI1 - PI2) \
     X(MULINT, I0 = PI1 * PI2) \
     X(DIVINT, I0 = PI1 / PI2) \
+    X(INCINT, PROC.incint(instruction)) \
     X(JMP, PROC.PC += IMM) \
     X(JMPNZ, if (I0 != 0) PROC.PC += IMM) \
     X(JMPEQZ, if (I0 == 0) PROC.PC += IMM) \
@@ -145,8 +148,11 @@
     X(NPLAYERS, I0 = Thread<T>::s().P->num_players()) \
     X(THRESHOLD, I0 = T::threshold(Thread<T>::s().P->num_players())) \
     X(PLAYERID, I0 = Thread<T>::s().P->my_num()) \
-    X(CRASH, if (I0.get()) throw crash_requested()) \
+    X(CRASH, if (I0.get() and T::actual_inputs) throw crash_requested()) \
     X(ACTIVE, ) \
+    X(LDTN, I0 = BaseMachine::thread_num) \
+    X(CALL_TAPE, PROC.call_tape(INST, MD)) \
+    X(CALL_ARG, ) \
 
 #define INSTRUCTIONS BIT_INSTRUCTIONS GC_INSTRUCTIONS
 

@@ -62,8 +62,10 @@ void MamaPrep<T>::buffer_triples()
             for (int k = 0; k < 3; k++)
                 triples.back()[k] = x.byIndex(k, 0);
         }
+#ifdef VERBOSE
         cerr << "Got " << triple_generator->uncheckedTriples.size()
                 << " triples" << endl;
+#endif
     }
 
     if (use_shuffling)

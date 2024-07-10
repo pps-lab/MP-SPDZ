@@ -13,6 +13,8 @@
  */
 class OTTripleSetup
 {
+    void run(int i);
+
     BitVector base_receiver_inputs;
     vector<BaseOT*> baseOTs;
 
@@ -22,8 +24,27 @@ class OTTripleSetup
     int nbase;
 
 public:
+    class SetupJob
+    {
+        OTTripleSetup& setup;
+        int i;
+
+    public:
+        pthread_t thread;
+
+        SetupJob(OTTripleSetup& setup, int i) :
+                setup(setup), i(i), thread(0)
+        {
+        }
+
+        void run()
+        {
+            setup.run(i);
+        }
+    };
+
     map<string,Timer> timers;
-    vector<OffsetPlayer*> players;
+    vector<TwoPartyPlayer*> players;
     vector< vector< array<BitVector, 2> > > baseSenderInputs;
     vector< vector<BitVector> > baseReceiverOutputs;
 
@@ -56,16 +77,16 @@ public:
             else
                 other_player = i;
 
-            players.push_back(new OffsetPlayer(N, N.get_offset(other_player)));
+            players.push_back(new VirtualTwoPartyPlayer(N, other_player));
 
             // sets up a pair of base OTs, playing both roles
             if (real_OTs)
             {
-                baseOTs[i] = new BaseOT(nbase, 128, players[i]);
+                baseOTs[i] = new BaseOT(nbase, players[i]);
             }
             else
             {
-                baseOTs[i] = new FakeOT(nbase, 128, players[i]);
+                baseOTs[i] = new FakeOT(nbase, players[i]);
             }
         }
 

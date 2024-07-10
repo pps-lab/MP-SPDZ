@@ -23,6 +23,7 @@ ProtocolBase<T>::ProtocolBase() :
         trunc_pr_counter(0), rounds(0), trunc_rounds(0), dot_counter(0),
         bit_counter(0), counter(0)
 {
+    buffer_size = OnlineOptions::singleton.batch_size;
 }
 
 template<class T>
@@ -213,10 +214,16 @@ void Replicated<T>::stop_exchange()
 }
 
 template<class T>
-inline T Replicated<T>::finalize_mul(int n)
+void ProtocolBase<T>::add_mul(int n)
 {
     this->counter++;
-    this->bit_counter += n;
+    this->bit_counter += n < 0 ? T::default_length : n;
+}
+
+template<class T>
+inline T Replicated<T>::finalize_mul(int n)
+{
+    this->add_mul(n);
     T result;
     result[0] = add_shares.next();
     result[1].unpack(os[1], n);
@@ -262,7 +269,7 @@ T Replicated<T>::get_random()
 }
 
 template<class T>
-void ProtocolBase<T>::randoms_inst(vector<T>& S,
+void ProtocolBase<T>::randoms_inst(StackedVector<T>& S,
 		const Instruction& instruction)
 {
     for (int j = 0; j < instruction.get_size(); j++)

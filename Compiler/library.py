@@ -3,7 +3,7 @@ This module defines functions directly available in high-level programs,
 in particularly providing flow control and output.
 """
 
-from Compiler.types import cint,sint,cfix,sfix,sfloat,MPCThread,Array,MemValue,cgf2n,sgf2n,_number,_mem,_register,regint,Matrix,_types, cfloat, _single, localint, personal, copy_doc, _vec, SubMultiArray
+from Compiler.types import cint,sint,cfix,sfix,sfloat,MPCThread,Array,MemValue,cgf2n,sgf2n,_number,_mem,_register,regint,Matrix,_types, cfloat, _single, localint, personal, copy_doc, _vec, SubMultiArray, _secret
 from Compiler.instructions import *
 from Compiler.util import tuplify,untuplify,is_zero
 from Compiler.allocator import RegintOptimizer, AllocPool
@@ -94,7 +94,7 @@ def print_str(s, *args, print_secrets=False):
             if isinstance(val, Tape.Register):
                 if val.is_clear:
                     val.print_reg_plain()
-                elif print_secrets and isinstance(val, sint):
+                elif print_secrets and isinstance(val, _secret):
                     val.output()
                 else:
                     raise CompilerError(
@@ -107,7 +107,7 @@ def print_str(s, *args, print_secrets=False):
             elif isinstance(val, cfloat):
                 val.print_float_plain()
             elif isinstance(val, (list, tuple, Array, SubMultiArray)):
-                print_str(*_expand_to_print(val))
+                print_str(*_expand_to_print(val), print_secrets=print_secrets)
             else:
                 try:
                     val.output()
@@ -314,7 +314,7 @@ def get_cmdline_arg(idx):
     return localint(res)
 
 def make_array(l, t=None):
-    if isinstance(l, Tape.Register):
+    if isinstance(l, types._structure):
         res = Array(len(l), t or type(l))
         res[:] = l
     else:
@@ -334,13 +334,12 @@ class FunctionTapeCall:
         return self
     def join(self):
         self.thread.join()
-        instructions.program.free(self.base, 'ci')
-        for reg_type,addr in self.bases.items():
-            get_program().free(addr, reg_type.reg_type)
+        if self.base is not None:
+            instructions.program.free(self.base, 'ci')
 
 class Function:
     def __init__(self, function, name=None, compile_args=[]):
-        self.type_args = {}
+        self.last_key = None
         self.function = function
         self.name = name
         if name is None:
@@ -348,46 +347,40 @@ class Function:
         self.compile_args = compile_args
     def __call__(self, *args):
         args = tuple(arg.read() if isinstance(arg, MemValue) else arg for arg in args)
-        from .types import _types
-        get_reg_type = lambda x: \
-            regint if isinstance(x, int) else _types.get(x.reg_type, type(x))
-        key = len(args), get_tape()
-        if key not in self.type_args:
+        runtime_args = []
+        reg_args = []
+        key = self.base_key(),
+        for i,arg in enumerate(args):
+            if isinstance(arg, types._vectorizable):
+                key += (arg.shape, arg.value_type)
+            else:
+                arg = MemValue(arg)
+                reg_args.append(arg)
+                t = arg.value_type
+                key += (arg.size, t)
+            runtime_args.append(arg)
+        if key != self.last_key:
             # first call
-            type_args = collections.defaultdict(list)
-            for i,arg in enumerate(args):
-                if not isinstance(arg, types._vectorizable):
-                    type_args[get_reg_type(arg)].append(i)
+            outer_runtime_args = runtime_args
             def wrapped_function(*compile_args):
-                base = get_arg()
-                bases = dict((t, regint.load_mem(base + i)) \
-                                 for i,t in enumerate(sorted(type_args,
-                                                             key=lambda x:
-                                                             x.reg_type)))
-                runtime_args = list(args)
-                for t in sorted(type_args, key=lambda x: x.reg_type):
-                    i = 0
-                    for i_arg in type_args[t]:
-                        runtime_args[i_arg] = t.load_mem(bases[t] + i)
-                        i += util.mem_size(t)
-                return self.function(*(list(compile_args) + runtime_args))
+                addresses = regint.Array(len(outer_runtime_args),
+                                         address=get_arg())
+                runtime_args = []
+                for i, arg in enumerate(outer_runtime_args):
+                    if isinstance(arg, MemValue):
+                        arg = arg.value_type.load_mem(
+                            address=addresses[i], size=arg.size)
+                    runtime_args.append(arg)
+                self.result = self.function(
+                    *(list(compile_args) + runtime_args))
+                return self.result
             self.on_first_call(wrapped_function)
-            self.type_args[key] = type_args
-        type_args = self.type_args[key]
-        base = instructions.program.malloc(len(type_args), 'ci')
-        bases = dict((t, get_program().malloc(len(type_args[t]), t)) \
-                         for t in type_args)
-        for i,reg_type in enumerate(sorted(type_args,
-                                           key=lambda x: x.reg_type)):
-            store_in_mem(bases[reg_type], base + i)
-            j = 0
-            for i_arg in type_args[reg_type]:
-                if get_reg_type(args[i_arg]) != reg_type:
-                    raise CompilerError('type mismatch: "%s" not of type "%s"' %
-                                        (args[i_arg], reg_type))
-                store_in_mem(args[i_arg], bases[reg_type] + j)
-                j += util.mem_size(reg_type)
-        return self.on_call(base, bases)
+            self.last_key = key
+        addresses = regint.Array(len(runtime_args))
+        for i, arg in enumerate(reg_args):
+            addresses[i] = arg.address
+        return self.on_call(addresses._address,
+                            [(arg.value_type, arg.address) for arg in reg_args])
 
 class FunctionTape(Function):
     # not thread-safe
@@ -401,6 +394,113 @@ class FunctionTape(Function):
                                 single_thread=self.single_thread)
     def on_call(self, base, bases):
         return FunctionTapeCall(self.thread, base, bases)
+    @staticmethod
+    def base_key():
+        pass
+
+class FunctionCallTape(FunctionTape):
+    def __init__(self, *args, **kwargs):
+        super(FunctionTape, self).__init__(*args, **kwargs)
+        self.instances = {}
+    def __call__(self, *args, **kwargs):
+        key = ()
+        def process_for_key(arg):
+            nonlocal key
+            if isinstance(arg, types._vectorizable):
+                key += (arg.value_type, tuple(arg.shape))
+            elif isinstance(arg, Tape.Register):
+                key += (type(arg), arg.size)
+            elif isinstance(arg, list):
+                key += (tuple(arg), 'l')
+            else:
+                key += (arg,)
+        for arg in args:
+            process_for_key(arg)
+        for name, arg in sorted(kwargs.items()):
+            key += (name, 'kw')
+            process_for_key(arg)
+        if key not in self.instances:
+            my_args = []
+            def wrapped_function():
+                actual_call_args = []
+                def process_for_call(arg):
+                    if isinstance(arg, Tape.Register):
+                        my_arg = arg.same_type()
+                        call_arg(my_arg, base.vm_types[my_arg.reg_type])
+                        my_args.append(my_arg)
+                        return my_arg
+                    elif isinstance(arg, types._vectorizable):
+                        my_arg = arg.same_shape(address=regint())
+                        call_arg(my_arg.address, base.vm_types['ci'])
+                        my_args.append(my_arg)
+                        my_arg = arg.same_shape(
+                            address=MemValue(my_arg.address))
+                        return my_arg
+                        actual_call_args.append(my_arg)
+                    else:
+                        my_args.append(arg)
+                        return arg
+                for arg in args:
+                    actual_call_args.append(process_for_call(arg))
+                actual_call_kwargs = {}
+                for name, arg in sorted(kwargs.items()):
+                    actual_call_kwargs[name] = process_for_call(arg)
+                self.result = self.function(*actual_call_args,
+                                            **actual_call_kwargs)
+                if self.result is not None:
+                    self.result = list(tuplify(self.result))
+                    for i, res in enumerate(self.result):
+                        if util.is_constant(res):
+                            self.result[i] = regint(res)
+            self.on_first_call(wrapped_function, key, my_args)
+        for name, arg in sorted(kwargs.items()):
+            args += arg,
+        return self.on_call(*self.instances[key], args)
+    def on_first_call(self, wrapped_function, key, inside_args):
+        program = get_program()
+        program.curr_tape
+        tape_handle = len(program.tapes)
+        # entry for recursion
+        self.instances[key] = tape_handle, None, inside_args
+        assert tape_handle == program.new_tape(
+            wrapped_function, name=self.name, args=self.compile_args,
+            single_thread=get_tape().singular, finalize=False,
+            thread_pool=get_tape().free_threads)
+        tape = program.tapes[tape_handle]
+        if self.result is not None:
+            self.result = list(tuplify(self.result))
+            for reg in self.result:
+                reg.can_eliminate = False
+                tape.return_values.append(reg)
+        assert not tape.purged
+        get_program().finalize_tape(tape)
+        self.instances[key] = tape_handle, self.result, inside_args
+    def on_call(self, tape_handle, result, inside_args, args):
+        tape = get_program().tapes[tape_handle]
+        if tape.ran_threads and tape.free_threads != get_tape().free_threads:
+            raise CompilerError(
+                'cannot call thread-running tape from another thread')
+        assert len(inside_args) == len(args)
+        out_result = []
+        call_args = []
+        if result is not None:
+            out_result = [reg.same_type() for reg in result]
+            for x, y in zip(out_result, result):
+                call_args += [
+                    1, instructions_base.vm_types[x.reg_type],
+                    x.size_for_mem(), x, y]
+        for x, y in zip(inside_args, args):
+            if isinstance(x, Tape.Register):
+                call_args += [
+                    0, instructions_base.vm_types[x.reg_type],
+                    x.size_for_mem(), x, y]
+            elif isinstance(x, types._vectorizable):
+                call_args += [0, base.vm_types['ci'], 1,
+                              x.address, regint.conv(y.address)]
+        call_tape(tape_handle, regint(0),
+                  *call_args)
+        break_point('call-%s' % self.name)
+        return untuplify(tuple(out_result))
 
 def function_tape(function):
     return FunctionTape(function)
@@ -413,17 +513,107 @@ def function_tape_with_compile_args(*args):
 def single_thread_function_tape(function):
     return FunctionTape(function, single_thread=True)
 
-def memorize(x):
-    if isinstance(x, (tuple, list)):
-        return tuple(memorize(i) for i in x)
+def function_call_tape(function):
+    if get_program().use_tape_calls:
+        return FunctionCallTape(function)
     else:
-        return MemValue(x)
+        return function
+
+def method_call_tape(function):
+    tapes = {}
+    def wrapper(self, *args, **kwargs):
+        def use(name):
+            x = self.__dict__[name]
+            return not isinstance(x, types.MultiArray) or \
+                x.array._address is not None
+        key = (type(self),) + tuple(filter(use, sorted(self.__dict__)))
+        member_key = key[1:]
+        if key not in tapes:
+            def f(*args, **kwargs):
+                class Dummy(type(self)):
+                    __init__ = lambda self: None
+                dummy = Dummy()
+                members = args[:len(member_key)]
+                real_args = args[len(member_key):]
+                addresses = {}
+                for name, member in zip(member_key, members):
+                    dummy.__dict__[name] = member
+                    if isinstance(member, types._vectorizable):
+                        addresses[name] = member.address
+                res = function(dummy, *real_args, **kwargs)
+                for name, member in zip(member_key, members):
+                    new_member = dummy.__dict__[name]
+                    desc = '%s in %s.%s' % (name, type(self).__name__,
+                                            function.__name__)
+                    if id(new_member) != id(member):
+                        raise CompilerError('cannot change members '
+                                            'in method tape (%s)' % desc)
+                    if isinstance(member, types._vectorizable) and \
+                       id(new_member.address) != id(addresses[name]):
+                        raise CompilerError('cannot change memory address '
+                                            'in method tape (%s)' % desc)
+                    if set(member_key) != set(dummy.__dict__):
+                        raise CompilerError('cannot add members '
+                                            'in method tape (%s)' % desc)
+                return res
+            f.__name__ = '%s-%s' % (type(self).__name__, function.__name__)
+            tapes[key] = function_call_tape(f)
+        members = tuple(self.__dict__[x] for x in member_key)
+        res = tapes[key](*(members + args), **kwargs)
+        return res
+    return wrapper
+
+def function(function):
+    """ Create a run-time function. The arguments can be memory or basic
+    types, and return values can be basic types::
+
+      @function
+      def f(x, y, z):
+          y.write(1)
+          z[0] = 2
+	  return x + 3
+
+      a = MemValue(sint(0))
+      b = sint.Array(10)
+      c = f(sint(4), a, b)
+
+      print_ln('%s %s %s', a.reveal(), b[0].reveal(), c.reveal())
+
+    This should output::
+
+      1 2 7
+
+    You can use run-time functions recursively but without return
+    values in this case.
+
+    """
+    return FunctionCallTape(function)
+
+def memorize(x, write=True):
+    if isinstance(x, (tuple, list)):
+        return tuple(memorize(i, write=write) for i in x)
+    elif x is None:
+        return
+    else:
+        return MemValue(x, write=write)
 
 def unmemorize(x):
     if isinstance(x, (tuple, list)):
         return tuple(unmemorize(i) for i in x)
+    elif x is None:
+        return
     else:
         return x.read()
+
+def write_mem(dest, source):
+    if isinstance(dest, (tuple, list)):
+        assert len(dest) == len(source)
+        for x, y in zip(dest, source):
+            write_mem(x, y)
+    elif dest is None:
+        return
+    else:
+        dest.write(source)
 
 class FunctionBlock(Function):
     def on_first_call(self, wrapped_function):
@@ -470,6 +660,10 @@ class FunctionBlock(Function):
         if self.result is not None:
             return unmemorize(self.result)
 
+    @staticmethod
+    def base_key():
+        return get_tape()
+
 def function_block(function):
     return FunctionBlock(function)
 
@@ -492,10 +686,11 @@ def method_block(function):
             return block(*args)
     return wrapper
 
-def cond_swap(x,y):
+def cond_swap(x, y, key_indices=None):
     from .types import SubMultiArray
     if isinstance(x, (Array, SubMultiArray)):
-        b = x[0] > y[0]
+        assert len(key_indices) == 1
+        b = x[key_indices[0]] > y[key_indices[0]]
         return list(zip(*[b.cond_swap(xx, yy) for xx, yy in zip(x, y)]))
     b = x < y
     if isinstance(x, sfloat):
@@ -564,7 +759,7 @@ def loopy_chunkier_odd_even_merge_sort(a, n=None, max_chunk_size=512, n_threads=
 
 
 def loopy_odd_even_merge_sort(a, sorted_length=1, n_parallel=32,
-                              n_threads=None):
+                              n_threads=None, key_indices=None):
     a_in = a
     if isinstance(a_in, list):
         a = Array.create_from(a)
@@ -592,13 +787,14 @@ def loopy_odd_even_merge_sort(a, sorted_length=1, n_parallel=32,
                         def swap(base, step):
                             if m == len(a):
                                 a[base], a[base + step] = \
-                                    cond_swap(a[base], a[base + step])
+                                    cond_swap(a[base], a[base + step],
+                                              key_indices=key_indices)
                             else:
                                 # ignore values outside range
                                 go = base + step < len(a)
                                 x = a.maybe_get(go, base)
                                 y = a.maybe_get(go, base + step)
-                                tmp = cond_swap(x, y)
+                                tmp = cond_swap(x, y, key_indices=key_indices)
                                 for i, idx in enumerate((base, base + step)):
                                     a.maybe_set(go, idx, tmp[i])
                         if k == 2:
@@ -905,11 +1101,15 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                 r = reducer(tuplify(loop_body(j)), mem_state)
                 write_state_to_memory(r)
             state = mem_state
-        for i,x in enumerate(state):
-            if use_array:
-                mem_state[i] = x
-            else:
-                mem_state[i].write(x)
+        if use_array and len(state) and \
+           isinstance(types._register, types._vectorizable):
+            mem_state[:] = state.get_vector()
+        else:
+            for i,x in enumerate(state):
+                if use_array:
+                    mem_state[i] = x
+                else:
+                    mem_state[i].write(x)
         def returner():
             return untuplify(tuple(state))
         return returner
@@ -985,7 +1185,7 @@ def multithread(n_threads, n_items=None, max_size=None):
 
     .. code::
 
-        @multithread(8, 25)
+        @multithread(3, 25)
         def f(base, size):
             ...
     """
@@ -1075,7 +1275,7 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
                     return loop_body(base + i)
         prog = get_program()
         thread_args = []
-        if prog.curr_tape == prog.tapes[0]:
+        if prog.curr_tape.singular:
             prog.n_running_threads = n_threads
         if not util.is_zero(thread_rounds):
             prog.prevent_breaks = False
@@ -1103,7 +1303,7 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
         prog.free_later()
         prog.prevent_breaks = prevent_breaks
         if len(state):
-            if thread_rounds:
+            if not util.is_zero(thread_rounds):
                 for i in range(n_threads - remainder):
                     state = reducer(Array(len(state), state_type, \
                                               args[remainder + i][1]), state)
@@ -1286,9 +1486,21 @@ def while_do(condition, *args):
         return loop_body
     return decorator
 
-def _run_and_link(function, g=None):
+def _run_and_link(function, g=None, lock_lists=True):
     if g is None:
         g = function.__globals__
+        if lock_lists:
+            class A(list):
+                def __init_(self, l):
+                    self[:] = l
+                def __setitem__(*args):
+                    raise Exception('you cannot change lists in branches, '
+                                    'use Array or MultiArray instead')
+                __delitem__ = append = clear = extend = insert = __setitem__
+                pop = remove = reverse = sort = __setitem__
+            for x in g:
+                if isinstance(g[x], list):
+                    g[x] = A(g[x])
     pre = copy.copy(g)
     res = function()
     _link(pre, g)
@@ -1568,14 +1780,25 @@ def listen_for_clients(port):
     """
     instructions.listen(regint.conv(port))
 
-def accept_client_connection(port):
+def accept_client_connection(port, players=None):
     """ Accept client connection on specific port base.
 
     :param port: port base (int/regint/cint)
+    :param players: subset of players (default: all)
     :returns: client id
+
     """
     res = regint()
-    instructions.acceptclientconnection(res, regint.conv(port))
+    if players is None:
+        instructions.acceptclientconnection(res, regint.conv(port))
+    else:
+        @if_e(sum(regint(players) ==
+                 get_player_id()._v.expand_to_vector(len(players))))
+        def _():
+            res.update(accept_client_connection(port))
+        @else_
+        def _():
+            res.update(-1)
     return res
 
 def init_client_connection(host, port, my_id, relative_port=True):
@@ -1695,14 +1918,14 @@ def cint_cint_division(a, b, k, f):
 from Compiler.program import Program
 
 @instructions_base.ret_cisc
-def sint_cint_division(a, b, k, f, kappa, nearest=False):
+def sint_cint_division(a, b, k, f, nearest=False):
     """
         type(a) = sint, type(b) = cint
     """
     theta = int(ceil(log(k/3.5) / log(2)))
     two = cint(2) * two_power(f)
     sign_b = cint(1) - 2 * cint(b.less_than(0, k))
-    sign_a = sint(1) - 2 * comparison.LessThanZero(a, k, kappa)
+    sign_a = sint(1) - 2 * comparison.LessThanZero(a, k)
     absolute_b = b * sign_b
     absolute_a = a * sign_a
     w0 = approximate_reciprocal(absolute_b, k, f, theta)
@@ -1712,20 +1935,20 @@ def sint_cint_division(a, b, k, f, kappa, nearest=False):
     W = w0
 
     for i in range(1, theta):
-        A = (A * W).round(2 * k, f, kappa=kappa, nearest=nearest, signed=True)
+        A = (A * W).round(2 * k, f, nearest=nearest, signed=True)
         temp = (B * W + 2 * (f - 1)) >> f
         W = two - temp
         B = temp
     return (sign_a * sign_b) * A
 
-def IntDiv(a, b, k, kappa=None):
+def IntDiv(a, b, k):
     l = 2 * k + 1
     b = a.conv(b)
     return FPDiv(a.extend(l) << k, b.extend(l) << k, l, k,
-                 kappa, nearest=True)
+                 nearest=True)
 
 @instructions_base.ret_cisc
-def FPDiv(a, b, k, f, kappa, simplex_flag=False, nearest=False):
+def FPDiv(a, b, k, f, simplex_flag=False, nearest=False):
     """
         Goldschmidt method as presented in Catrina10,
     """
@@ -1748,40 +1971,40 @@ def FPDiv(a, b, k, f, kappa, simplex_flag=False, nearest=False):
 
     base.set_global_vector_size(b.size)
     alpha = b.get_type(2 * k).two_power(2*f, size=b.size)
-    w = AppRcr(b, k, f, kappa, simplex_flag, nearest).extend(2 * k)
+    w = AppRcr(b, k, f, simplex_flag, nearest).extend(2 * k)
     x = alpha - b.extend(2 * k) * w
     base.reset_global_vector_size()
 
     y = a.extend(l_y) * w
-    y = y.round(l_y, f, kappa, nearest, signed=True)
+    y = y.round(l_y, f, nearest, signed=True)
 
     for i in range(theta - 1):
         x = x.extend(2 * k)
         y = y.extend(l_y) * (alpha + x).extend(l_y)
         x = x * x
-        y = y.round(l_y, 2*f, kappa, nearest, signed=True)
-        x = x.round(2*k, 2*f, kappa, nearest, signed=True)
+        y = y.round(l_y, 2*f, nearest, signed=True)
+        x = x.round(2*k, 2*f, nearest, signed=True)
 
     x = x.extend(2 * k)
     y = y.extend(l_y) * (alpha + x).extend(l_y)
-    y = y.round(l_y, 3 * f - res_f, kappa, nearest, signed=True)
+    y = y.round(l_y, 3 * f - res_f, nearest, signed=True)
     return y
 
-def AppRcr(b, k, f, kappa=None, simplex_flag=False, nearest=False):
+def AppRcr(b, k, f, simplex_flag=False, nearest=False):
     """
         Approximate reciprocal of [b]:
         Given [b], compute [1/b]
     """
     alpha = b.get_type(2 * k)(int(2.9142 * 2**k))
-    c, v = b.Norm(k, f, kappa, simplex_flag)
+    c, v = b.Norm(k, f, simplex_flag)
     #v should be 2**{k - m} where m is the length of the bitwise repr of [b]
     d = alpha - 2 * c
     w = d * v
-    w = w.round(2 * k + 1, 2 * (k - f), kappa, nearest, signed=True)
+    w = w.round(2 * k + 1, 2 * (k - f), nearest, signed=True)
     # now w * 2 ^ {-f} should be an initial approximation of 1/b
     return w
 
-def Norm(b, k, f, kappa, simplex_flag=False):
+def Norm(b, k, f, simplex_flag=False):
     """
         Computes secret integer values [c] and [v_prime] st.
         2^{k-1} <= c < 2^k and c = b*v_prime
@@ -1789,7 +2012,7 @@ def Norm(b, k, f, kappa, simplex_flag=False):
     # For simplex, we can get rid of computing abs(b)
     temp = None
     if simplex_flag == False:
-        temp = comparison.LessThanZero(b, k, kappa)
+        temp = b.less_than(0, k)
     elif simplex_flag == True:
         temp = cint(0)
 
@@ -1797,15 +2020,15 @@ def Norm(b, k, f, kappa, simplex_flag=False):
     absolute_val = sign * b
 
     #next 2 lines actually compute the SufOR for little indian encoding
-    bits = absolute_val.bit_decompose(k, kappa, maybe_mixed=True)[::-1]
-    suffixes = PreOR(bits, kappa)[::-1]
+    bits = absolute_val.bit_decompose(k, maybe_mixed=True)[::-1]
+    suffixes = PreOR(bits)[::-1]
 
     z = [0] * k
     for i in range(k - 1):
         z[i] = suffixes[i] - suffixes[i+1]
     z[k - 1] = suffixes[k-1]
 
-    acc = sint.bit_compose(reversed(z))
+    acc = b.bit_compose(reversed(z))
 
     part_reciprocal = absolute_val * acc
     signed_acc = sign * acc

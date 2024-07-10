@@ -31,6 +31,7 @@ public:
     typedef T clear;
     typedef T open_type;
     typedef void sacri_type;
+    typedef This share_type;
 
     typedef Shamir<ShamirShare> Protocol;
     typedef IndirectShamirMC<ShamirShare> MAC_Check;
@@ -51,6 +52,7 @@ public:
     const static bool variable_players = true;
     const static bool expensive = false;
     const static bool malicious = false;
+    const static int bit_generation_threshold = 3;
 
     static string type_short()
     {

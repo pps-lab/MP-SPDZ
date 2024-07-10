@@ -30,9 +30,14 @@ RingOptions::RingOptions(ez::ezOptionParser& opt, int argc, const char** argv)
 
 int RingOptions::ring_size_from_opts_or_schedule(string progname)
 {
-    if (R_is_set)
-        return R;
     int r = BaseMachine::ring_size_from_schedule(progname);
+    if (R_is_set)
+    {
+        if (r and r != R)
+            cerr << "Different -R option in compilation and run-time: " << r
+                    << " vs " << R << endl;
+        return R;
+    }
     if (r == 0)
         r = R;
     cerr << "Trying to run " << r << "-bit computation" << endl;

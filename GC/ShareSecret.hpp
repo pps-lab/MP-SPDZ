@@ -54,7 +54,7 @@ void ReplicatedSecret<U>::load_clear(int n, const Integer& x)
 }
 
 template<class U, int L>
-void RepSecretBase<U, L>::bitcom(Memory<U>& S, const vector<int>& regs)
+void RepSecretBase<U, L>::bitcom(StackedVector<U>& S, const vector<int>& regs)
 {
     *this = 0;
     for (unsigned int i = 0; i < regs.size(); i++)
@@ -62,7 +62,7 @@ void RepSecretBase<U, L>::bitcom(Memory<U>& S, const vector<int>& regs)
 }
 
 template<class U, int L>
-void RepSecretBase<U, L>::bitdec(Memory<U>& S, const vector<int>& regs) const
+void RepSecretBase<U, L>::bitdec(StackedVector<U>& S, const vector<int>& regs) const
 {
     for (unsigned int i = 0; i < regs.size(); i++)
         S[regs[i]] = (*this >> i) & 1;

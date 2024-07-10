@@ -70,6 +70,29 @@ int BaseMachine::bucket_size(size_t usage)
   return res;
 }
 
+int BaseMachine::matrix_batch_size(int n_rows, int n_inner, int n_cols)
+{
+  unsigned res = min(100, OnlineOptions::singleton.batch_size);
+  if (has_program())
+    res = min(res, (unsigned) matrix_requirement(n_rows, n_inner, n_cols));
+  return res;
+}
+
+int BaseMachine::matrix_requirement(int n_rows, int n_inner, int n_cols)
+{
+  if (has_program())
+    {
+      auto res = s().progs[0].get_offline_data_used().matmuls[
+          {n_rows, n_inner, n_cols}];
+      if (res)
+        return res;
+      else
+        return -1;
+    }
+  else
+    return -1;
+}
+
 BaseMachine::BaseMachine() : nthreads(0)
 {
   if (sodium_init() == -1)
@@ -287,7 +310,7 @@ void BaseMachine::print_comm(Player& P, const NamedCommStats& comm_stats)
     rounds += x.second.rounds;
   cerr << "Data sent = " << comm_stats.sent / 1e6 << " MB in ~" << rounds
       << " rounds (party " << P.my_num() << " only";
-  if (nthreads > 1)
+  if (multithread)
     cerr << "; rounds counted double due to multi-threading";
   if (not OnlineOptions::singleton.verbose)
     cerr << "; use '-v' for more details";

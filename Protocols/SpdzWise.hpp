@@ -5,6 +5,8 @@
 
 #include "SpdzWise.h"
 
+#include "BufferScope.h"
+
 #include "mac_key.hpp"
 
 template<class T>
@@ -121,6 +123,8 @@ void SpdzWise<T>::check()
     internal.init_dotprod();
     coefficients.clear();
 
+    BufferScope _(internal, results.size());
+
     for (auto& res : results)
     {
         coefficients.push_back(internal.get_random());
@@ -158,7 +162,7 @@ void SpdzWise<T>::buffer_random()
 {
     // proxy for initialization
     assert(mac_key != 0);
-    int batch_size = OnlineOptions::singleton.batch_size;
+    auto batch_size = this->buffer_size;
     vector<typename T::part_type> rs;
     rs.reserve(batch_size);
     // cannot use member instance
@@ -178,7 +182,7 @@ void SpdzWise<T>::buffer_random()
 }
 
 template<class T>
-void SpdzWise<T>::randoms_inst(vector<T>& S,
+void SpdzWise<T>::randoms_inst(StackedVector<T>& S,
         const Instruction& instruction)
 {
     internal.init_mul();

@@ -48,40 +48,54 @@ The first call should give the following output:
 .. code-block:: console
 
   $ Scripts/compile-emulate.py foo
-  Default bit length: 63
-  Default security parameter: 40
+  Default bit length for compilation: 63
+  Default security parameter for compilation: 40
   Compiling file Programs/Source/foo.mpc
   Writing binary data to Player-Data/Input-Binary-P0-0
   Setting learning rate to 0.01
   Using SGD
   Initializing dense weights in [-1.224745,1.224745]
+  Writing to Programs/Bytecode/foo-TruncPr(3)_47_16-2.bc
   Writing to Programs/Bytecode/foo-multithread-1.bc
   2 runs per epoch
-  Writing to Programs/Bytecode/foo-multithread-3.bc
-  Writing to Programs/Bytecode/foo-multithread-4.bc
-  Writing to Programs/Bytecode/foo-multithread-5.bc
+  Writing to Programs/Bytecode/foo-TruncPr(1)_47_16-5.bc
+  Writing to Programs/Bytecode/foo-Dense-forward-4.bc
+  Writing to Programs/Bytecode/foo-TruncPr(1)_45_14-7.bc
+  Writing to Programs/Bytecode/foo-exp2_fx(1)_31_16_False-9.bc
+  Writing to Programs/Bytecode/foo-log2_fx(1)_31_16-11.bc
+  Writing to Programs/Bytecode/foo-TruncPr(1)_46_15-13.bc
+  Writing to Programs/Bytecode/foo-Output-forward-6.bc
+  Writing to Programs/Bytecode/foo-multithread-15.bc
+  Writing to Programs/Bytecode/foo-multithread-16.bc
+  Writing to Programs/Bytecode/foo-TruncPr(3)_46_15-18.bc
+  Writing to Programs/Bytecode/foo-multithread-17.bc
   Initializing dense weights in [-1.224745,1.224745]
-  Writing to Programs/Bytecode/foo-multithread-7.bc
-  Writing to Programs/Bytecode/foo-multithread-8.bc
-  Writing to Programs/Bytecode/foo-multithread-9.bc
+  Writing to Programs/Bytecode/foo-multithread-19.bc
+  Writing to Programs/Bytecode/foo-TruncPr(2)_47_16-22.bc
+  Writing to Programs/Bytecode/foo-multithread-21.bc
+  Writing to Programs/Bytecode/foo-multithread-23.bc
+  Writing to Programs/Bytecode/foo-Dense-forward-20.bc
+  Writing to Programs/Bytecode/foo-FPDiv(1)_31_16-24.bc
   Writing to Programs/Schedules/foo.sch
   Writing to Programs/Bytecode/foo-0.bc
-  Hash: 33f8d22d99960897f41fb2da31e7f5a0501d2e1071789e52d73b4043e5343831
+  Hash: 8227349c6796977e0035cd9e925585603531eb9aa98ac586440c1abd360ae712
   Program requires at most:
-             8 integer inputs from player 0
-         61054 integer bits
-        190109 integer triples
-           200 matrix multiplications (1x3 * 3x1)
-           200 matrix multiplications (3x1 * 1x1)
-             1 matrix multiplications (2x3 * 3x1)
-         28406 virtual machine rounds
-  Using security parameter 40
+  8 integer inputs from player 0
+  2402 integer opens
+  67654 integer bits
+  204509 integer triples
+  200 matrix multiplications (1x3 * 3x1)
+  200 matrix multiplications (3x1 * 1x1)
+  1 matrix multiplications (2x3 * 3x1)
+  37109 virtual machine rounds
+  Compilation finished, running program...
+  Using statistical security parameter 40
   Trying to run 64-bit computation
   Using SGD
   done with epoch 99
   [0, 1]
   The following benchmarks are including preprocessing (offline phase).
-  Time = 0.0250086 seconds 
+  Time = 0.0390132 seconds 
 
 See `the documentation
 <https://mp-spdz.readthedocs.io/en/latest/readme.html#running-computation>`_

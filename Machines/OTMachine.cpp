@@ -232,9 +232,9 @@ OTMachine::OTMachine(int argc, const char** argv)
     gettimeofday(&baseOTstart, NULL);
     // swap role for base OTs
     if (opt.isSet("-r"))
-        bot_ = new BaseOT(nbase, 128, P, INV_ROLE(ot_role));
+        bot_ = new BaseOT(nbase, P, INV_ROLE(ot_role));
     else
-        bot_ = new FakeOT(nbase, 128, P, INV_ROLE(ot_role));
+        bot_ = new FakeOT(nbase, P, INV_ROLE(ot_role));
     cout << "real mode " << opt.isSet("-r") << endl;
     BaseOT& bot = *bot_;
     bot.exec_base();

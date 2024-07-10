@@ -21,18 +21,22 @@
 #include "GC/Processor.h"
 #include "GC/ShareThread.h"
 #include "Protocols/SecureShuffle.h"
+#include "Tools/NamedStats.h"
 
 class Program;
+
+// synchronize in asymmetric protocols
+template<class T>
+void sync(vector<Integer>& x, Player& P);
 
 template <class T>
 class SubProcessor
 {
-  CheckVector<typename T::clear> C;
-  CheckVector<T> S;
+  StackedVector<typename T::clear> C;
+  StackedVector<T> S;
 
   DataPositions bit_usage;
-
-  typename T::Protocol::Shuffler shuffler;
+  NamedStats stats;
 
   void resize(size_t size)       { C.resize(size); S.resize(size); }
 
@@ -62,6 +66,8 @@ public:
   typename BT::LivePrep bit_prep;
   vector<typename BT::LivePrep*> personal_bit_preps;
 
+  typename T::Protocol::Shuffler shuffler;
+
   SubProcessor(ArithmeticProcessor& Proc, typename T::MAC_Check& MC,
       Preprocessing<T>& DataF, Player& P);
   SubProcessor(typename T::MAC_Check& MC, Preprocessing<T>& DataF, Player& P,
@@ -76,9 +82,13 @@ public:
   void muls(const vector<int>& reg);
   void mulrs(const vector<int>& reg);
   void dotprods(const vector<int>& reg, int size);
-  void matmuls(const vector<T>& source, const Instruction& instruction);
-  void matmulsm(const MemoryPart<T>& source, const Instruction& instruction, size_t a,
-      size_t b);
+  void matmuls(const StackedVector<T>& source, const Instruction& instruction);
+  void matmulsm(const MemoryPart<T>& source, const vector<int>& args);
+
+  void matmulsm_finalize_batch(vector<int>::const_iterator startMatmul, int startI, int startJ,
+                               vector<int>::const_iterator endMatmul,
+                               int endI, int endJ);
+
   void conv2ds(const Instruction& instruction);
 
   void secure_shuffle(const Instruction& instruction);
@@ -92,12 +102,12 @@ public:
   void send_personal(const vector<int>& args);
   void private_output(const vector<int>& args);
 
-  CheckVector<T>& get_S()
+  StackedVector<T>& get_S()
   {
     return S;
   }
 
-  CheckVector<typename T::clear>& get_C()
+  StackedVector<typename T::clear>& get_C()
   {
     return C;
   }
@@ -112,13 +122,17 @@ public:
     return C[i];
   }
 
-    void inverse_permutation(const Instruction &instruction, int handle);
+  void inverse_permutation(const Instruction &instruction, int handle);
+
+  void push_stack();
+  void push_args(const vector<int>& args);
+  void pop_stack(const vector<int>& results);
 };
 
 class ArithmeticProcessor : public ProcessorBase
 {
 protected:
-  CheckVector<Integer> Ci;
+  StackedVector<Integer> Ci;
 
   ofstream public_output;
   ofstream binary_output;
@@ -170,7 +184,7 @@ public:
     { return Ci[i]; }
   void write_Ci(size_t i, const long& x)
     { Ci[i]=x; }
-  CheckVector<Integer>& get_Ci()
+  StackedVector<Integer>& get_Ci()
     { return Ci; }
 
   virtual ofstream& get_public_output()
@@ -287,6 +301,8 @@ class Processor : public ArithmeticProcessor
 
   ofstream& get_public_output();
   ofstream& get_binary_output();
+
+  void call_tape(int tape_number, int arg, const vector<int>& results);
 
   private:
 

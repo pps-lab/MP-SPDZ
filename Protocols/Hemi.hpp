@@ -33,52 +33,102 @@ typename T::MatrixPrep& Hemi<T>::get_matrix_prep(const array<int, 3>& dims,
 }
 
 template<class T>
-void Hemi<T>::matmulsm(SubProcessor<T>& processor, MemoryPart<T>& source,
-        const Instruction& instruction, int a, int b)
+bool Hemi<T>::use_plain_matmul(const array<int, 3> dim, SubProcessor<T>& processor)
 {
-    if (HemiOptions::singleton.plain_matmul
-            or not OnlineOptions::singleton.live_prep)
+    if (OnlineOptions::singleton.has_option("force_matrix_triples"))
+        return false;
+
+    auto& prep = get_matrix_prep(dim, processor);
+    int savings = (dim[0] * dim[2]) / (dim[0] + dim[2]) + 1;
+    int requirement = BaseMachine::matrix_requirement(dim[0], dim[1], dim[2]);
+
+    if (OnlineOptions::singleton.has_option("verbose_matrix"))
+        fprintf(stderr, "savings=%d minimum_batch=%d requirement=%d\n", savings,
+                prep.minimum_batch(), requirement);
+
+    return HemiOptions::singleton.plain_matmul
+            or not OnlineOptions::singleton.live_prep
+            or prep.minimum_batch() / savings > requirement;
+}
+
+template<class T>
+void Hemi<T>::matmulsm(SubProcessor<T>& processor, MemoryPart<T>& source,
+        const Instruction& instruction)
+{
+    auto& dim = instruction.get_start();
+
+    vector<int> plain_args, complex_args;
+
+    for (auto it = dim.begin(); it < dim.end(); it += 12)
     {
-        processor.matmulsm(source, instruction, a, b);
-        return;
+        array<int, 3> real_dims({it[3], it[4], it[5]});
+
+        if (use_plain_matmul(real_dims, processor))
+            plain_args.insert(plain_args.end(), it, it + 12);
+        else
+            complex_args.insert(complex_args.end(), it, it + 12);
     }
 
-    auto& dim = instruction.get_start();
+    if (not plain_args.empty())
+        processor.matmulsm(source, plain_args);
+
     auto& S = processor.get_S();
-    auto C = S.begin() + (instruction.get_r(0));
-    assert(C + dim[0] * dim[2] <= S.end());
+
+    // Perform the matrix multiplications in sequence.
+    // They are not merged into one communication round since that would require multiple matrix_preps to
+    // merge rounds.
+    // An improvement might be to merge the communication of multiple matrices with the same dimension into one round,
+    // which is not implemented yet.
     auto Proc = processor.Proc;
     assert(Proc);
 
-    ShareMatrix<T> A(dim[0], dim[1]), B(dim[1], dim[2]);
-
-    if (not T::real_shares(processor.P))
+    for (auto matmulArgs = complex_args.begin();
+            matmulArgs < complex_args.end(); matmulArgs += 12)
     {
-        matrix_multiply(A, B, processor);
-        return;
+        auto C = S.begin() + matmulArgs[0];
+        size_t firstFactorBase  = Proc->get_Ci().at(matmulArgs[1]).get();
+        size_t secondFactorBase = Proc->get_Ci().at(matmulArgs[2]).get();
+        auto resultNumberOfRows = matmulArgs[3];
+        auto usedNumberOfFirstFactorColumns = matmulArgs[4];
+        auto resultNumberOfColumns = matmulArgs[5];
+        auto firstFactorTotalNumberOfColumns = matmulArgs[10];
+        auto secondFactorTotalNumberOfColumns = matmulArgs[11];
+
+        assert(C + resultNumberOfRows * resultNumberOfColumns <= S.end());
+
+        ShareMatrix<T> A(resultNumberOfRows, usedNumberOfFirstFactorColumns), B(usedNumberOfFirstFactorColumns, resultNumberOfColumns);
+        if (not T::real_shares(processor.P))
+        {
+            matrix_multiply(A, B, processor);
+            return;
+        }
+
+        for (int i = 0; i < resultNumberOfRows; i++) {
+            auto actualFirstFactorRow = Proc->get_Ci().at(matmulArgs[6] + i).get();
+
+            for (int k = 0; k < usedNumberOfFirstFactorColumns; k++)
+            {
+                auto actualFirstFactorColumn = Proc->get_Ci().at(matmulArgs[7] + k).get();
+                A.entries.v.push_back(source.at(firstFactorBase + actualFirstFactorRow * firstFactorTotalNumberOfColumns + actualFirstFactorColumn));
+            }
+        }
+
+
+        for (int k = 0; k < usedNumberOfFirstFactorColumns; k++) {
+            auto actualSecondFactorRow = Proc->get_Ci().at(matmulArgs[8] + k).get();
+            for (int j = 0; j < resultNumberOfColumns; j++)
+            {
+                auto actualSecondFactorColumn = Proc->get_Ci().at(matmulArgs[9] + j).get();
+                B.entries.v.push_back(source.at(secondFactorBase + actualSecondFactorRow * secondFactorTotalNumberOfColumns + actualSecondFactorColumn));
+            }
+        }
+
+        auto res = matrix_multiply(A, B, processor);
+
+        for (int i = 0; i < resultNumberOfRows; i++)
+            for (int j = 0; j < resultNumberOfColumns; j++)
+                *(C + i * resultNumberOfColumns + j) = res[{i, j}];
     }
-
-    for (int i = 0; i < dim[0]; i++)
-        for (int k = 0; k < dim[1]; k++)
-        {
-            auto kk = Proc->get_Ci().at(dim[4] + k).get();
-            auto ii = Proc->get_Ci().at(dim[3] + i).get();
-            A.entries.v.push_back(source.at(a + ii * dim[7] + kk));
-        }
-
-    for (int k = 0; k < dim[1]; k++)
-        for (int j = 0; j < dim[2]; j++)
-        {
-            auto jj = Proc->get_Ci().at(dim[6] + j).get();
-            auto ll = Proc->get_Ci().at(dim[5] + k).get();
-            B.entries.v.push_back(source.at(b + ll * dim[8] + jj));
-        }
-
-    auto res = matrix_multiply(A, B, processor);
-
-    for (int i = 0; i < dim[0]; i++)
-        for (int j = 0; j < dim[2]; j++)
-            *(C + i * dim[2] + j) = res[{i, j}];
 }
 
 template<class T>
@@ -122,26 +172,32 @@ template<class T>
 void Hemi<T>::conv2ds(SubProcessor<T>& processor,
         const Instruction& instruction)
 {
-    if (HemiOptions::singleton.plain_matmul
-            or not OnlineOptions::singleton.live_prep)
-    {
-        processor.conv2ds(instruction);
-        return;
-    }
-
     auto& args = instruction.get_start();
     vector<Conv2dTuple> tuples;
     for (size_t i = 0; i < args.size(); i += 15)
+    {
         tuples.push_back(Conv2dTuple(args, i));
+        if (use_plain_matmul(tuples.back().matrix_dimensions(), processor))
+        {
+            processor.conv2ds(instruction);
+            return;
+        }
+    }
     for (auto& tuple : tuples)
         tuple.run_matrix(processor);
+}
+
+inline
+array<int, 3> Conv2dTuple::matrix_dimensions()
+{
+    return {1, weights_h * weights_w * n_channels_in, batch_size * output_h * output_w};
 }
 
 template<class T>
 void Conv2dTuple::run_matrix(SubProcessor<T>& processor)
 {
     auto& S = processor.get_S();
-    array<int, 3> dim({{1, weights_h * weights_w * n_channels_in, batch_size * output_h * output_w}});
+    array<int, 3> dim = matrix_dimensions();
     ShareMatrix<T> A(dim[0], dim[1]), B(dim[1], dim[2]);
 
     if (not T::real_shares(processor.P))

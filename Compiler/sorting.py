@@ -1,5 +1,6 @@
 import itertools
 from Compiler import types, library, instructions
+from Compiler import comparison, util
 
 def dest_comp(B):
     Bt = B.transpose()
@@ -20,6 +21,7 @@ def reveal_sort(k, D, reverse=False):
       backward order
 
     """
+    comparison.require_ring_size(util.log2(len(k)) + 1, 'sorting')
     assert len(k) == len(D)
     library.break_point()
     shuffle = types.sint.get_secure_shuffle(len(k))

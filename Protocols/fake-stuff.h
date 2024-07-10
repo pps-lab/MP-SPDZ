@@ -38,15 +38,31 @@ template <class T>
 typename T::mac_key_type read_generate_write_mac_key(Player& P,
         string directory = "");
 
+template<class T>
+class KeySetup
+{
+public:
+    typename T::mac_share_type::open_type key;
+    vector<typename T::mac_share_type> key_shares;
+
+    typename T::mac_share_type get(size_t i) const
+    {
+        if (key_shares.empty())
+            return {};
+        else
+            return key_shares.at(i);
+    }
+};
+
 template <class T>
 class Files
 {
 public:
   ofstream* outf;
   int N;
-  typename T::mac_type key;
+  KeySetup<T> key;
   PRNG& G;
-  Files(int N, const typename T::mac_type& key, const string& prep_data_prefix,
+  Files(int N, const KeySetup<T>& key, const string& prep_data_prefix,
       Dtype type, PRNG& G, int thread_num = -1) :
       Files(N, key,
           get_prep_sub_dir<T>(prep_data_prefix, N, true)
@@ -54,7 +70,7 @@ public:
           G, thread_num)
   {
   }
-  Files(int N, const typename T::mac_type& key, const string& prefix,
+  Files(int N, const KeySetup<T>& key, const string& prefix,
       PRNG& G, int thread_num = -1) :
       N(N), key(key), G(G)
   {
@@ -67,7 +83,7 @@ public:
         filename << PrepBase::get_suffix(thread_num);
         cout << "Opening " << filename.str() << endl;
         outf[i].open(filename.str().c_str(),ios::out | ios::binary);
-        file_signature<T>().output(outf[i]);
+        file_signature<T>(key.get(i)).output(outf[i]);
         if (outf[i].fail())
           throw file_error(filename.str().c_str());
       }
@@ -79,11 +95,11 @@ public:
   template<class U = T>
   void output_shares(const typename U::open_type& a)
   {
-    output_shares<T>(a, key);
+    output_shares<T>(a, key.key);
   }
-  template<class U>
+  template<class U, class V>
   void output_shares(const typename U::open_type& a,
-      const typename U::mac_type& key)
+      const V& key)
   {
     vector<U> Sa(N);
     make_share(Sa,a,N,key,G);

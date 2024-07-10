@@ -79,10 +79,11 @@ template<class T>
 void PersonalPrep<T>::buffer_personal_triples(vector<array<T, 3>>& triples,
         size_t begin, size_t end)
 {
-#ifdef VERBOSE_EDA
-    fprintf(stderr, "personal triples %zu to %zu\n", begin, end);
     RunningTimer timer;
-#endif
+    bool verbose = OnlineOptions::singleton.has_option("verbose_eda");
+    if (verbose)
+        fprintf(stderr, "personal triples %zu to %zu\n", begin, end);
+
     auto& party = ShareThread<typename T::whole_type>::s();
     auto& MC = party.MC->get_part_MC();
     auto& P = *party.P;
@@ -102,9 +103,9 @@ void PersonalPrep<T>::buffer_personal_triples(vector<array<T, 3>>& triples,
     input.exchange();
     for (size_t i = begin; i < end; i++)
         triples[i][2] = input.finalize(input_player, T::default_length);
-#ifdef VERBOSE_EDA
-    fprintf(stderr, "personal triples took %f seconds\n", timer.elapsed());
-#endif
+
+    if (verbose)
+        fprintf(stderr, "personal triples took %f seconds\n", timer.elapsed());
 }
 
 }

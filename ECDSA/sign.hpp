@@ -43,6 +43,11 @@ inline P256Element::Scalar hash_to_scalar(const unsigned char* message, size_t l
     P256Element::Scalar res;
     assert(res.size() == crypto_hash_sha256_BYTES);
     crypto_hash_sha256((unsigned char*) res.get_ptr(), message, length);
+    size_t size = crypto_hash_sha256_BYTES;
+    char* ptr = (char*) res.get_ptr();
+    for(size_t i = 0; i < size / 2; i++) {
+        swap(ptr[i], ptr[size - 1 - i]);
+    }
     res.zero_overhang();
     return res;
 }

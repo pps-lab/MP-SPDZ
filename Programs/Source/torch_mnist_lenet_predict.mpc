@@ -17,7 +17,7 @@ for train in True, False:
 import torch
 import torch.nn as nn
 
-net = nn.Sequential(
+layers = [
     nn.Conv2d(1, 20, 5),
     nn.ReLU(),
     nn.MaxPool2d(2),
@@ -29,7 +29,12 @@ net = nn.Sequential(
     nn.Linear(800, 500),
     nn.ReLU(),
     nn.Linear(500, 10)
-)
+]
+
+if 'bn' in program.args:
+    layers.insert(3, nn.BatchNorm2d(20))
+
+net = nn.Sequential(*layers)
 
 # train for a bit
 transform = torchvision.transforms.Compose(

@@ -165,7 +165,8 @@ class Compiler:
             dest="prime",
             default=defaults.prime,
             help="use bit decomposition with a specifed prime modulus "
-            "for non-linear computation (default: use the masking approach)",
+            "for non-linear computation (default: use the masking approach). "
+            "Don't use this unless you're certain that you need it.",
         )
         parser.add_option(
             "-I",
@@ -263,6 +264,14 @@ class Compiler:
 
     def parse_args(self):
         self.options, self.args = self.parser.parse_args(self.custom_args)
+        if self.options.verbose:
+            self.runtime_args += ["--verbose"]
+        if self.options.execute:
+            self.options.execute = re.sub("-party.x$", "", self.options.execute)
+            for s, l in self.match.items():
+                if self.options.execute == l:
+                    self.options.execute = s
+                    break
         if self.execute:
             if not self.options.execute:
                 if len(self.args) > 1:
@@ -313,6 +322,8 @@ class Compiler:
                 self.prog.use_split(int(os.getenv("PLAYERS", 2)))
             if self.options.execute in ("rep4-ring",):
                 self.prog.use_split(4)
+            if self.options.execute.find("dealer") >= 0:
+                self.prog.use_edabit(True)
 
     def build_vars(self):
         from . import comparison, floatingpoint, instructions, library, types
@@ -353,8 +364,8 @@ class Compiler:
 
         self.VARS["program"] = self.prog
         if self.options.binary:
-            self.VARS["sint"] = GC_types.sbitintvec.get_type(int(self.options.binary))
-            self.VARS["sfix"] = GC_types.sbitfixvec
+            self.sint = GC_types.sbitintvec.get_type(int(self.options.binary))
+            self.sfix = GC_types.sbitfixvec
             for i in [
                 "cint",
                 "cfix",
@@ -368,7 +379,20 @@ class Compiler:
                 "cfloat",
                 "squant",
             ]:
-                del self.VARS[i]
+                class dummy:
+                    def __init__(self, *args):
+                        raise CompilerError(self.error)
+                dummy.error = i + " not availabe with binary circuits"
+                if i in ("cint", "cfix"):
+                    dummy.error += ". See https://mp-spdz.readthedocs.io/en/" \
+                        "latest/Compiler.html#Compiler.types." + i
+                self.VARS[i] = dummy
+        else:
+            self.sint = types.sint
+            self.sfix = types.sfix
+
+        self.VARS["sint"] = self.sint
+        self.VARS["sfix"] = self.sfix
 
     def prep_compile(self, name=None, build=True):
         self.parse_args()
@@ -388,6 +412,8 @@ class Compiler:
         If options.merge_opens is set to True, will attempt to merge any
         parallelisable open instructions."""
         print("Compiling file", self.prog.infile)
+        self.prog.sint = self.sint
+        self.prog.sfix = self.sfix
 
         with open(self.prog.infile, "r") as f:
             changed = False
@@ -495,13 +521,15 @@ class Compiler:
 
         return self.prog
 
-    @staticmethod
-    def executable_from_protocol(protocol):
-        match = {
-            "ring": "replicated-ring",
-            "rep-field": "replicated-field",
-            "replicated": "replicated-bin"
-        }
+    match = {
+        "ring": "replicated-ring",
+        "rep-field": "replicated-field",
+        "replicated": "replicated-bin"
+    }
+
+    @classmethod
+    def executable_from_protocol(cls, protocol):
+        match = cls.match
         if protocol in match:
             protocol = match[protocol]
         if protocol.find("bmr") == -1:
@@ -580,11 +608,19 @@ class Compiler:
             for filename in glob.glob("Player-Data/*.0"):
                 connection.put(filename, dest + "Player-Data")
 
+        def run_with_error(i):
+            try:
+                run(i)
+            except IOError:
+                print('IO error when copying files, does %s have enough space?' %
+                      hostnames[i])
+                raise
+
         import threading
         import random
         threads = []
         for i in range(len(hosts)):
-            threads.append(threading.Thread(target=run, args=(i,)))
+            threads.append(threading.Thread(target=run_with_error, args=(i,)))
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -598,11 +634,15 @@ class Compiler:
             party0 = hostnames[0].split('@')[1]
         else:
             party0 = hostnames[0]
+        if 'rep' not in vm and 'yao' not in vm:
+            N = ['-N', str(len(connections))]
+        else:
+            N = []
         for i in range(len(connections)):
             run = lambda i: connections[i].run(
                 "cd %s; ./%s -p %d %s -h %s -pn %d %s" % \
                 (destinations[i], vm, i, self.prog.name, party0, port,
-                 ' '.join(args)))
+                 ' '.join(args + N)))
             threads.append(threading.Thread(target=run, args=(i,)))
         for thread in threads:
             thread.start()

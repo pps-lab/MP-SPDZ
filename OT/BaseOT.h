@@ -47,12 +47,12 @@ public:
 	vector<BitVector> receiver_outputs;
 	TwoPartyPlayer* P;
 	/// Number of OTs
-	int nOT, ot_length;
+	int nOT;
 	/// Which role(s) on this side
 	OT_ROLE ot_role;
 
-	BaseOT(int nOT, int ot_length, TwoPartyPlayer* player, OT_ROLE role=BOTH)
-		: P(player), nOT(nOT), ot_length(ot_length), ot_role(role)
+	BaseOT(int nOT, TwoPartyPlayer* player, OT_ROLE role=BOTH)
+		: P(player), nOT(nOT), ot_role(role)
 	{
 		receiver_inputs.resize(nOT);
 		sender_inputs.resize(nOT);
@@ -69,13 +69,11 @@ public:
 	}
 
 	BaseOT(TwoPartyPlayer* player, OT_ROLE role) :
-			BaseOT(128, 128, player, role)
+			BaseOT(128, player, role)
 	{
 	}
 
 	virtual ~BaseOT() {}
-
-	int length() { return ot_length; }
 
 	/// Set choice bits
 	void set_receiver_inputs(const BitVector& new_inputs)
@@ -126,8 +124,8 @@ protected:
 class FakeOT : public BaseOT
 {
 public:
-   FakeOT(int nOT, int ot_length, TwoPartyPlayer* player, OT_ROLE role=BOTH) :
-       BaseOT(nOT, ot_length, player, role) {}
+   FakeOT(int nOT, TwoPartyPlayer* player, OT_ROLE role=BOTH) :
+       BaseOT(nOT, player, role) {}
    void exec_base(bool new_receiver_inputs=true);
 };
 

@@ -44,6 +44,7 @@ int main(int argc, const char** argv)
     typedef Share<P256Element::Scalar> pShare;
     string prefix = get_prep_sub_dir<pShare>(PREP_DIR "ECDSA/", 2);
     read_mac_key(prefix, N, keyp);
+    pShare::set_mac_key(keyp);
 
     pShare::MAC_Check::setup(P);
     Share<P256Element>::MAC_Check::setup(P);

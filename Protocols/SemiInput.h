@@ -19,6 +19,8 @@ protected:
 
 public:
     PairwiseKeyInput(SubProcessor<T>* proc, PlayerBase& P);
+
+    void maybe_init(PlayerBase& P);
 };
 
 /**

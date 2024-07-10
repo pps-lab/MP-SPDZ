@@ -79,7 +79,7 @@ inline void send(int socket,octet *msg,size_t len)
 template<class T>
 inline void send(T& socket, size_t a, size_t len)
 {
-  octet blen[len];
+  octet blen[8];
   encode_length(blen, a, len);
   send(socket, blen, len);
 }
@@ -120,7 +120,7 @@ inline void receive(int socket,octet *msg,size_t len)
 template<class T>
 inline void receive(T& socket, size_t& a, size_t len)
 {
-  octet blen[len];
+  octet blen[8];
   receive(socket, blen, len);
   a = decode_length(blen, len);
 }

@@ -113,6 +113,14 @@ restore the representation after a multiplication. See `Catrina and Saxena
 to deterministic rounding by calling ``sfix.round_nearest = True``.
 
 
+Only party 0 produces outputs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This is to improve readability when running all parties in the same
+terminal. You can activate outputs on other parties using ``-OF .`` as
+an argument to a virtual machine (``*-party.x``).
+
+
 Order of memory instructions not preserved
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

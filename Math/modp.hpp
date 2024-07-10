@@ -327,16 +327,15 @@ void Power(modp_<L>& ans,const modp_<L>& x,const bigint& exp,const Zp_Data& ZpD)
 
 
 template<int L>
-void modp_<L>::output(ostream& s,const Zp_Data& ZpD,bool human) const
+void modp_<L>::output(ostream& s, const Zp_Data& ZpD, bool human, bool signed_) const
 {
   if (human)
     { bigint te;
       to_bigint(te, ZpD);
-        s << te;
-//      if (te < ZpD.pr / 2)
-//          s << te;
-//      else
-//          s << (te - ZpD.pr);
+      if (te < ZpD.pr / 2 or not signed_)
+          s << te;
+      else
+          s << (te - ZpD.pr);
     }
   else
     { s.write((char*) x,ZpD.t*sizeof(mp_limb_t)); }

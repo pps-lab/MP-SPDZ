@@ -39,5 +39,6 @@ int main(int argc, const char** argv)
         return run<2, 1>(machine);
 
     cerr << "Not compiled for choice of parameters" << endl;
+    cerr << "Try using '-lgp 128'" << endl;
     exit(1);
 }

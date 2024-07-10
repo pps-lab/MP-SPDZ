@@ -28,6 +28,8 @@ class ProcessorBase
 protected:
   // Optional argument to tape
   Integer arg;
+  vector<Integer> arg_stack;
+  vector<int> PC_stack;
 
   string get_parameterized_filename(int my_num, int thread_num,
       const string& prefix);
@@ -61,7 +63,7 @@ public:
   T get_input(istream& is, const string& input_filename, const int* params);
 
   void setup_redirection(int my_nu, int thread_num, OnlineOptions& opts,
-      SwitchableOutput& out);
+      SwitchableOutput& out, bool real = true);
 };
 
 #endif /* PROCESSOR_PROCESSORBASE_H_ */

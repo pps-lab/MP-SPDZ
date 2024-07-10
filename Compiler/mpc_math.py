@@ -1,7 +1,9 @@
 """
 Module for math operations.
 
-Implements trigonometric and logarithmic functions.
+Most of the functionality is due to `Aly and Smart
+<https://eprint.iacr.org/2019/354>`_ with some optimizations by
+`Keller and Sun <https://eprint.iacr.org/2022/933>`_.
 
 This has to imported explicitly.
 """
@@ -98,24 +100,11 @@ pi_over_2 = math.radians(90)
 # @return truncated sint value of x
 def trunc(x):
     if isinstance(x, types._fix):
-        return x.v.right_shift(x.f, x.k, security=x.kappa, signed=True)
+        return x.v.right_shift(x.f, x.k, signed=True)
     elif type(x) is types.sfloat:
         v, p, z, s = floatingpoint.FLRound(x, 0)
         #return types.sfloat(v, p, z, s, x.err) 
         return types.sfloat(v, p, z, s) 
-    return x
-
-
-##
-# loads integer to fractional type (sint)
-# @param x: coefficient to be truncated.
-#
-# @return returns sfix, sfloat loaded value
-def load_sint(x, l_type):
-    if l_type is types.sfix:
-        return types.sfix.from_sint(x)
-    elif l_type is types.sfloat:
-        return x
     return x
 
 
@@ -448,7 +437,7 @@ def log2_fx(x, use_division=True):
     if isinstance(x, types._fix):
         # transforms sfix to f*2^n, where f is [o.5,1] bounded
         # obtain number bounded by [0,5 and 1] by transforming input to sfloat
-        v, p, z, s = floatingpoint.Int2FL(x.v, x.k, x.f, x.kappa)
+        v, p, z, s = floatingpoint.Int2FL(x.v, x.k, x.f)
         p -= x.f
         vlen = x.f
         v = x._new(v, k=x.k, f=x.f)
@@ -473,7 +462,7 @@ def log2_fx(x, use_division=True):
     return a  # *(1-(f.z))*(1-f.s)*(1-f.error)
 
 
-def pow_fx(x, y):
+def pow_fx(x, y, zero_output=False):
     """
     Returns the value of the expression :math:`x^y` where both inputs
     are secret shared. It uses  :py:func:`log2_fx` together with
@@ -494,7 +483,7 @@ def pow_fx(x, y):
     # obtains y * log2(x)
     exp = y * log2_x
     # returns 2^(y*log2(x))
-    return exp2_fx(exp)
+    return exp2_fx(exp, zero_output)
 
 
 def log_fx(x, b):
@@ -535,8 +524,8 @@ def abs_fx(x):
 #
 # @return floored sint value of x
 def floor_fx(x):
-    return load_sint(x.v.right_shift(x.f, bit_length=x.k, security=x.kappa,
-                                     signed=True), type(x))
+    return type(x)(x.v.right_shift(x.f, bit_length=x.k, signed=True),
+                   k=x.k, f=x.f)
 
 
 ### sqrt methods
@@ -743,13 +732,13 @@ def lin_app_SQ(b, k, f):
     c, v, m, W = norm_SQ(types.sint(b), k)
 
     # c is now escalated
-    w = alpha * load_sint(c,types.sfix) + beta  # equation before b and reduction by order of k
+    w = alpha * c + beta  # equation before b and reduction by order of k
 
 
     # m even or odd determination
     m_bit = types.sint()
-    comparison.Mod2(m_bit, m, int(math.ceil(math.log(k, 2))), w.kappa, False)
-    m = load_sint(m_bit, types.sfix)
+    comparison.Mod2(m_bit, m, int(math.ceil(math.log(k, 2))), signed=False)
+    m = m_bit
 
     # w times v  this way both terms have 2^3k and can be symplified
     w = w * v
@@ -774,7 +763,7 @@ def lin_app_SQ(b, k, f):
 def sqrt_fx(x_l, k, f):
     factor = 1.0 / (2.0 ** f)
 
-    x = load_sint(x_l, types.sfix) * factor
+    x = x_l * factor
 
     theta = int(math.ceil(math.log(k/5.4)))
 
@@ -912,29 +901,29 @@ def tanh(x):
 
 # next functions due to https://dl.acm.org/doi/10.1145/3411501.3419427
 
-def Sep(x):
+def Sep(x, sfix=types.sfix):
     b = floatingpoint.PreOR(list(reversed(x.v.bit_decompose(x.k, maybe_mixed=True))))
     bb = b[:]
     while len(bb) < 2 * x.f - 1:
         bb.insert(0, type(b[0])(0))
     t = x.v * (1 + x.v.bit_compose(b_i.bit_not()
                                    for b_i in bb[-2 * x.f + 1:]))
-    u = types.sfix._new(t.right_shift(x.f, 2 * x.k, signed=False))
+    u = sfix._new(t.right_shift(x.f, 2 * x.k, signed=False))
     b += [b[0].long_one()]
     return u, [b[i + 1] - b[i] for i in reversed(range(x.k))]
 
-def SqrtComp(z, old=False):
-    f = types.sfix.f
+def SqrtComp(z, old=False, sfix=types.sfix):
+    f = sfix.f
     k = len(z)
     if isinstance(z[0], types.sint):
-        return types.sfix._new(sum(z[i] * types.cfix(
+        return sfix._new(sum(z[i] * types.cfix(
             2 ** (-(i - f + 1) / 2), k=k, f=f).v for i in range(k)))
     k_prime = k // 2
     f_prime = f // 2
-    c1 = types.sfix(2 ** ((f + 1) / 2 + 1))
-    c0 = types.sfix(2 ** (f / 2 + 1))
+    c1 = sfix(2 ** ((f + 1) / 2 + 1))
+    c0 = sfix(2 ** (f / 2 + 1))
     a = [z[2 * i].bit_or(z[2 * i + 1]) for i in range(k_prime)]
-    tmp = types.sfix._new(types.sint.bit_compose(reversed(a[:2 * f_prime])))
+    tmp = sfix._new(types.sint.bit_compose(reversed(a[:2 * f_prime])))
     if old:
         b = sum(types.sint.conv(zi).if_else(i, 0) for i, zi in enumerate(z)) % 2
     else:
@@ -942,11 +931,15 @@ def SqrtComp(z, old=False):
     return types.sint.conv(b).if_else(c1, c0) * tmp
 
 @types.vectorize
+@instructions_base.sfix_cisc
 def InvertSqrt(x, old=False):
     """
     Reciprocal square root approximation by `Lu et al.
     <https://dl.acm.org/doi/10.1145/3411501.3419427>`_
     """
-    u, z = Sep(x)
+    class my_sfix(types.sfix):
+        f = x.f
+        k = x.k
+    u, z = Sep(x, sfix=my_sfix)
     c = 3.14736 + u * (4.63887 * u - 5.77789)
-    return c * SqrtComp(z, old=old)
+    return c * SqrtComp(z, old=old, sfix=my_sfix)

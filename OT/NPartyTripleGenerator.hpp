@@ -72,6 +72,11 @@ Spdz2kTripleGenerator<T>::Spdz2kTripleGenerator(const OTTripleSetup& setup,
 template<class T>
 void OTTripleGenerator<T>::set_batch_size(int batch_size)
 {
+    // limit to ~1 GB
+    batch_size = min(batch_size, int(1e7 / sizeof(T) / sizeof(T)));
+    if (OnlineOptions::singleton.has_option("verbose_ot"))
+        fprintf(stderr, "OT batch size %d (share size %d)\n", batch_size,
+                int(sizeof(T)));
     nTriplesPerLoop = DIV_CEIL(batch_size, nloops);
     nTriples = nTriplesPerLoop * nloops;
     nPreampTriplesPerLoop = nTriplesPerLoop * nAmplify;
@@ -198,9 +203,9 @@ void NPartyTripleGenerator<T>::generate()
     {
         outputFile.open(ss.str().c_str());
         if (machine.generateMACs or not T::clear::invertible)
-            file_signature<T>().output(outputFile);
+            file_signature<T>(this->mac_key).output(outputFile);
         else
-            file_signature<typename T::clear>().output(outputFile);
+            file_signature<SemiShare<typename T::clear>>().output(outputFile);
     }
 
     if (machine.generateBits)
@@ -250,6 +255,7 @@ void NPartyTripleGenerator<W>::generateInputs(int player)
     inputs.resize(toCheck);
     auto mac_key = this->get_mac_key();
     SemiInput<SemiShare<T>> input(0, globalPlayer);
+    input.maybe_init(globalPlayer);
     input.reset_all(globalPlayer);
     vector<T> secrets(toCheck);
     if (mine)
@@ -528,8 +534,10 @@ void OTTripleGenerator<T>::generateMixedTriples()
     machine.set_passive();
     machine.output = false;
 
-    int n = multiple_minimum(100 * nPreampTriplesPerLoop,
-            T::open_type::size_in_bits());
+    int n = multiple_minimum(nPreampTriplesPerLoop, 8);
+
+    if (OnlineOptions::singleton.has_option("verbose_mixed"))
+        fprintf(stderr, "generating %d mixed triples\n", n);
 
     valueBits.resize(2);
     valueBits[0].resize(n);
@@ -556,6 +564,9 @@ void OTTripleGenerator<T>::generateMixedTriples()
 template<class U>
 void OTTripleGenerator<U>::plainTripleRound(int k)
 {
+    if (OnlineOptions::singleton.has_option("verbose_triples"))
+        fprintf(stderr, "generating %d triples\n", nPreampTriplesPerLoop);
+
     typedef typename U::open_type T;
 
     if (not (machine.amplify or machine.output))

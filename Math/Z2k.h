@@ -306,7 +306,7 @@ public:
         return operator*(SignedZ2<64>(other));
     }
 
-    void output(ostream& s, bool human = true) const;
+    void output(ostream& s, bool human = true, bool signed_ = true) const;
 };
 
 template<int K>
@@ -479,12 +479,17 @@ SignedZ2<K> abs(const SignedZ2<K>& x)
 }
 
 template<int K>
-void SignedZ2<K>::output(ostream& s, bool human) const
+void SignedZ2<K>::output(ostream& s, bool human, bool signed_) const
 {
     if (human)
     {
-        bigint::tmp = *this;
-        s << bigint::tmp;
+        if (signed_)
+        {
+            bigint::tmp = *this;
+            s << bigint::tmp;
+        }
+        else
+            Z2<K>::output(s, human);
     }
     else
         Z2<K>::output(s, false);
@@ -493,7 +498,7 @@ void SignedZ2<K>::output(ostream& s, bool human) const
 template<int K>
 ostream& operator<<(ostream& o, const SignedZ2<K>& x)
 {
-    x.output(o, true);
+    x.output(o, true, false);
     return o;
 }
 

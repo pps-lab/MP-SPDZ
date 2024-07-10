@@ -106,7 +106,8 @@ void SpdzWisePrep<T>::buffer_inputs(int player)
 {
     assert(this->proc != 0);
     assert(this->protocol != 0);
-    vector<T> rs(OnlineOptions::singleton.batch_size);
+    vector<T> rs(BaseMachine::input_batch_size<T>(player,
+            this->buffer_size));
     auto& P = this->proc->P;
     this->inputs.resize(P.num_players());
     this->protocol->init_mul();

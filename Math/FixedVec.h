@@ -161,6 +161,11 @@ public:
         return equal(1);
     }
 
+    bool operator==(const FixedVec<T, L>& other) const
+    {
+        return equal(other);
+    }
+
     bool operator!=(const FixedVec<T, L>& other) const
     {
         return not equal(other);

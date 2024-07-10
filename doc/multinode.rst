@@ -1,3 +1,6 @@
+.. _multinode:
+
+
 Multinode Computation Example
 =============================
 

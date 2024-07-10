@@ -5,7 +5,7 @@ the ones used below into ``Programs/Circuits`` as follows::
 
     make Programs/Circuits
 
-.. _`Bristol Fashion`: https://homes.esat.kuleuven.be/~nsmart/MPC
+.. _`Bristol Fashion`: https://nigelsmart.github.io/MPC-Circuits
 
 """
 import math
@@ -15,6 +15,7 @@ from Compiler.library import function_block, get_tape
 from Compiler import util
 import itertools
 import struct
+import os
 
 from six import assertCountEqual
 
@@ -50,7 +51,12 @@ class Circuit:
     """
 
     def __init__(self, name):
+        self.name = name
         self.filename = 'Programs/Circuits/%s.txt' % name
+        if not os.path.exists(self.filename):
+            if os.system('make Programs/Circuits'):
+                raise CompilerError('Cannot download circuit descriptions. '
+                                    'Make sure make and git are installed.')
         f = open(self.filename)
         self.functions = {}
 
@@ -60,8 +66,9 @@ class Circuit:
     def run(self, *inputs):
         n = inputs[0][0].n, get_tape()
         if n not in self.functions:
-            self.functions[n] = function_block(lambda *args:
-                                               self.compile(*args))
+            self.functions[n] = function_block(
+                lambda *args: self.compile(*args))
+            self.functions[n].name = '%s(%d)' % (self.name, inputs[0][0].n)
         flat_res = self.functions[n](*itertools.chain(*inputs))
         res = []
         i = 0
@@ -127,7 +134,7 @@ Keccak_f = None
 
 def sha3_256(x):
     """
-    This function implements SHA3-256 for inputs of up to 1080 bits::
+    This function implements SHA3-256 for inputs of any length::
 
         from circuit import sha3_256
         a = sbitvec.from_vec([])
@@ -141,7 +148,8 @@ def sha3_256(x):
         for x in a, b, c, d, e, f, g, h:
             sha3_256(x).reveal_print_hex()
 
-    This should output the `test vectors
+    This should output the hashes of the above inputs, beginning with
+    the `test vectors
     <https://github.com/XKCP/XKCP/blob/master/tests/TestVectors/ShortMsgKAT_SHA3-256.txt>`_
     of SHA3-256 for 0, 8, 16, and 24 bits as well as the hash of the
     0 byte::

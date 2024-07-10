@@ -51,7 +51,8 @@ void DealerMatrixPrep<T>::buffer_triples()
     vector<bool> senders(P.num_players());
     senders.back() = true;
     octetStreams os(P), to_receive(P);
-    int batch_size = min(100, OnlineOptions::singleton.batch_size);
+    int batch_size = BaseMachine::matrix_batch_size(n_rows, n_inner, n_cols);
+    assert(batch_size > 0);
     if (not T::real_shares(P))
     {
         SeededPRNG G;

@@ -90,8 +90,6 @@ protected:
 public:
     typedef T share_type;
 
-    int buffer_size;
-
     /// Key-independent setup if necessary (cryptosystem parameters)
     static void basic_setup(Player& P) { (void) P; }
     /// Generate keys if necessary
@@ -118,7 +116,7 @@ public:
     void get_two_no_count(Dtype dtype, T& a, T& b);
     void get_one_no_count(Dtype dtype, T& a);
     void get_input_no_count(T& a, typename T::open_type& x, int i);
-    void get_no_count(vector<T>& S, DataTag tag, const vector<int>& regs,
+    void get_no_count(StackedVector<T>& S, DataTag tag, const vector<int>& regs,
             int vector_size);
 
     virtual void get_dabit_no_count(T& a, typename T::bit_type& b);
@@ -154,12 +152,12 @@ class BitPrep : public virtual BufferPrep<T>
 protected:
     int base_player;
 
-    typename T::Protocol* protocol;
-
     void buffer_ring_bits_without_check(vector<T>& bits, PRNG& G,
             int buffer_size);
 
 public:
+    typename T::Protocol* protocol;
+
     BitPrep(SubProcessor<T>* proc, DataPositions& usage);
     ~BitPrep();
 
@@ -179,8 +177,6 @@ template<class T>
 class RingPrep : public virtual BitPrep<T>
 {
     typedef typename T::bit_type::part_type BT;
-
-    SubProcessor<BT>* bit_part_proc;
 
 protected:
     void buffer_dabits_without_check(vector<dabit<T>>& dabits,
@@ -214,6 +210,8 @@ protected:
             typename BT::Input& bit_input, int input_player, int begin, int end);
 
 public:
+    SubProcessor<BT>* bit_part_proc;
+
     RingPrep(SubProcessor<T>* proc, DataPositions& usage);
     virtual ~RingPrep();
 

@@ -6,8 +6,9 @@ import torchvision
 import torch
 import torch.nn as nn
 import numpy
+import sys
 
-net = nn.Sequential(
+layers = [
     nn.Conv2d(1, 20, 5),
     nn.ReLU(),
     nn.MaxPool2d(2),
@@ -19,7 +20,12 @@ net = nn.Sequential(
     nn.Linear(800, 500),
     nn.ReLU(),
     nn.Linear(500, 10)
-)
+]
+
+if 'bn' in sys.argv:
+    layers.insert(3, nn.BatchNorm2d(20))
+
+net = nn.Sequential(*layers)
 
 f = open('Player-Data/Binary-Output-P0-0')
 
@@ -27,10 +33,12 @@ state = net.state_dict()
 
 for name in state:
     shape = state[name].shape
-    size = numpy.prod(shape)
-    var = numpy.fromfile(f, 'double', count=size)
-    var = var.reshape(shape)
-    state[name] = torch.Tensor(var)
+    if shape:
+        size = numpy.prod(shape)
+        print (name, shape, size)
+        var = numpy.fromfile(f, 'double', count=size)
+        var = var.reshape(shape)
+        state[name] = torch.Tensor(var)
 
 net.load_state_dict(state)
 

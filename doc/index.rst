@@ -23,6 +23,7 @@ If you're new to MP-SPDZ, consider the following:
    Compiler
    utils
    journey
+   optimization
    instructions
    low-level
    ml-quickstart
@@ -35,6 +36,7 @@ If you're new to MP-SPDZ, consider the following:
    preprocessing
    lowest-level
    add-protocol
+   add-instruction
    homomorphic-encryption
    ecdsa
    troubleshooting

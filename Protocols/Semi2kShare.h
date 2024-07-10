@@ -49,7 +49,7 @@ public:
     }
 
     template<class U>
-    static void split(vector<U>& dest, const vector<int>& regs, int n_bits,
+    static void split(StackedVector<U>& dest, const vector<int>& regs, int n_bits,
             const Semi2kShare* source, int n_inputs,
             typename U::Protocol& protocol)
     {

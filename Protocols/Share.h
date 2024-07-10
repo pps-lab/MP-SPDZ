@@ -37,6 +37,8 @@ template<class T> class TinierSecret;
 template<class T, class V>
 class Share_ : public ShareInterface
 {
+   static V mac_key;
+
    T a;        // The share
    V mac;      // Shares of the mac
 
@@ -73,8 +75,10 @@ class Share_ : public ShareInterface
    static void read_or_generate_mac_key(string directory, const Player& P,
            U& key);
 
-   static void specification(octetStream& os)
-     { T::specification(os); }
+   static void specification(octetStream& os);
+
+   static mac_key_type get_mac_key();
+   static void set_mac_key(const mac_key_type& mac_key);
 
    static Share_ constant(const open_type& aa, int my_num, const typename V::Scalar& alphai)
      { return Share_(aa, my_num, alphai); }

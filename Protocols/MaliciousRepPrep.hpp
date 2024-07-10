@@ -7,6 +7,7 @@
 #define PROTOCOLS_MALICIOUSREPPREP_HPP_
 
 #include "MaliciousRepPrep.h"
+#include "BufferScope.h"
 #include "Tools/Subroutines.h"
 #include "Processor/OnlineOptions.h"
 
@@ -78,6 +79,9 @@ void MaliciousRepPrep<T>::buffer_triples()
     auto& triples = this->triples;
     auto buffer_size = BaseMachine::batch_size<T>(DATA_TRIPLE,
             this->buffer_size);
+    if (OnlineOptions::singleton.has_option("verbose_triples"))
+        fprintf(stderr, "creating %d triples (%d)\n", buffer_size,
+                this->buffer_size);
     auto& honest_proc = this->honest_proc;
     assert(honest_proc != 0);
     Player& P = honest_proc->P;
@@ -85,6 +89,7 @@ void MaliciousRepPrep<T>::buffer_triples()
     check_triples.reserve(buffer_size);
     auto& honest_prot = honest_proc->protocol;
     honest_prot.init_mul();
+    BufferScope scope(honest_prot, 3 * buffer_size);
     for (int i = 0; i < buffer_size; i++)
     {
         check_triples.push_back({});
@@ -148,7 +153,7 @@ void MaliciousRepPrep<T>::buffer_squares()
     assert(honest_proc);
     Player& P = honest_proc->P;
     squares.clear();
-    honest_prep.buffer_size = buffer_size;
+    BufferScope scope(honest_prep, buffer_size);
     for (int i = 0; i < buffer_size; i++)
     {
         T a, b;
@@ -191,7 +196,7 @@ void MaliciousBitOnlyRepPrep<T>::buffer_bits()
             this->buffer_size);
     assert(honest_proc);
     Player& P = honest_proc->P;
-    honest_prep.buffer_size = buffer_size;
+    BufferScope scope(honest_prep, buffer_size);
     bits.clear();
     for (int i = 0; i < buffer_size; i++)
     {

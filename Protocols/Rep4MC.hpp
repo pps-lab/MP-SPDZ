@@ -32,6 +32,9 @@ void Rep4MC<T>::exchange(const Player& P)
 template<class T>
 void Rep4MC<T>::Check(const Player& P)
 {
+    if (check_hash.size == 0)
+        return;
+
     octetStream left;
     check_hash.final(left);
     P.pass_around(left, -1);

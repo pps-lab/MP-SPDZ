@@ -63,6 +63,10 @@ class OTExtensionWithMatrix : public OTCorrelator<BitMatrix>
 
     bool agreed;
 
+    int softspoken_k;
+
+    void init_me();
+
 public:
     PRNG G;
 
@@ -76,21 +80,18 @@ public:
     : OTCorrelator<BitMatrix>(player, role, passive),
             nsubloops(nsubloops)
     {
-      G.ReSeed();
-      agreed = false;
-#ifndef USE_KOS
-      channel = 0;
-#endif
+      init_me();
     }
 
     OTExtensionWithMatrix(BaseOT& baseOT, TwoPartyPlayer* player, bool passive);
 
     ~OTExtensionWithMatrix();
 
+    bool use_kos();
     void protocol_agreement();
 
     void transfer(int nOTs, const BitVector& receiverInput, int nloops);
-    void extend(int nOTs, const BitVector& newReceiverInput);
+    void extend(int nOTs, const BitVector& newReceiverInput, bool hash = true);
     void extend_correlated(const BitVector& newReceiverInput);
     void extend_correlated(int nOTs, const BitVector& newReceiverInput);
     void transpose(int start = 0, int slice = -1);

@@ -15,7 +15,7 @@
 #include <iomanip>
 
 template<class cgf2n>
-void Instruction::execute_clear_gf2n(vector<cgf2n>& registers,
+void Instruction::execute_clear_gf2n(StackedVector<cgf2n>& registers,
         MemoryPart<cgf2n>& memory, ArithmeticProcessor& Proc) const
 {
     auto& C2 = registers;
@@ -30,7 +30,7 @@ void Instruction::execute_clear_gf2n(vector<cgf2n>& registers,
 }
 
 template<class cgf2n>
-void Instruction::gbitdec(vector<cgf2n>& registers) const
+void Instruction::gbitdec(StackedVector<cgf2n>& registers) const
 {
     for (int j = 0; j < size; j++)
     {
@@ -44,7 +44,7 @@ void Instruction::gbitdec(vector<cgf2n>& registers) const
 }
 
 template<class cgf2n>
-void Instruction::gbitcom(vector<cgf2n>& registers) const
+void Instruction::gbitcom(StackedVector<cgf2n>& registers) const
 {
     for (int j = 0; j < size; j++)
     {
@@ -124,7 +124,7 @@ ostream& operator<<(ostream& s, const Instruction& instr)
     return s;
 }
 
-template void Instruction::execute_clear_gf2n(vector<gf2n_short>& registers,
+template void Instruction::execute_clear_gf2n(StackedVector<gf2n_short>& registers,
         MemoryPart<gf2n_short>& memory, ArithmeticProcessor& Proc) const;
-template void Instruction::execute_clear_gf2n(vector<gf2n_long>& registers,
+template void Instruction::execute_clear_gf2n(StackedVector<gf2n_long>& registers,
         MemoryPart<gf2n_long>& memory, ArithmeticProcessor& Proc) const;

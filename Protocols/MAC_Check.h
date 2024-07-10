@@ -212,7 +212,6 @@ public:
   void exchange(const Player& P)
   {
     Direct_MAC_Check<T>::exchange(P);
-    assert(this->WaitingForCheck() > 0);
   }
 
   void Check(const Player& P)

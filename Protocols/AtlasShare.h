@@ -24,7 +24,7 @@ class AtlasShare : public ShamirShare<T>
 
 public:
     typedef Atlas<This> Protocol;
-    typedef ::Input<This> Input;
+    typedef ShamirInput<This> Input;
     typedef IndirectShamirMC<This> MAC_Check;
     typedef ShamirMC<This> Direct_MC;
     typedef ::PrivateOutput<This> PrivateOutput;
@@ -34,6 +34,8 @@ public:
 #ifndef NO_MIXED_CIRCUITS
     typedef GC::AtlasSecret bit_type;
 #endif
+
+    const static int bit_generation_threshold = 2;
 
     static string alt()
     {

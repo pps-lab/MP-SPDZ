@@ -82,7 +82,7 @@ public:
     {
         write_setup(get_prep_sub_dir<T>(nplayers));
     }
-    static string fake_opts() { return " -lgp " + to_string(length()); }
+    static string fake_opts() { return " -P " + to_string(pr()); }
 
     gfpvar_();
     gfpvar_(int other);

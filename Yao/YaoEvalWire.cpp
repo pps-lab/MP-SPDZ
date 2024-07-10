@@ -11,6 +11,7 @@
 #include "BMR/prf.h"
 #include "BMR/common.h"
 #include "GC/ArgTuples.h"
+#include "Tools/CheckVector.h"
 
 #include "GC/Processor.hpp"
 #include "GC/Secret.hpp"
@@ -78,7 +79,7 @@ void YaoEvalWire::and_singlethread(GC::Processor<GC::Secret<YaoEvalWire> >& proc
 	party.counter += counter - party.get_gate_id();
 }
 
-void YaoEvalWire::and_(GC::Memory<GC::Secret<YaoEvalWire> >& S,
+void YaoEvalWire::and_(StackedVector<GC::Secret<YaoEvalWire> >& S,
 		const vector<int>& args, size_t start, size_t end, size_t,
 		YaoGate* gates, long& gate_id, PRNG&, map<string, Timer>&,
 		bool repeat, YaoEvaluator& evaluator)

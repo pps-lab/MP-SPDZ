@@ -877,7 +877,7 @@ class LinearORAM(TrivialORAM):
         demux_array(bit_decompose(index, self.index_size), \
                     self.index_vector)
         t = self.value_type.get_type(None if None in self.entry_size else max(self.entry_size))
-        @map_sum(get_n_threads(self.size), n_parallel, self.size, \
+        @map_sum(get_n_threads(self.size), None, self.size, \
                      self.value_length + 1, t)
         def f(i):
             entry = self.ram[i]
@@ -897,7 +897,7 @@ class LinearORAM(TrivialORAM):
         new_value = make_array(
             new_value, self.value_type.get_type(
                 max(x or 0 for x in self.entry_size)))
-        @for_range_multithread(get_n_threads(self.size), n_parallel, self.size)
+        @for_range_multithread(get_n_threads(self.size), None, self.size)
         def f(i):
             entry = self.ram[i]
             access_here = self.index_vector[i]
@@ -917,7 +917,7 @@ class LinearORAM(TrivialORAM):
                 max(x or 0 for x in self.entry_size)))
         new_empty = MemValue(new_empty)
         write = MemValue(write)
-        @map_sum(get_n_threads(self.size), n_parallel, self.size, \
+        @map_sum(get_n_threads(self.size), None, self.size, \
                      self.value_length + 1, [self.value_type.bit_type] + \
                         [self.value_type] * self.value_length)
         def f(i):
@@ -1257,7 +1257,7 @@ class TreeORAM(AbstractORAM):
         depth = log2(m)
         leaves = self.value_type.Array(m)
         indexed_values = \
-            self.value_type.Matrix(m, len(util.tuplify(values[0])) + 1)
+            self.value_type.Matrix(m, len(values[0]) + 1)
 
         # assign indices 0, ..., m-1
         @for_range(m)
@@ -1265,8 +1265,7 @@ class TreeORAM(AbstractORAM):
             value = values[i]
             index = MemValue(self.value_type.hard_conv(i))
             new_value = [MemValue(self.value_type.hard_conv(v)) \
-                         for v in (value if isinstance(value, (tuple, list)) \
-                                       else (value,))]
+                         for v in value]
             indexed_values[i] = [index] + new_value
 
         entries = sint.Matrix(self.bucket_size * 2 ** self.D,
@@ -1284,7 +1283,7 @@ class TreeORAM(AbstractORAM):
                 self.value_type.hard_conv(False), value_type=self.value_type)
         
         # save unsorted leaves for position map
-        unsorted_leaves = [MemValue(self.value_type(leaf)) for leaf in leaves]
+        unsorted_leaves = Array.create_from(leaves)
         leaves.sort()
 
         bucket_sz = 0
@@ -1341,8 +1340,8 @@ class TreeORAM(AbstractORAM):
                 half = (empty_positions[i]+1 - parity) // 2
                 half_max = self.bucket_size // 2
                 
-                bits = floatingpoint.B2U(half, half_max, Program.prog.security)[0]
-                bits2 = floatingpoint.B2U(half+parity, half_max, Program.prog.security)[0]
+                bits = floatingpoint.B2U(half, half_max)[0]
+                bits2 = floatingpoint.B2U(half+parity, half_max)[0]
                 # (doesn't work)
                 #bits2 = [0] * half_max
                 ## second half with parity bit 
@@ -1351,7 +1350,8 @@ class TreeORAM(AbstractORAM):
                 #bits2[0] = (1 - bits[0]) * parity
                 bucket_bits = [b for sl in zip(bits2,bits) for b in sl]
             else:
-                bucket_bits = floatingpoint.B2U(empty_positions[i]+1, self.bucket_size, Program.prog.security)[0]
+                bucket_bits = floatingpoint.B2U(empty_positions[i]+1,
+                                                self.bucket_size)[0]
             assert len(bucket_bits) == self.bucket_size
             for j, b in enumerate(bucket_bits):
                 pos_bits[i * self.bucket_size + j] = [b, leaf]
@@ -1377,8 +1377,7 @@ class TreeORAM(AbstractORAM):
         Program.prog.curr_tape.start_new_basicblock()
 
         bucket_sizes = Array(2**self.D, regint)
-        for i in range(2**self.D):
-            bucket_sizes[i] = 0
+        bucket_sizes.assign_all(0)
 
         @for_range_opt(len(entries))
         def _(k):
@@ -1387,7 +1386,7 @@ class TreeORAM(AbstractORAM):
             bucket.bucket.ram[bucket_sizes[leaf]] = Entry(entries[k])
             bucket_sizes[leaf] += 1
 
-        self.index.batch_init([leaf.read() for leaf in unsorted_leaves])
+        self.index.batch_init(unsorted_leaves)
 
     def check(self, index=None):
         if debug:
@@ -1698,7 +1697,7 @@ class OneLevelORAM(TreeORAM):
 
 class BinaryORAM:
     def __init__(self, size, value_type=None, **kwargs):
-        import circuit_oram
+        from Compiler import circuit_oram
         from Compiler.GC import types
         n_bits = int(get_program().options.binary)
         self.value_type = value_type or types.sbitintvec.get_type(n_bits)

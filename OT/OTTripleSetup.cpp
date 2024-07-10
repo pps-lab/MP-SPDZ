@@ -1,5 +1,11 @@
 #include "OTTripleSetup.h"
 
+void* run_ot(void* job)
+{
+    ((OTTripleSetup::SetupJob*)job)->run();
+    return 0;
+}
+
 void OTTripleSetup::setup()
 {
     timeval baseOTstart, baseOTend;
@@ -12,13 +18,13 @@ void OTTripleSetup::setup()
     }
     //baseReceiverInput.randomize(G);
 
+    vector<SetupJob> threads;
     for (int i = 0; i < nparties - 1; i++)
-    {
-        baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
-        baseOTs[i]->exec_base(false);
-        baseSenderInputs[i] = baseOTs[i]->sender_inputs;
-        baseReceiverOutputs[i] = baseOTs[i]->receiver_outputs;
-    }
+        threads.push_back({*this, i});
+    for (int i = 0; i < nparties - 1; i++)
+        pthread_create(&threads[i].thread, 0, run_ot, &threads[i]);
+    for (int i = 0; i < nparties - 1; i++)
+        pthread_join(threads[i].thread, 0);
     gettimeofday(&baseOTend, NULL);
 #ifdef VERBOSE_BASEOT
     double basetime = timeval_diff(&baseOTstart, &baseOTend);
@@ -34,6 +40,14 @@ void OTTripleSetup::setup()
     // (since Sender finishes baseOTs before Receiver)
 }
 
+void OTTripleSetup::run(int i)
+{
+    baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
+    baseOTs[i]->exec_base(false);
+    baseSenderInputs[i] = baseOTs[i]->sender_inputs;
+    baseReceiverOutputs[i] = baseOTs[i]->receiver_outputs;
+}
+
 void OTTripleSetup::close_connections()
 {
     for (size_t i = 0; i < players.size(); i++)
@@ -47,7 +61,7 @@ OTTripleSetup OTTripleSetup::get_fresh()
     OTTripleSetup res = *this;
     for (int i = 0; i < nparties - 1; i++)
     {
-        BaseOT bot(nbase, 128, 0);
+        BaseOT bot(nbase, 0);
         bot.sender_inputs = baseSenderInputs[i];
         bot.receiver_outputs = baseReceiverOutputs[i];
         bot.set_seeds();

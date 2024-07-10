@@ -27,13 +27,22 @@ by party 0 and 1::
 
    sint.get_input_from(0, size=10) * sint.get_input_from(1, size=10)
 
+The following types are available in arithmetic circuits and with
+reduced functionality in binary circuits.
+
 .. autosummary::
    :nosignatures:
 
    sint
-   cint
-   regint
    sfix
+   regint
+
+The following types are only available in arithmetic circuits.
+
+.. autosummary::
+   :nosignatures:
+
+   cint
    cfix
    sfloat
    sgf2n
@@ -84,18 +93,19 @@ class ClientMessageType:
 
 class MPCThread(object):
     def __init__(self, target, name, args = [], runtime_arg = 0,
-                 single_thread = False):
+                 single_thread = False, finalize = True):
         """ Create a thread from a callable object. """
         if not callable(target):
             raise CompilerError('Target %s for thread %s is not callable' % (target,name))
         self.name = name
-        self.tape = Tape(program.name + '-' + name, program)
         self.target = target
         self.args = args
         self.runtime_arg = runtime_arg
         self.running = 0
         self.tape_handle = program.new_tape(target, args, name,
-                                            single_thread=single_thread)
+                                            single_thread=single_thread,
+                                            finalize=finalize)
+        self.tape = program.tapes[self.tape_handle]
         self.run_handles = []
     
     def start(self, runtime_arg = None):
@@ -182,8 +192,7 @@ def vectorized_classmethod(function):
 def vectorize_init(function):
     def vectorized_init(*args, **kwargs):
         size = None
-        if len(args) > 1 and (isinstance(args[1], _register) or \
-                    isinstance(args[1], sfloat)):
+        if len(args) > 1 and isinstance(args[1], (_register, sfloat, cfix)):
             size = args[1].size
             if 'size' in kwargs and kwargs['size'] is not None \
                     and kwargs['size'] != size:
@@ -306,7 +315,7 @@ class _number(Tape._no_truth):
     def reduce_after_mul(self):
         return self
 
-    def pow2(self, bit_length=None, security=None):
+    def pow2(self, bit_length=None):
         return 2**self
 
     def min(self, other):
@@ -372,7 +381,15 @@ class _int(Tape._no_truth):
         return intbitint.ripple_carry_adder(*args, **kwargs)
 
     def if_else(self, a, b):
-        """ MUX on bit in arithmetic circuits.
+        """ MUX on bit in arithmetic circuits::
+
+          print_ln('%s', sint(0).if_else(sint(2), sint(3)).reveal())
+          print_ln('%s', sint(1).if_else(sint(4), sint(5)).reveal())
+
+        This will output::
+
+          3
+          4
 
         :param a/b: any type supporting the necessary operations
         :return: a if :py:obj:`self` is 1, b if :py:obj:`self` is 0, undefined otherwise
@@ -537,28 +554,34 @@ class _structure(Tape._no_truth):
         return Matrix(rows, columns, cls, *args, **kwargs)
 
     @classmethod
-    def Tensor(cls, shape):
+    def Tensor(cls, shape, **kwargs):
         """
         Type-dependent tensor of any dimension::
 
             a = sfix.Tensor([10, 10])
         """
         if len(shape) == 1:
-            return Array(shape[0], cls)
+            return Array(shape[0], cls, **kwargs)
         elif len(shape) == 2:
-            return Matrix(*shape, cls)
+            return Matrix(*shape, cls, **kwargs)
         else:
-            return MultiArray(shape, cls)
+            return MultiArray(shape, cls, **kwargs)
 
     @classmethod
     def row_matrix_mul(cls, row, matrix, res_params=None):
-        return sum(row[k].mul_no_reduce(matrix[k].get_vector(),
-                                        res_params) \
-                   for k in range(len(row))).reduce_after_mul()
+        res = type(row[0].mul_no_reduce(
+            matrix[0][0], res_params=res_params))(0, size=matrix.sizes[1])
+        @library.for_range_opt(len(row))
+        def _(k):
+            res.iadd(row[k].mul_no_reduce(matrix[k].get_vector(), res_params))
+        return res.reduce_after_mul()
 
     @staticmethod
     def mem_size():
         return 1
+
+    def size_for_mem(self):
+        return self.size
 
 class _secret_structure(_structure):
     @classmethod
@@ -620,7 +643,7 @@ class _secret_structure(_structure):
                 content = numpy.array(content)
                 if issubclass(cls, _fix):
                     min_k = \
-                        math.ceil(math.log(abs(content).max(), 2)) + cls.f + 1 if abs(content).max() != 0 else 0
+                        math.ceil(math.log(abs(content).max() or 1, 2)) + cls.f + 1
                     if cls.k < min_k:
                         raise CompilerError(
                             "data outside fixed-point range, "
@@ -724,6 +747,7 @@ class _register(Tape.Register, _number, _structure):
 
     @vectorized_classmethod
     @set_instruction_type
+    @read_mem_value
     def _load_mem(cls, address, direct_inst, indirect_inst):
         if isinstance(address, _register):
             if address.size > 1:
@@ -748,6 +772,7 @@ class _register(Tape.Register, _number, _structure):
         else:
             return address
 
+    @read_mem_value
     @set_instruction_type
     def _store_in_mem(self, address, direct_inst, indirect_inst):
         if isinstance(address, _register):
@@ -849,6 +874,17 @@ class _arithmetic_register(_register):
         if program.options.garbled:
             raise CompilerError('functionality only available in arithmetic circuits')
         super(_arithmetic_register, self).__init__(*args, **kwargs)
+
+    @classmethod
+    def get_type(cls, length):
+        return cls
+
+    @staticmethod
+    def two_power(n, size=None):
+        return floatingpoint.two_power(n)
+
+    def Norm(self, k, f, simplex_flag=False):
+        return library.Norm(self, k, f, simplex_flag=simplex_flag)
 
 class _clear(_arithmetic_register):
     """ Clear domain-dependent type. """
@@ -1010,6 +1046,10 @@ class cint(_clear, _int):
     division. ``**`` requires the exponent to be compile-time integer
     or the base to be two.
 
+    This type is restricted to arithmetic circuits due to the fact
+    that only arithmetic protocols offer communication-less
+    public-private integer operations.
+
     :param val: initialization (cint/regint/int/cgf2n or list thereof)
     :param size: vector size (int), defaults to 1 or size of list
 
@@ -1055,8 +1095,8 @@ class cint(_clear, _int):
         self._store_in_mem(address, stmc, stmci)
 
     @staticmethod
-    def in_immediate_range(value):
-        if program.options.ring:
+    def in_immediate_range(value, regint=False):
+        if program.options.ring and not regint:
             if abs(value) > 2 ** int(program.options.ring):
                 raise CompilerError('value outside range for domain')
         return value < 2**31 and value >= -2**31
@@ -1092,6 +1132,11 @@ class cint(_clear, _int):
                     addci(self, sum, sign * chunk)
                 elif chunk:
                     sum += sign * chunk
+
+    def load_other(self, val):
+        if isinstance(val, cfix):
+            val = val.v.round(val.k, val.f)
+        super(cint, self).load_other(val)
 
     @vectorize
     def to_regint(self, n_bits=64, dest=None):
@@ -1268,12 +1313,21 @@ class cint(_clear, _int):
         :param other: cint/regint/int """
         return self >> other
 
+    def round(self, k, m, nearest=None, signed=False):
+        if signed:
+            self += 2 ** (k - 1)
+        self += 2 ** (m - 1)
+        res = self >> m
+        if signed:
+            res -= 2 ** (k - m - 1)
+        return res
+
     @read_mem_value
     def greater_than(self, other, bit_length=None):
         return self > other
 
     @vectorize
-    def bit_decompose(self, bit_length=None):
+    def bit_decompose(self, bit_length=None, maybe_mixed=None):
         """ Clear bit decomposition.
 
         :param bit_length: number of bits (default is global bit length)
@@ -1544,7 +1598,7 @@ class regint(_register, _int):
         super(regint, self).__init__(self.reg_type, val=val, size=size)
 
     def load_int(self, val):
-        if cint.in_immediate_range(val):
+        if cint.in_immediate_range(val, regint=True):
             ldint(self, val)
         else:
             lower = val % 2**32
@@ -1884,6 +1938,22 @@ class personal(Tape._no_truth):
         tmp = cint()
         fixinput(player, tmp, f, precision)
         return cls(player, cfix._new(tmp, f=f, k=k))
+
+    @classmethod
+    def read_int_from_socket(cls, player, socket, size=1):
+        return cls.read_from_socket(player, socket, cint, size)
+
+    @classmethod
+    def read_fix_from_socket(cls, player, socket, size=1):
+        return cls.read_from_socket(player, socket, cfix, size)
+
+    @classmethod
+    def read_from_socket(cls, player, socket, type, size):
+        tmp = type(size=size)
+        @library.if_(player == library.get_player_id()._v)
+        def _():
+            tmp.link(type.read_from_socket(socket, size=size))
+        return cls(player, tmp)
 
     def binary_output(self):
         """ Write binary output to
@@ -2340,6 +2410,10 @@ class _secret(_arithmetic_register, _secret_structure):
     def raw_mod2m(self, m):
         return self - (self.raw_right_shift(m) << m)
 
+    @set_instruction_type
+    @vectorize
+    def output(self):
+        print_reg_plains(self)
 
 class sint(_secret, _int):
     """
@@ -2361,17 +2435,18 @@ class sint(_secret, _int):
     operator is a compile-time power of two.
 
     Most non-linear operations require compile-time parameters for bit
-    length and statistical security. They default to the global
-    parameters set by :py:meth:`program.set_bit_length` and
-    :py:meth:`program.set_security`. The acceptable minimum for statistical
-    security is considered to be 40.  The defaults for the parameters
+    length. It defaults to the global parameters set by
+    :py:meth:`program.set_bit_length`, and its default
     is output at the beginning of the compilation.
 
     If the computation domain is modulo a power of two, the
-    operands will be truncated to the bit length, and the security
-    parameter does not matter. Modulo prime, the behaviour is
+    operands will be truncated to the bit length.
+    Modulo prime, the behaviour is
     undefined and potentially insecure if the operands are longer than
     the bit length.
+
+    See :ref:`nonlinear` for an overview of how non-linear
+    computation is implemented.
 
     :param val: initialization (sint/cint/regint/int/cgf2n or list
         thereof, sbits/sbitvec/sfix, or :py:class:`personal`)
@@ -2393,7 +2468,11 @@ class sint(_secret, _int):
 
     PreOp = staticmethod(floatingpoint.PreOpL)
     PreOR = staticmethod(floatingpoint.PreOR)
-    get_type = staticmethod(lambda n: sint)
+
+    @classmethod
+    def get_type(cls, n):
+        cls.require_bit_length(n or 0)
+        return cls
 
     @staticmethod
     def require_bit_length(n_bits):
@@ -2471,7 +2550,8 @@ class sint(_secret, _int):
             else:
                 a = [sint.get_random_bit() for i in range(n_bits)]
                 return sint.bit_compose(a), a
-        program.curr_tape.require_bit_length(n_bits - 1)
+        assert n_bits > 0
+        program.curr_tape.require_bit_length(n_bits - 2)
         whole = cls()
         size = get_global_vector_size()
         from Compiler.GC.types import sbits, sbitvec
@@ -2535,6 +2615,8 @@ class sint(_secret, _int):
 
         for value in values:
             assert(value.size == values[0].size)
+            r = sint.get_random(size=value.size)
+            value += r - r.reveal()
             if program.active:
                 r = sint.get_random()
                 to_send += [value, r, value * r]
@@ -2645,12 +2727,24 @@ class sint(_secret, _int):
         self._store_in_mem(address, stms, stmsi)
 
     @classmethod
-    def direct_matrix_mul(cls, A, B, n, m, l, reduce=None, indices=None):
+    def direct_matrix_mul(cls, A, B, n, m, l, reduce=None, indices=None, indices_values=None):
         if indices is None:
             indices = [regint.inc(i) for i in (n, m, m, l)]
+            indices_values = [list(range(i)) for i in (n, m, m, l)]
         res = cls(size=indices[0].size * indices[3].size)
+
+        if isinstance(A, int) and isinstance(B, int):
+            first_factor_base_addresses = [A]
+            second_factor_base_addresses = [B]
+        else:
+            first_factor_base_addresses = None
+            second_factor_base_addresses = None
+
         matmulsm(res, regint(A), regint(B), len(indices[0]), len(indices[1]),
-                 len(indices[3]), *(list(indices) + [m, l]))
+                 len(indices[3]), *(list(indices) + [m, l]),
+                 first_factor_base_addresses=first_factor_base_addresses,
+                 second_factor_base_addresses=second_factor_base_addresses,
+                 indices_values=indices_values)
         return res
 
     @vectorize_init
@@ -2682,7 +2776,7 @@ class sint(_secret, _int):
     @read_mem_value
     @type_comp
     @vectorize
-    def __lt__(self, other, bit_length=None, security=None):
+    def __lt__(self, other, bit_length=None):
         """ Secret comparison (signed).
 
         :param other: sint/cint/regint/int
@@ -2690,42 +2784,39 @@ class sint(_secret, _int):
         :return: 0/1 (sintbit) """
         res = sintbit()
         comparison.LTZ(res, self - other,
-                       (bit_length or program.bit_length) + 1,
-                       security)
+                       (bit_length or program.bit_length) + 1)
         return res
 
     @read_mem_value
     @type_comp
     @vectorize
-    def __gt__(self, other, bit_length=None, security=None):
+    def __gt__(self, other, bit_length=None):
         res = sintbit()
         comparison.LTZ(res, other - self,
-                       (bit_length or program.bit_length) + 1,
-                       security)
+                       (bit_length or program.bit_length) + 1)
         return res
 
     @read_mem_value
     @type_comp
-    def __le__(self, other, bit_length=None, security=None):
-        return 1 - self.greater_than(other, bit_length, security)
+    def __le__(self, other, bit_length=None):
+        return 1 - self.greater_than(other, bit_length)
 
     @read_mem_value
     @type_comp
-    def __ge__(self, other, bit_length=None, security=None):
-        return 1 - self.less_than(other, bit_length, security)
+    def __ge__(self, other, bit_length=None):
+        return 1 - self.less_than(other, bit_length)
 
     @read_mem_value
     @type_comp
     @vectorize
-    def __eq__(self, other, bit_length=None, security=None):
+    def __eq__(self, other, bit_length=None):
         return sintbit.conv(
-            floatingpoint.EQZ(self - other, bit_length or program.bit_length,
-                              security))
+            floatingpoint.EQZ(self - other, bit_length or program.bit_length))
 
     @read_mem_value
     @type_comp
-    def __ne__(self, other, bit_length=None, security=None):
-        return 1 - self.equal(other, bit_length, security)
+    def __ne__(self, other, bit_length=None):
+        return 1 - self.equal(other, bit_length)
 
     less_than = __lt__
     greater_than = __gt__
@@ -2752,7 +2843,7 @@ class sint(_secret, _int):
 
     @vectorize
     @read_mem_value
-    def mod2m(self, m, bit_length=None, security=None, signed=True):
+    def mod2m(self, m, bit_length=None, signed=True):
         """ Secret modulo power of two.
 
         :param m: secret or public integer (sint/cint/regint/int)
@@ -2765,9 +2856,10 @@ class sint(_secret, _int):
             if m >= bit_length:
                 return self
             res = sint()
-            comparison.Mod2m(res, self, bit_length, m, security, signed)
+            comparison.Mod2m(res, self, bit_length, m, signed=signed)
         else:
-            res, pow2 = floatingpoint.Trunc(self, bit_length, m, security, True)
+            res, pow2 = floatingpoint.Trunc(self, bit_length, m,
+                                            compute_modulo=True)
         return res
 
     @vectorize
@@ -2780,25 +2872,24 @@ class sint(_secret, _int):
             return NotImplemented
 
     @vectorize
-    def pow2(self, bit_length=None, security=None):
+    def pow2(self, bit_length=None):
         """ Secret power of two.
 
         :param bit_length: bit length of input (default: global bit length)
         """
-        return floatingpoint.Pow2(self, bit_length or program.bit_length, \
-                                      security)
+        return floatingpoint.Pow2(self, bit_length or program.bit_length)
 
-    def __lshift__(self, other, bit_length=None, security=None):
+    def __lshift__(self, other, bit_length=None):
         """ Secret left shift.
 
         :param other: secret or public integer (sint/cint/regint/int)
         :param bit_length: bit length of input (default: global bit length)
         """
-        return self * util.pow2_value(other, bit_length, security)
+        return self * util.pow2_value(other, bit_length)
 
     @vectorize
     @read_mem_value
-    def __rshift__(self, other, bit_length=None, security=None, signed=True):
+    def __rshift__(self, other, bit_length=None, signed=True):
         """ Secret right shift.
 
         :param other: secret or public integer (sint/cint/regint/int)
@@ -2809,12 +2900,12 @@ class sint(_secret, _int):
             if other == 0:
                 return self
             res = sint()
-            comparison.Trunc(res, self, bit_length, other, security, signed)
+            comparison.Trunc(res, self, bit_length, other, signed)
             return res
         elif isinstance(other, sint):
-            return floatingpoint.Trunc(self, bit_length, other, security)
+            return floatingpoint.Trunc(self, bit_length, other)
         else:
-            return floatingpoint.Trunc(self, bit_length, sint(other), security)
+            return floatingpoint.Trunc(self, bit_length, sint(other))
 
     left_shift = __lshift__
     right_shift = __rshift__
@@ -2834,23 +2925,22 @@ class sint(_secret, _int):
         return floatingpoint.Trunc(other, program.bit_length, self)
 
     @vectorize
-    def bit_decompose(self, bit_length=None, security=None, maybe_mixed=False):
+    def bit_decompose(self, bit_length=None, maybe_mixed=False):
         """ Secret bit decomposition. """
         if bit_length == 0:
             return []
         bit_length = bit_length or program.bit_length
-        program.non_linear.check_security(security)
         return program.non_linear.bit_dec(self, bit_length, bit_length,
                                           maybe_mixed)
 
-    def TruncMul(self, other, k, m, kappa=None, nearest=False):
-        return (self * other).round(k, m, kappa, nearest, signed=True)
+    def TruncMul(self, other, k, m, nearest=False):
+        return (self * other).round(k, m, nearest, signed=True)
 
-    def TruncPr(self, k, m, kappa=None, signed=True):
-        return floatingpoint.TruncPr(self, k, m, kappa, signed=signed)
+    def TruncPr(self, k, m, signed=True):
+        return floatingpoint.TruncPr(self, k, m, signed=signed)
 
     @vectorize
-    def round(self, k, m, kappa=None, nearest=False, signed=False):
+    def round(self, k, m, nearest=False, signed=False):
         """ Truncate and maybe round secret :py:obj:`k`-bit integer
         by :py:obj:`m` bits. :py:obj:`m` can be secret if
         :py:obj:`nearest` is false, in which case the truncation will be
@@ -2860,22 +2950,18 @@ class sint(_secret, _int):
 
         :param k: int
         :param m: secret or compile-time integer (sint/int)
-        :param kappa: statistical security parameter (int)
         :param nearest: bool
         :param signed: bool """
         secret = isinstance(m, sint)
         if nearest:
             if secret:
                 raise NotImplementedError()
-            return comparison.TruncRoundNearest(self, k, m, kappa,
+            return comparison.TruncRoundNearest(self, k, m,
                                                 signed=signed)
         else:
             if secret:
-                return floatingpoint.Trunc(self, k, m, kappa)
-            return self.TruncPr(k, m, kappa, signed=signed)
-
-    def Norm(self, k, f, kappa=None, simplex_flag=False):
-        return library.Norm(self, k, f, kappa, simplex_flag)
+                return floatingpoint.Trunc(self, k, m)
+            return self.TruncPr(k, m, signed=signed)
 
     def __truediv__(self, other):
         """ Secret fixed-point division.
@@ -2892,7 +2978,7 @@ class sint(_secret, _int):
         return sfix._new(other) / sfix._new(self)
 
     @vectorize
-    def int_div(self, other, bit_length=None, security=None):
+    def int_div(self, other, bit_length=None):
         """ Secret integer division. Note that the domain bit length
         needs to be about four times the bit length.
 
@@ -2900,10 +2986,9 @@ class sint(_secret, _int):
         :param bit_length: bit length of input (default: global bit length)
         """
         k = bit_length or program.bit_length
-        kappa = security
-        tmp = library.IntDiv(self, other, k, kappa)
+        tmp = library.IntDiv(self, other, k)
         res = type(self)()
-        comparison.Trunc(res, tmp, 2 * k, k, kappa, True)
+        comparison.Trunc(res, tmp, 2 * k, k, signed=True)
         return res
 
     @vectorize
@@ -2919,10 +3004,6 @@ class sint(_secret, _int):
     def trunc_zeros(self, n_zeros, bit_length=None, signed=True):
         bit_length = bit_length or program.bit_length
         return comparison.TruncZeros(self, bit_length, n_zeros, signed)
-
-    @staticmethod
-    def two_power(n, size=None):
-        return floatingpoint.two_power(n)
 
     def split_to_n_summands(self, length, n):
         comparison.require_ring_size(length, 'splitting')
@@ -3072,14 +3153,14 @@ class sint(_secret, _int):
         picks(res, self, self.size - 1, -1)
         return res
 
-    def get_vector(self, base=0, size=None):
+    def get_vector(self, base=0, size=None, skip=1):
         if size is None:
             size = len(self) - base
         if base == 0 and size == len(self):
             return self
         assert base + size <= len(self)
         res = type(self)(size=size)
-        picks(res, self, base, 1)
+        picks(res, self, base, skip)
         return res
 
     @classmethod
@@ -3090,9 +3171,11 @@ class sint(_secret, _int):
         concats(res, *args)
         return res
 
-    @vectorize
-    def output(self):
-        print_reg_plains(self)
+    @classmethod
+    def zip(cls, *parts):
+        res = cls(size=sum(len(part) for part in parts))
+        zips(res, *parts)
+        return res
 
 class sintbit(sint):
     """ :py:class:`sint` holding a bit, supporting binary operations
@@ -3180,10 +3263,6 @@ class sgf2n(_secret, _gf2n):
     clear_type = cgf2n
     reg_type = 'sg'
     long_one = staticmethod(lambda: 1)
-
-    @classmethod
-    def get_type(cls, length):
-        return cls
 
     @classmethod
     def get_raw_input_from(cls, player):
@@ -3566,7 +3645,10 @@ class _bitint(Tape._no_truth):
         if type(other) == sgf2n:
             raise CompilerError('Unclear subtraction')
         from util import bit_not, bit_and, bit_xor
-        a, b = self.expand(other)
+        try:
+            a, b = self.expand(other)
+        except:
+            return NotImplemented
         n = 1
         for x in (a + b):
             try:
@@ -3597,7 +3679,7 @@ class _bitint(Tape._no_truth):
     def __rshift__(self, other):
         return self.compose(self.bit_decompose()[other:])
 
-    def bit_decompose(self, n_bits=None, security=None):
+    def bit_decompose(self, n_bits=None):
         if self.bits is None:
             self.bits = self.force_bit_decompose(self.n_bits)
         if n_bits is None:
@@ -3642,7 +3724,7 @@ class _bitint(Tape._no_truth):
     def __gt__(self, other):
         return (self <= other).bit_not()
 
-    def __eq__(self, other, bit_length=None, security=None):
+    def __eq__(self, other, bit_length=None):
         diff = self ^ other
         diff_bits = [x.bit_not() for x in diff.bit_decompose()[:bit_length]]
         return self.comp_result(util.tree_reduce(lambda x, y: x.bit_and(y),
@@ -3872,6 +3954,11 @@ class cfix(_number, _structure):
     an sfix. It also support comparisons (``==, !=, <, <=, >, >=``),
     returning either :py:class:`regint` or :py:class:`sbitint`.
 
+    Similarly to :py:class:`Compiler.types.cint`, this type is
+    restricted to arithmetic circuits due to the fact that only
+    arithmetic protocols offer communication-less public-private
+    integer operations.
+
     :param v: cfix/float/int
 
     """
@@ -4018,13 +4105,7 @@ class cfix(_number, _structure):
         if isinstance(other, cls):
             return other
         else:
-            try:
-                res = cfix()
-                res.load_int(other)
-                return res
-            except (TypeError, CompilerError):
-                pass
-        return cls(other)
+            return cls(other)
 
     def store_in_mem(self, address):
         """ Store in memory by public address. """
@@ -4119,7 +4200,7 @@ class cfix(_number, _structure):
         if isinstance(other, cfix):
             return self.v == other.v
         elif isinstance(other, sfix):
-            return other.v.equal(self.v, self.k, other.kappa)
+            return other.v.equal(self.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4133,7 +4214,7 @@ class cfix(_number, _structure):
         elif isinstance(other, sfix):
             if(self.k != other.k or self.f != other.f):
                 raise TypeError('Incompatible fixed point types in comparison')
-            return other.v.greater_than(self.v, self.k, other.kappa)
+            return other.v.greater_than(self.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4144,7 +4225,7 @@ class cfix(_number, _structure):
         if isinstance(other, cfix):
             return 1 - (self > other)
         elif isinstance(other, sfix):
-            return other.v.greater_equal(self.v, self.k, other.kappa)
+            return other.v.greater_equal(self.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4155,7 +4236,7 @@ class cfix(_number, _structure):
         if isinstance(other, cfix):
             return other.__lt__(self)
         elif isinstance(other, sfix):
-            return other.v.less_than(self.v, self.k, other.kappa)
+            return other.v.less_than(self.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4166,7 +4247,7 @@ class cfix(_number, _structure):
         if isinstance(other, cfix):
             return 1 - (self < other)
         elif isinstance(other, sfix):
-            return other.v.less_equal(self.v, self.k, other.kappa)
+            return other.v.less_equal(self.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4177,7 +4258,7 @@ class cfix(_number, _structure):
         if isinstance(other, cfix):
             return self.v != other.v
         elif isinstance(other, sfix):
-            return other.v.not_equal(self.v, self.k, other.kappa)
+            return other.v.not_equal(self.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4198,7 +4279,6 @@ class cfix(_number, _structure):
             assert self.k == other.k
             assert self.f == other.f
             return sfix._new(library.FPDiv(self.v, other.v, self.k, self.f,
-                                           other.kappa,
                                            nearest=sfix.round_nearest),
                              k=self.k, f=self.f)
         else:
@@ -4241,11 +4321,13 @@ class cfix(_number, _structure):
     def link(self, other):
         self.v.link(other.v)
 
+    def update(self, other):
+        self.v.update(other.v)
+
 class _single(_number, _secret_structure):
     """ Representation as single integer preserving the order """
     """ E.g. fixed-point numbers """
     __slots__ = ['v']
-    kappa = None
     round_nearest = False
     """ Whether to round deterministically to nearest instead of
     probabilistically, e.g. after fixed-point multiplication. """
@@ -4298,6 +4380,9 @@ class _single(_number, _secret_structure):
     def write_to_socket(cls, client_id, values):
         cls.int_type.write_to_socket(client_id, [x.v for x in values])
 
+    def write_fully_to_socket(self, client_id):
+        self.v.write_fully_to_socket(client_id)
+
     @vectorized_classmethod
     def load_mem(cls, address, mem_type=None):
         """ Load from memory by public address. """
@@ -4311,11 +4396,7 @@ class _single(_number, _secret_structure):
         elif isinstance(other, (list, tuple)):
             return type(other)(cls.conv(x) for x in other)
         else:
-            try:
-                return cls.from_sint(other)
-            except (TypeError, CompilerError):
-                pass
-        return cls(other)
+            return cls(other)
 
     @classmethod
     def coerce(cls, other):
@@ -4432,7 +4513,7 @@ class _single(_number, _secret_structure):
         :rtype: same as internal representation"""
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.equal(other.v, self.k, self.kappa)
+            return self.v.equal(other.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4440,7 +4521,7 @@ class _single(_number, _secret_structure):
     def __le__(self, other):
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.less_equal(other.v, self.k, self.kappa)
+            return self.v.less_equal(other.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4448,7 +4529,7 @@ class _single(_number, _secret_structure):
     def __lt__(self, other):
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.less_than(other.v, self.k, self.kappa)
+            return self.v.less_than(other.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4456,7 +4537,7 @@ class _single(_number, _secret_structure):
     def __ge__(self, other):
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.greater_equal(other.v, self.k, self.kappa)
+            return self.v.greater_equal(other.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4464,7 +4545,7 @@ class _single(_number, _secret_structure):
     def __gt__(self, other):
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.greater_than(other.v, self.k, self.kappa)
+            return self.v.greater_than(other.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4472,7 +4553,7 @@ class _single(_number, _secret_structure):
     def __ne__(self, other):
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.not_equal(other.v, self.k, self.kappa)
+            return self.v.not_equal(other.v, self.k)
         else:
             raise NotImplementedError
 
@@ -4555,12 +4636,12 @@ class _fix(_single):
 
     @classmethod
     def _new(cls, other, k=None, f=None):
-        res = cls(k=k, f=f)
+        res = cls(k=k, f=f, initialize=False)
         res.v = cls.int_type.conv(other)
         return res
 
     @vectorize_init
-    def __init__(self, _v=None, k=None, f=None, size=None):
+    def __init__(self, _v=None, k=None, f=None, size=None, initialize=True):
         if k is None:
             k = self.k
         else:
@@ -4571,8 +4652,19 @@ class _fix(_single):
             self.f = f
         assert k is not None
         assert f is not None
+        def adjust(v):
+            f_diff = v.f - f
+            v = v.v
+            if f_diff < 0:
+                v <<= -f_diff
+            elif f_diff > 0:
+                v >>= f_diff
+            return v
         if _v is None:
-            self.v = self.int_type(0)
+            if initialize:
+                self.v = self.int_type(0)
+            else:
+                return
         elif isinstance(_v, self.int_type):
             self.load_int(_v)
         elif isinstance(_v, cfix.scalars):
@@ -4585,17 +4677,14 @@ class _fix(_single):
         elif isinstance(_v, type(self)):
             self.v = _v.v
         elif isinstance(_v, cfix):
-            assert _v.f <= self.f
-            self.v = self.int_type(_v.v << (self.f - _v.f))
+            self.v = self.int_type(adjust(_v))
         elif isinstance(_v, (MemValue, MemFix)):
             #this is a memvalue object
             self.v = type(self)(_v.read()).v
         elif isinstance(_v, (list, tuple)):
             self.v = self.int_type(list(self.conv(x).v for x in _v))
         elif isinstance(_v, personal):
-            assert _v._v.f == f
-            assert _v._v.k == k
-            self.v = self.int_type(personal(_v.player, _v._v.v))
+            self.v = self.int_type(personal(_v.player, adjust(_v._v)))
         else:
             raise CompilerError('cannot convert %s to sfix' % _v)
         if not isinstance(self.v, self.int_type):
@@ -4648,8 +4737,7 @@ class _fix(_single):
             max_f = max(self.f, other.f)
             min_f = min(self.f, other.f)
             val = self.v.TruncMul(other.v, k + min_f, min_f,
-                                  self.kappa,
-                                  self.round_nearest)
+                                  nearest=self.round_nearest)
             if 'vec' not in self.__dict__:
                 return self._new(val, k=k, f=max_f)
             else:
@@ -4673,23 +4761,21 @@ class _fix(_single):
         if util.is_constant_float(other):
             assert other != 0
             log = math.ceil(math.log(abs(other), 2))
+            if 2 ** log == other and log < self.f:
+                return self * 2 ** -log
             other_length = self.f + log
             if other_length >= self.k - 1:
                 factor = 2 ** (self.k - other_length - 2)
                 self *= factor
                 other *= factor
-            if 2 ** log == other:
-                return self * 2 ** -log
+            if util.is_zero(self):
+                return 0
         other = self.coerce(other)
         assert self.k == other.k
         assert self.f == other.f
-        if isinstance(other, _fix):
-            v = library.FPDiv(self.v, other.v, self.k, self.f, self.kappa,
+        if isinstance(other, (_fix, cfix)):
+            v = library.FPDiv(self.v, other.v, self.k, self.f,
                               nearest=self.round_nearest)
-        elif isinstance(other, cfix):
-            v = library.sint_cint_division(self.v, other.v, self.k, self.f,
-                                           self.kappa,
-                                           nearest=self.round_nearest)
         else:
             raise TypeError('Incompatible fixed point types in division')
         return self._new(v, k=self.k, f=self.f)
@@ -4704,7 +4790,8 @@ class _fix(_single):
     @vectorize
     def compute_reciprocal(self):
         """ Secret fixed-point reciprocal. """
-        return type(self)(library.FPDiv(cint(2) ** self.f, self.v, self.k, self.f, self.kappa, True))
+        return type(self)(library.FPDiv(cint(2) ** self.f, self.v, self.k,
+                                        self.f, nearest=True))
 
     def reveal(self):
         """ Reveal secret fixed-point number.
@@ -4746,7 +4833,8 @@ class sfix(_fix):
 
     Note that the default precision (16 bits after the dot, 31 bits in
     total) only allows numbers up to :math:`2^{31-16-1} \\approx
-    16000`. You can increase this using :py:func:`set_precision`.
+    16000` with the smallest non-zero number being :math:`2^{-16}`.
+    You can change this using :py:func:`set_precision`.
 
     :params _v: int/float/regint/cint/sint/sfloat
     """
@@ -4755,6 +4843,13 @@ class sfix(_fix):
     clear_type = cfix
     get_type = staticmethod(lambda n: sint)
     default_type = sint
+
+    @classmethod
+    def get_prec_type(cls, f, k=None):
+        class sfix_prec(cls):
+            pass
+        sfix_prec.set_precision(f, k)
+        return sfix_prec
 
     @vectorized_classmethod
     def get_input_from(cls, player, binary=False, n_bytes=None):
@@ -4873,14 +4968,19 @@ class sfix(_fix):
         return self.v
 
     def unreduced(self, v, other=None, res_params=None, n_summands=1):
-        return unreduced_sfix(v, self.k + self.f, self.f, self.kappa)
+        assert res_params is None or \
+            (res_params.k == self.k and res_params.f == self.f)
+        if other is None:
+            return unreduced_sfix(v, self.k + self.f, self.f)
+        else:
+            return unreduced_sfix(v, self.k + other.f, other.f)
 
     @staticmethod
     def multipliable(v, k, f, size):
         return cfix._new(cint.conv(v, size=size), k, f)
 
     def dot(self, other):
-        """ Dot product with :py:class:`sint:`. """
+        """ Dot product with :py:class:`sint`. """
         if isinstance(other, sint):
             return self._new(sint.dot_product(self.v, other), k=self.k, f=self.f)
         else:
@@ -4927,6 +5027,17 @@ class sfix(_fix):
             int_parts.append(part.v)
         return cls._new(cls.int_type.concat(int_parts), k=k, f=f)
 
+    @classmethod
+    def zip(cls, *parts):
+        int_parts = []
+        f = parts[0].f
+        k = parts[0].k
+        for part in parts:
+            assert part.f == f
+            assert part.k == k
+            int_parts.append(part.v)
+        return cls._new(cls.int_type.zip(*int_parts), k=k, f=f)
+
     def __repr__(self):
         return '<sfix{f=%d,k=%d} at %s>' % (self.f, self.k, self.v)
 
@@ -4935,13 +5046,12 @@ class unreduced_sfix(_single):
 
     @classmethod
     def _new(cls, v):
-        return cls(v, sfix.k + sfix.f, sfix.f, sfix.kappa)
+        return cls(v, sfix.k + sfix.f, sfix.f)
 
-    def __init__(self, v, k, m, kappa):
+    def __init__(self, v, k, m):
         self.v = v
         self.k = k
         self.m = m
-        self.kappa = kappa
         assert self.k is not None
         assert self.m is not None
 
@@ -4950,14 +5060,13 @@ class unreduced_sfix(_single):
             return self
         assert self.k == other.k
         assert self.m == other.m
-        assert self.kappa == other.kappa
-        return unreduced_sfix(self.v + other.v, self.k, self.m, self.kappa)
+        return unreduced_sfix(self.v + other.v, self.k, self.m)
 
     __radd__ = __add__
 
     @vectorize
     def reduce_after_mul(self):
-        v = sfix.int_type.round(self.v, self.k, self.m, self.kappa,
+        v = sfix.int_type.round(self.v, self.k, self.m,
                                 nearest=sfix.round_nearest, signed=True)
         return sfix._new(v, k=self.k - self.m, f=self.m)
 
@@ -5159,13 +5268,13 @@ class squant_params(object):
         int_mult = util.expand(int_mult, size)
         tmp = unreduced.v * int_mult + shifted_Z
         shifted = tmp.round(self.max_length, n_shift,
-                            kappa=squant.kappa, nearest=squant.round_nearest,
+                            nearest=squant.round_nearest,
                             signed=True)
         if squant.clamp:
             length = max(self.k, self.max_length - n_shift) + 1
             top = (1 << self.k) - 1
-            over = shifted.greater_than(top, length, squant.kappa)
-            under = shifted.less_than(0, length, squant.kappa)
+            over = shifted.greater_than(top, length)
+            under = shifted.less_than(0, length)
             shifted = over.if_else(top, shifted)
             shifted = under.if_else(0, shifted)
         return squant._new(shifted, params=self)
@@ -5202,7 +5311,6 @@ class sfloat(_number, _secret_structure):
     # single precision
     vlen = 24
     plen = 8
-    kappa = None
     round_nearest = False
 
     @staticmethod
@@ -5306,14 +5414,14 @@ class sfloat(_number, _secret_structure):
             elif isinstance(v, sfix):
                 f = v.f
                 v, p, z, s = floatingpoint.Int2FL(v.v, v.k,
-                                                  self.vlen, self.kappa)
+                                                  self.vlen)
                 p = p - f
             elif util.is_constant_float(v):
                 v, p, z, s = self.convert_float(v, self.vlen, self.plen)
             else:
                 v, p, z, s = floatingpoint.Int2FL(sint.conv(v),
                                                   program.bit_length,
-                                                  self.vlen, self.kappa)
+                                                  self.vlen)
         if isinstance(v, int):
             if not ((v >= 2**(self.vlen-1) and v < 2**(self.vlen)) or v == 0):
                 raise CompilerError('Floating point number malformed: significand')
@@ -5371,9 +5479,9 @@ class sfloat(_number, _secret_structure):
             s2 = other.s
             z1 = self.z
             z2 = other.z
-            a = p1.less_than(p2, self.plen, self.kappa)
-            b = floatingpoint.EQZ(p1 - p2, self.plen, self.kappa)
-            c = v1.less_than(v2, self.vlen, self.kappa)
+            a = p1.less_than(p2, self.plen)
+            b = floatingpoint.EQZ(p1 - p2, self.plen)
+            c = v1.less_than(v2, self.vlen)
             ap1 = a*p1
             ap2 = a*p2
             aneg = 1 - a
@@ -5389,10 +5497,9 @@ class sfloat(_number, _secret_structure):
             vmin = bneg*(av1 + v2 - av2) + b*(cv1 + v2 - cv2)
             s3 = s1 + s2 - 2 * s1 * s2
             comparison.LTZ(d, self.vlen + pmin - pmax + sfloat.round_nearest,
-                           self.plen, self.kappa)
+                           self.plen)
             pow_delta = floatingpoint.Pow2((1 - d) * (pmax - pmin),
-                                           self.vlen + 1 + sfloat.round_nearest,
-                                           self.kappa)
+                                           self.vlen + 1 + sfloat.round_nearest)
             # deviate from paper for more precision
             #v3 = 2 * (vmax - s3) + 1
             v3 = vmax
@@ -5408,25 +5515,24 @@ class sfloat(_number, _secret_structure):
                 to_trunc *= two_power(self.vlen + sfloat.round_nearest)
                 v = to_trunc * floatingpoint.Inv(pow_delta)
                 comparison.Trunc(t, v, 2 * self.vlen + 1 + sfloat.round_nearest,
-                                 self.vlen - 1, self.kappa, False)
+                                 self.vlen - 1, signed=False)
                 v = t
             u = floatingpoint.BitDec(v, self.vlen + 2 + sfloat.round_nearest,
-                                     self.vlen + 2 + sfloat.round_nearest, self.kappa,
+                                     self.vlen + 2 + sfloat.round_nearest,
                                      list(range(1 + sfloat.round_nearest,
                                            self.vlen + 2 + sfloat.round_nearest)))
             # using u[0] doesn't seem necessary
-            h = floatingpoint.PreOR(u[:sfloat.round_nearest:-1], self.kappa)
+            h = floatingpoint.PreOR(u[:sfloat.round_nearest:-1])
             p0 = self.vlen + 1 - sum(h)
             pow_p0 = 1 + sum([two_power(i) * (1 - h[i]) for i in range(len(h))])
             if self.round_nearest:
                 t2, overflow = \
                     floatingpoint.TruncRoundNearestAdjustOverflow(pow_p0 * v,
                                                                   self.vlen + 3,
-                                                                  self.vlen,
-                                                                  self.kappa)
+                                                                  self.vlen)
                 p0 = p0 - overflow
             else:
-                comparison.Trunc(t2, pow_p0 * v, self.vlen + 2, 2, self.kappa, False)
+                comparison.Trunc(t2, pow_p0 * v, self.vlen + 2, 2, signed=False)
             v = t2
             # deviate for more precision
             #p = pmax - p0 + 1 - d
@@ -5434,7 +5540,7 @@ class sfloat(_number, _secret_structure):
             zz = self.z*other.z
             zprod = 1 - self.z - other.z + zz
             v = zprod*t2 + self.z*v2 + other.z*v1
-            z = floatingpoint.EQZ(v, self.vlen, self.kappa)
+            z = floatingpoint.EQZ(v, self.vlen)
             p = (zprod*p + self.z*p2 + other.z*p1)*(1 - z)
             s = (1 - b)*(a*other.s + aneg*self.s) + b*(c*other.s + cneg*self.s)
             s = zprod*s + (other.z - zz)*self.s + (self.z - zz)*other.s
@@ -5456,12 +5562,13 @@ class sfloat(_number, _secret_structure):
             comparison.ld2i(c2expl, self.vlen)
             if sfloat.round_nearest:
                 v1 = comparison.TruncRoundNearest(self.v*other.v, 2*self.vlen,
-                                             self.vlen-1, self.kappa)
+                                             self.vlen-1)
             else:
-                comparison.Trunc(v1, self.v*other.v, 2*self.vlen, self.vlen-1, self.kappa, False)
+                comparison.Trunc(v1, self.v*other.v, 2*self.vlen, self.vlen-1,
+                                 signed=False)
             t = v1 - c2expl
-            comparison.LTZ(b, t, self.vlen+1, self.kappa)
-            comparison.Trunc(v2, b*v1 + v1, self.vlen+1, 1, self.kappa, False)
+            comparison.LTZ(b, t, self.vlen+1)
+            comparison.Trunc(v2, b*v1 + v1, self.vlen+1, 1, signed=False)
             z1, z2, s1, s2, p1, p2 = (x.expand_to_vector() for x in \
                                       (self.z, other.z, self.s, other.s,
                                        self.p, other.p))
@@ -5489,10 +5596,10 @@ class sfloat(_number, _secret_structure):
         :param other: sfloat/float/sfix/sint/cint/regint/int """
         other = self.conv(other)
         v = floatingpoint.SDiv(self.v, other.v + other.z * (2**self.vlen - 1),
-                               self.vlen, self.kappa, self.round_nearest)
-        b = v.less_than(two_power(self.vlen-1), self.vlen + 1, self.kappa)
-        overflow = v.greater_equal(two_power(self.vlen), self.vlen + 1, self.kappa)
-        underflow = v.less_than(two_power(self.vlen-2), self.vlen + 1, self.kappa)
+                               self.vlen, round_nearest=self.round_nearest)
+        b = v.less_than(two_power(self.vlen-1), self.vlen + 1)
+        overflow = v.greater_equal(two_power(self.vlen), self.vlen + 1)
+        underflow = v.less_than(two_power(self.vlen-2), self.vlen + 1)
         v = (v + b * v) * (1 - overflow) * (1 - underflow) + \
             overflow * (2**self.vlen - 1) + \
             underflow * (2**(self.vlen-1)) * (1 - self.z)
@@ -5523,9 +5630,9 @@ class sfloat(_number, _secret_structure):
             z2 = other.z
             s1 = self.s
             s2 = other.s
-            a = self.p.less_than(other.p, self.plen, self.kappa)
-            c = floatingpoint.EQZ(self.p - other.p, self.plen, self.kappa)
-            d = ((1 - 2*self.s)*self.v).less_than((1 - 2*other.s)*other.v, self.vlen + 1, self.kappa)
+            a = self.p.less_than(other.p, self.plen)
+            c = floatingpoint.EQZ(self.p - other.p, self.plen)
+            d = ((1 - 2*self.s)*self.v).less_than((1 - 2*other.s)*other.v, self.vlen + 1)
             cd = c*d
             ca = c*a
             b1 = cd + a - ca
@@ -5557,8 +5664,8 @@ class sfloat(_number, _secret_structure):
         other = self.conv(other)
         # the sign can be both ways for zeroes
         both_zero = self.z * other.z
-        return floatingpoint.EQZ(self.v - other.v, self.vlen, self.kappa) * \
-            floatingpoint.EQZ(self.p - other.p, self.plen, self.kappa) * \
+        return floatingpoint.EQZ(self.v - other.v, self.vlen) * \
+            floatingpoint.EQZ(self.p - other.p, self.plen) * \
             (1 - self.s - other.s + 2 * self.s * other.s) * \
             (1 - both_zero) + both_zero
 
@@ -5571,17 +5678,17 @@ class sfloat(_number, _secret_structure):
     del op
 
     def log2(self):
-        up = self.v.greater_than(1 << (self.vlen - 1), self.vlen, self.kappa)
+        up = self.v.greater_than(1 << (self.vlen - 1), self.vlen)
         return self.p + self.vlen - 1 + up
 
     def round_to_int(self):
         """ Secret floating-point rounding to integer.
 
         :return: sint """
-        direction = self.p.greater_equal(-self.vlen, self.plen, self.kappa)
-        right = self.v.right_shift(-self.p - 1, self.vlen + 1, self.kappa)
-        up = right.mod2m(1, self.vlen + 1, self.kappa)
-        right = right.right_shift(1, self.vlen + 1, self.kappa) + up
+        direction = self.p.greater_equal(-self.vlen, self.plen)
+        right = self.v.right_shift(-self.p - 1, self.vlen + 1)
+        up = right.mod2m(1, self.vlen + 1)
+        right = right.right_shift(1, self.vlen + 1) + up
         abs_value = direction * right
         return self.s.if_else(-abs_value, abs_value)
 
@@ -5669,12 +5776,6 @@ class _vectorizable:
 
         """
         self.value_type.reveal_to_clients(clients, [self.get_vector()])
-
-    @staticmethod
-    def _cmp_fail(*args):
-        raise CompilerError('equality of data structures is not implemented')
-
-    __eq__ = __ne__ = __le__ = __lt__ = __gt__ = __ge__ = _cmp_fail
 
 class Array(_vectorizable):
     """
@@ -5770,6 +5871,8 @@ class Array(_vectorizable):
         if isinstance(index, (_secret, _single)):
             raise CompilerError('need cleartext index')
         key = str(index), size or 1
+        if isinstance(index, _clear):
+            index = regint.conv(index)
         if self.length is not None:
             from .GC.types import cbits
             if isinstance(index, int):
@@ -5778,9 +5881,9 @@ class Array(_vectorizable):
                     raise IndexError('index %s, length %s' % \
                                          (str(index), str(self.length)))
             elif self.check_indices and not isinstance(index, cbits):
-                library.runtime_error_if(regint.conv(index) >= self.length,
-                                         'overflow: %s/%s',
-                                         index, self.length)
+                library.runtime_error_if(
+                    (index >= self.length).bit_or(index < 0),
+                    'overflow: %s/%s', index, self.length)
         if (program.curr_block, key) not in self.address_cache:
             n = self.value_type.n_elements()
             length = self.length
@@ -5906,9 +6009,9 @@ class Array(_vectorizable):
         for i in range(self.length):
             yield self[i]
 
-    def same_shape(self):
+    def same_shape(self, **kwargs):
         """ Array of same length and type. """
-        return Array(self.length, self.value_type)
+        return Array(self.length, self.value_type, **kwargs)
 
     def assign(self, other, base=0):
         """ Assignment.
@@ -5957,14 +6060,18 @@ class Array(_vectorizable):
             n_threads = None
         if n_threads is not None:
             self.address = MemValue.if_necessary(self.address)
-        @library.multithread(n_threads, self.length)
+        @library.multithread(n_threads, self.length, max_size=program.budget)
         def _(base, size):
             if use_vector:
                 self.assign_vector(self.value_type(value, size=size), base)
             else:
-                @library.for_range_opt(size)
-                def _(i):
-                    self[base + i] = mem_value
+                v = mem_value.read()
+                if isinstance(v, (sint, sfix)):
+                    self.assign_vector(v.expand_to_vector(size), base=base)
+                else:
+                    @library.for_range_opt(size)
+                    def _(i):
+                        self[base + i] = mem_value
         return self
 
     def get_vector(self, base=0, size=None):
@@ -6006,7 +6113,7 @@ class Array(_vectorizable):
         assert len(slice) <= self.total_size()
         base = regint.inc(len(slice), slice.address, 1, 1)
         inc = regint.inc(len(slice), self.address, 1, 1, 1)
-        addresses = slice.value_type.load_mem(base) + inc
+        addresses = regint.conv(slice.value_type.load_mem(base)) + inc
         return addresses
 
     def get_slice_vector(self, slice):
@@ -6165,6 +6272,24 @@ class Array(_vectorizable):
         :param other: compile-time integer (int) """
         return self.get_vector() ** value
 
+    def __eq__(self, other):
+        return self.get_vector() == other
+
+    def __ne__(self, other):
+        return self.get_vector() != other
+
+    def __lt__(self, other):
+        return self.get_vector() < other
+
+    def __le__(self, other):
+        return self.get_vector() <= other
+
+    def __gt__(self, other):
+        return self.get_vector() > other
+
+    def __ge__(self, other):
+        return self.get_vector() >= other
+
     __radd__ = __add__
     __rmul__ = __mul__
 
@@ -6186,6 +6311,11 @@ class Array(_vectorizable):
 
     def __neg__(self):
         return -self.get_vector()
+
+    def dot(self, other):
+        """ Dot product with another array. """
+        M = Matrix(1, len(self), self.value_type, address=self.address)
+        return M.dot(other)
 
     def shuffle(self):
         """ Insecure shuffle in place. """
@@ -6295,6 +6425,28 @@ class Array(_vectorizable):
             from . import sorting
             sorting.radix_sort(self, self, n_bits=n_bits)
 
+    def to_row_matrix(self):
+        """
+        Returns the array as 1xN matrix.
+
+        Warning: This operation is in-place (without copying data), i.e., all changes to the values of the matrix will also affect the original array.
+        :return: Matrix
+        """
+        assert self.value_type.n_elements() == 1 and \
+               self.value_type.mem_size() == 1
+        return Matrix(1, self.length, self.value_type, address=self.address)
+
+    def to_column_matrix(self):
+        """
+        Returns the array as Nx1 matrix.
+
+        Warning: This operation is in-place (without copying data), i.e., all changes to the values of the matrix will also affect the original array.
+        :return: Matrix
+        """
+        assert self.value_type.n_elements() == 1 and \
+               self.value_type.mem_size() == 1
+        return Matrix(self.length, 1, self.value_type, address=self.address)
+
     def Array(self, size):
         # compatibility with registers
         return Array(size, self.value_type)
@@ -6319,7 +6471,10 @@ class SubMultiArray(_vectorizable):
         self.sizes = tuple(sizes)
         self.value_type = _get_type(value_type)
         if address is not None:
-            self.address = address + index * self.total_size()
+            if not util.is_zero(index):
+                self.address = address + index * self.total_size()
+            else:
+                self.address = address
         else:
             self.address = None
         self.sub_cache = {}
@@ -6437,7 +6592,7 @@ class SubMultiArray(_vectorizable):
         try:
             if self.value_type.n_elements() > 1:
                 assert self.sizes == other.sizes
-            self.assign_vector(other.get_vector())
+            self.assign_vector(other.get_vector(), base=base)
         except:
             for i, x in enumerate(other):
                 self[base + i].assign(x)
@@ -6497,7 +6652,7 @@ class SubMultiArray(_vectorizable):
 
     def get_part_size(self):
         assert self.value_type.n_elements() == 1
-        return reduce(operator.mul, self.sizes[1:])
+        return reduce(operator.mul, self.sizes[1:]) * self.value_type.mem_size()
 
     def get_slice_addresses(self, slice, part_size=None):
         part_size = part_size or self.get_part_size()
@@ -6571,12 +6726,12 @@ class SubMultiArray(_vectorizable):
         addresses = self.get_addresses(*indices)
         vector.store_in_mem(addresses)
 
-    def same_shape(self):
+    def same_shape(self, **kwargs):
         """ :return: new multidimensional array with same shape and basic type """
         if len(self.sizes) == 2:
-            return Matrix(*self.sizes, self.value_type)
+            return Matrix(*self.sizes, self.value_type, **kwargs)
         else:
-            return MultiArray(self.sizes, self.value_type)
+            return MultiArray(self.sizes, self.value_type, **kwargs)
 
     def get_part(self, start, size):
         """ Part multi-array.
@@ -6672,11 +6827,17 @@ class SubMultiArray(_vectorizable):
         if is_zero(other):
             return self
         assert self.sizes == other.sizes
-        if len(self.sizes) == 2:
-            res = Matrix(self.sizes[0], self.sizes[1], self.value_type)
+        return self.from_vector(
+            self.sizes, self.get_vector() + other.get_vector())
+
+    @staticmethod
+    def from_vector(sizes, vector):
+        value_type = type(vector)
+        if len(sizes) == 2:
+            res = Matrix(sizes[0], sizes[1], value_type)
         else:
-            res = MultiArray(self.sizes, self.value_type)
-        res.assign_vector(self.get_vector() + other.get_vector())
+            res = MultiArray(sizes, value_type)
+        res.assign_vector(vector)
         return res
 
     __radd__ = __add__
@@ -6689,12 +6850,32 @@ class SubMultiArray(_vectorizable):
         if is_zero(other):
             return self
         assert self.sizes == other.sizes
-        if len(self.sizes) == 2:
-            res = Matrix(self.sizes[0], self.sizes[1], self.value_type)
-        else:
-            res = MultiArray(self.sizes, self.value_type)
-        res.assign_vector(self.get_vector() - other.get_vector())
-        return res
+        return self.from_vector(
+            self.sizes, self.get_vector() - other.get_vector())
+
+    def __eq__(self, other):
+        return self.from_vector(
+            self.sizes, self.get_vector() == other)
+
+    def __ne__(self, other):
+        return self.from_vector(
+            self.sizes, self.get_vector() != other)
+
+    def __lt__(self, other):
+        return self.from_vector(
+            self.sizes, self.get_vector() < other)
+
+    def __le__(self, other):
+        return self.from_vector(
+            self.sizes, self.get_vector() <= other)
+
+    def __gt__(self, other):
+        return self.from_vector(
+            self.sizes, self.get_vector() > other)
+
+    def __ge__(self, other):
+        return self.from_vector(
+            self.sizes, self.get_vector() >= other)
 
     def iadd(self, other):
         """ Element-wise addition in place.
@@ -6766,6 +6947,11 @@ class SubMultiArray(_vectorizable):
             res_matrix = Matrix(self.sizes[0], other.sizes[1], t)
             try:
                 try:
+                    # force matmuls for smaller sizes
+                    a, c = res_matrix.sizes
+                    if a * c / (a + c) < 2 and \
+                       self.value_type == other.value_type:
+                        raise AttributeError()
                     self.value_type.direct_matrix_mul
                     skip_reduce = set((sint, sfix)) == \
                         set((self.value_type, other.value_type))
@@ -6998,7 +7184,8 @@ class SubMultiArray(_vectorizable):
         :param index: regint/cint/int
         """
         assert self.value_type.n_elements() == 1
-        addresses = regint.inc(self.sizes[0], self.address + index,
+        addresses = regint.inc(self.sizes[0], self.address + \
+                               index * self.value_type.mem_size(),
                                self.get_part_size())
         return self.value_type.load_mem(addresses)
 
@@ -7009,7 +7196,8 @@ class SubMultiArray(_vectorizable):
         :param vector: short enought vector of compatible type
         """
         assert self.value_type.n_elements() == 1
-        addresses = regint.inc(self.sizes[0], self.address + index,
+        addresses = regint.inc(self.sizes[0], self.address + \
+                               index * self.value_type.mem_size(),
                                self.get_part_size())
         self.value_type.conv(vector).store_in_mem(addresses)
 
@@ -7065,7 +7253,12 @@ class SubMultiArray(_vectorizable):
         <https://eprint.iacr.org/2014/137>`_ or Section 3.2 of
         `Asharov et al. <https://eprint.iacr.org/2022/1595>`_ if applicable.
         """
-        self.assign_vector(self.get_vector().secure_shuffle(self.part_size()))
+        if self.total_size() < 2 ** 28:
+            self.assign_vector(self.get_vector().secure_shuffle(self.part_size()))
+        else:
+            perm = sint.get_secure_shuffle(len(self))
+            self.secure_permute(perm)
+            delshuffle(perm)
 
     def secure_permute(self, permutation, reverse=False, n_threads=None):
         """ Securely permute rows (first index). See
@@ -7082,7 +7275,7 @@ class SubMultiArray(_vectorizable):
             self.set_column(i, self.get_column(i).secure_permute(
                 permutation, reverse=reverse))
 
-    def sort(self, key_indices=None, n_bits=None):
+    def sort(self, key_indices=None, n_bits=None, batcher=False):
         """ Sort sub-arrays (different first index) in place.
         This uses `radix sort <https://eprint.iacr.org/2014/121>`_.
 
@@ -7090,18 +7283,18 @@ class SubMultiArray(_vectorizable):
           ``(1, 2)`` to sort three-dimensional array ``a`` by keys
           ``a[*][1][2]``. Default is ``(0, ..., 0)`` of correct length.
         :param n_bits: number of bits in keys (default: global bit length)
+        :param batcher: whether to use Batcher's odd-even merge sorting
 
         """
-        if program.options.binary:
-            assert key_indices is None
-            assert len(self.sizes) == 2
-            library.loopy_odd_even_merge_sort(self)
-            return
         if key_indices is None:
             key_indices = (0,) * (len(self.sizes) - 1)
         if len(key_indices) != len(self.sizes) - 1:
             raise CompilerError('length of key_indices has to be one less '
                                 'than the dimension')
+        if program.options.binary or batcher:
+            assert len(self.sizes) == 2
+            library.loopy_odd_even_merge_sort(self, key_indices=key_indices)
+            return
         key_indices = (None,) + util.tuplify(key_indices)
         from . import sorting
         keys = self.get_vector_by_indices(*key_indices)
@@ -7171,8 +7364,10 @@ class SubMultiArray(_vectorizable):
             self.get_vector().reveal_to(player).binary_output()
 
     def __str__(self):
-        return '%s multi-array of lengths %s at %s' % (self.value_type,
-                                                       self.sizes, self.address)
+        return '%s multi-array of lengths %s at %s' % (
+            self.value_type, self.sizes,
+            '<unallocated>' if self.array._address is None else self.address)
+    __repr__ = __str__
 
 class MultiArray(SubMultiArray):
     """
@@ -7367,7 +7562,7 @@ class _mem(_number):
 
     store_in_mem = lambda self,address: self.read().store_in_mem(address)
 
-class MemValue(_mem):
+class MemValue(_mem, _vectorizable):
     """ Single value in memory. This is useful to transfer information
     between threads. Operations are automatically read
     from memory if required, this means you can use any operation with
@@ -7385,23 +7580,23 @@ class MemValue(_mem):
         else:
             return cls(value)
 
-    def __init__(self, value, address=None):
+    def __init__(self, value, address=None, write=True):
         self.last_write_block = None
+        if isinstance(value, MemValue):
+            value = value.read()
         if isinstance(value, int):
             self.value_type = regint
             value = regint(value)
-        elif isinstance(value, MemValue):
-            self.value_type = value.value_type
         else:
             self.value_type = type(value)
         self.deleted = False
+        self.size = value.size_for_mem()
         if address is None:
-            self.address = self.value_type.malloc(value.size)
-            self.size = value.size
-            self.write(value)
+            self.address = self.value_type.malloc(self.size)
+            if write:
+                self.write(value)
         else:
             self.address = address
-            self.size = 1
 
     def delete(self):
         self.value_type.free(self.address)
@@ -7436,7 +7631,7 @@ class MemValue(_mem):
         except:
             raise CompilerError('Cannot store %s as MemValue of %s' % \
                                 (type(value), self.value_type))
-        if value.size != self.size:
+        if value.size_for_mem() != self.size:
             raise CompilerError('size mismatch')
         self.register = value
         if not isinstance(self.register, self.value_type):
@@ -7452,18 +7647,18 @@ class MemValue(_mem):
         :return: relevant clear type """
         return self.read().reveal()
 
-    less_than = lambda self,other,bit_length=None,security=None: \
-        self.read().less_than(other,bit_length,security)
-    greater_than = lambda self,other,bit_length=None,security=None: \
-        self.read().greater_than(other,bit_length,security)
-    less_equal = lambda self,other,bit_length=None,security=None: \
-        self.read().less_equal(other,bit_length,security)
-    greater_equal = lambda self,other,bit_length=None,security=None: \
-        self.read().greater_equal(other,bit_length,security)
-    equal = lambda self,other,bit_length=None,security=None: \
-        self.read().equal(other,bit_length,security)
-    not_equal = lambda self,other,bit_length=None,security=None: \
-        self.read().not_equal(other,bit_length,security)
+    less_than = lambda self,other,bit_length=None: \
+        self.read().less_than(other,bit_length)
+    greater_than = lambda self,other,bit_length=None: \
+        self.read().greater_than(other,bit_length)
+    less_equal = lambda self,other,bit_length=None: \
+        self.read().less_equal(other,bit_length)
+    greater_equal = lambda self,other,bit_length=None: \
+        self.read().greater_equal(other,bit_length)
+    equal = lambda self,other,bit_length=None: \
+        self.read().equal(other,bit_length)
+    not_equal = lambda self,other,bit_length=None: \
+        self.read().not_equal(other,bit_length)
 
     pow2 = lambda self,*args,**kwargs: self.read().pow2(*args, **kwargs)
     mod2m = lambda self,*args,**kwargs: self.read().mod2m(*args, **kwargs)
@@ -7485,6 +7680,11 @@ class MemValue(_mem):
                 size = get_global_vector_size()
             addresses = regint.inc(size, self.address, 0)
             return self.value_type.load_mem(addresses)
+
+    shape = property(lambda self: ('mv', self.size))
+
+    def same_shape(self, address=None):
+        return type(self)(self.value_type(size=self.size), address=address)
 
     def __repr__(self):
         return 'MemValue(%s,%s)' % (self.value_type, self.address)

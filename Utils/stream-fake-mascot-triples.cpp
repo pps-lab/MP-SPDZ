@@ -9,13 +9,14 @@
 
 #include "Math/Setup.hpp"
 #include "Protocols/fake-stuff.hpp"
+#include "Protocols/Share.hpp"
 
 class Info
 {
 public:
     int thread_num;
     int nplayers;
-    gfpvar key;
+    KeySetup<Share<gfpvar>> key;
     pthread_t thread;
 };
 
@@ -52,7 +53,7 @@ int main()
     int lgp = 128;
     string prep_data_prefix = PREP_DIR;
     gfpvar::generate_setup<T>(prep_data_prefix, nplayers, lgp);
-    T::mac_key_type keyp;
+    KeySetup<T> keyp;
     SeededPRNG G;
     generate_mac_keys<T>(keyp, nplayers, prep_data_prefix, G);
 

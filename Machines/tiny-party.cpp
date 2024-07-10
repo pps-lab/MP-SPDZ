@@ -26,6 +26,7 @@
 #include "Protocols/MAC_Check_Base.hpp"
 #include "Protocols/Beaver.hpp"
 #include "Protocols/MascotPrep.hpp"
+#include "Protocols/Share.hpp"
 
 int main(int argc, const char** argv)
 {

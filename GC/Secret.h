@@ -76,6 +76,10 @@ public:
 
     static const bool actual_inputs = T::actual_inputs;
 
+    static const bool symmetric = true;
+
+    static bool real_shares(const Player&) { return true; }
+
     static int threshold(int nplayers) { return T::threshold(nplayers); }
 
     static Secret<T> input(party_id_t from, const int128& input, int n_bits = -1);
@@ -148,9 +152,9 @@ public:
     Secret<T> operator>>(int i) const;
 
     template<class U>
-    void bitcom(Memory<U>& S, const vector<int>& regs);
+    void bitcom(StackedVector<U>& S, const vector<int>& regs);
     template<class U>
-    void bitdec(Memory<U>& S, const vector<int>& regs) const;
+    void bitdec(StackedVector<U>& S, const vector<int>& regs) const;
 
     Secret<T> operator+(const Secret<T>& x) const;
     Secret<T>& operator+=(const Secret<T>& x) { *this = *this + x; return *this; }

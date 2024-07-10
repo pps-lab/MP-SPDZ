@@ -8,6 +8,8 @@
 
 #include "BitAdder.h"
 
+#include "Protocols/BufferScope.h"
+
 #include <assert.h>
 
 template<class T>
@@ -69,6 +71,9 @@ void BitAdder::add(vector<vector<T> >& res,
 
     size_t n_items = end - begin;
 
+    if (OnlineOptions::singleton.has_option("verbose_and"))
+        fprintf(stderr, "%lu ANDs in bit adder\n", length * n_items * n_bits);
+
     if (supply)
     {
 #ifdef VERBOSE_EDA
@@ -85,6 +90,7 @@ void BitAdder::add(vector<vector<T> >& res,
     vector<T> carries(n_items);
     vector<T> a(n_items), b(n_items);
     auto& protocol = proc.protocol;
+    BufferScope scope(proc.DataF, n_items * length * n_bits);
     for (int i = 0; i < n_bits; i++)
     {
         assert(summands[i].size() == 2);

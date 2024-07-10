@@ -21,6 +21,7 @@ class FakeShare : public T, public ShareInterface
 public:
     typedef T open_type;
     typedef T clear;
+    typedef This share_type;
 
     typedef FakePrep<This> LivePrep;
     typedef FakeMC<This> MAC_Check;
@@ -62,7 +63,7 @@ public:
     {
     }
 
-    static void split(vector<bit_type>& dest, const vector<int>& regs,
+    static void split(StackedVector<bit_type>& dest, const vector<int>& regs,
             int n_bits, const This* source, int n_inputs,
             GC::FakeSecret::Protocol& protocol);
 };

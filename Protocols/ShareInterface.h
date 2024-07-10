@@ -17,6 +17,8 @@ class Player;
 class Instruction;
 class ValueInterface;
 
+template<class T> class StackedVector;
+
 namespace GC
 {
 class NoShare;
@@ -50,6 +52,8 @@ public:
 
     static const bool randoms_for_opens = false;
 
+    static const int bit_generation_threshold = 0;
+
     static const int default_length = 1;
 
     static string type_short() { throw runtime_error("shorthand undefined"); }
@@ -59,7 +63,7 @@ public:
     static bool real_shares(const Player&) { return true; }
 
     template<class T, class U>
-    static void split(vector<U>, vector<int>, int, T*, int,
+    static void split(StackedVector<U>&, vector<int>, int, T*, int,
             typename U::Protocol&)
     { throw runtime_error("split not implemented"); }
 
@@ -74,6 +78,9 @@ public:
 
     template<class T, class U>
     static void generate_mac_key(T&, U&) {}
+
+    static GC::NoValue get_mac_key();
+    static void set_mac_key(GC::NoValue);
 
     static int threshold(int) { throw runtime_error("undefined threshold"); }
 

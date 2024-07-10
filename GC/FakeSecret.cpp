@@ -24,14 +24,14 @@ void FakeSecret::load_clear(int n, const Integer& x)
 	*this = x;
 }
 
-void FakeSecret::bitcom(Memory<FakeSecret>& S, const vector<int>& regs)
+void FakeSecret::bitcom(StackedVector<FakeSecret>& S, const vector<int>& regs)
 {
     *this = 0;
     for (unsigned int i = 0; i < regs.size(); i++)
         *this ^= (S[regs[i]] << i);
 }
 
-void FakeSecret::bitdec(Memory<FakeSecret>& S, const vector<int>& regs) const
+void FakeSecret::bitdec(StackedVector<FakeSecret>& S, const vector<int>& regs) const
 {
     for (unsigned int i = 0; i < regs.size(); i++)
         S[regs[i]] = (*this >> i) & 1;

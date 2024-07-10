@@ -7,7 +7,7 @@ class Domain:
 
     def __int__(self):
         res = self.v % self.modulus
-        return res if res < self.modulus / 2 else res - self.modulus
+        return int(res if res < self.modulus / 2 else res - self.modulus)
 
     def __add__(self, other):
         try:

@@ -96,22 +96,34 @@ void ShareThread<T>::and_(Processor<T>& processor,
     processor.check_args(args, 4);
     protocol->init_mul();
     T x_ext, y_ext;
+    int total_bits = 0;
     for (size_t i = 0; i < args.size(); i += 4)
     {
         int n_bits = args[i];
+        total_bits += n_bits;
         int left = args[i + 2];
         int right = args[i + 3];
         for (int j = 0; j < DIV_CEIL(n_bits, T::default_length); j++)
         {
             int n = min(T::default_length, n_bits - j * T::default_length);
+
+            if (not repeat and n == T::default_length)
+            {
+                protocol->prepare_mul(processor.S[left + j], processor.S[right + j]);
+                continue;
+            }
+
+            processor.S[left + j].mask(x_ext, n);
             if (repeat)
                 processor.S[right].extend_bit(y_ext, n);
             else
                 processor.S[right + j].mask(y_ext, n);
-            processor.S[left + j].mask(x_ext, n);
             protocol->prepare_mult(x_ext, y_ext, n, repeat);
         }
     }
+
+    if (OnlineOptions::singleton.has_option("verbose_and"))
+        fprintf(stderr, "%d%s ANDs\n", total_bits, repeat ? " repeat" : "");
 
     protocol->exchange();
 
@@ -123,6 +135,13 @@ void ShareThread<T>::and_(Processor<T>& processor,
         {
             int n = min(T::default_length, n_bits - j * T::default_length);
             auto& res = processor.S[out + j];
+
+            if (not repeat and n == T::default_length)
+            {
+                res = protocol->finalize_mul();
+                continue;
+            }
+
             protocol->finalize_mult(res, n);
             res.mask(res, n);
         }
@@ -138,10 +157,12 @@ void ShareThread<T>::andrsvec(Processor<T>& processor, const vector<int>& args)
     protocol->init_mul();
     auto it = args.begin();
     T x_ext, y_ext;
+    int total_bits = 0;
     while (it < args.end())
     {
         int n_args = (*it++ - 3) / 2;
         int size = *it++;
+        total_bits += size * n_args;
         it += n_args;
         int base = *it++;
         for (int i = 0; i < size; i += N_BITS)
@@ -156,6 +177,9 @@ void ShareThread<T>::andrsvec(Processor<T>& processor, const vector<int>& args)
         }
         it += n_args;
     }
+
+    if (OnlineOptions::singleton.has_option("verbose_and"))
+        fprintf(stderr, "%d repeat ANDs\n", total_bits);
 
     protocol->exchange();
 

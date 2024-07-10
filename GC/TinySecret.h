@@ -53,8 +53,14 @@ public:
     static const bool malicious = T::malicious;
     static const bool expensive_triples = T::expensive_triples;
     static const bool randoms_for_opens = false;
+    static const bool symmetric = true;
 
     static const int default_length = 64;
+
+    static bool real_shares(const Player&)
+    {
+        return true;
+    }
 
     static int size()
     {
@@ -70,6 +76,11 @@ public:
             mac_key_type& key)
     {
         T::read_or_generate_mac_key(directory, P, key);
+    }
+
+    static typename T::mac_type get_mac_key()
+    {
+        return T::get_mac_key();
     }
 
     template<class U>

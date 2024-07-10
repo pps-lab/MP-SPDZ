@@ -256,7 +256,9 @@ vector<T> Shamir<T>::get_randoms(PRNG& G, int t)
         random_input = new ShamirInput<T>(0, P, threshold);
     auto& input = *random_input;
     input.reset_all(P);
-    int buffer_size = OnlineOptions::singleton.batch_size;
+    auto buffer_size = this->buffer_size;
+    if (OnlineOptions::singleton.has_option("verbose_random"))
+        fprintf(stderr, "generating %d random elements\n", buffer_size);
     for (int i = 0; i < buffer_size; i += hyper.size())
         input.add_from_all(G.get<U>());
     input.exchange();

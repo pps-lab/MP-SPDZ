@@ -143,14 +143,14 @@ Sub_Data_Files<T>::Sub_Data_Files(int my_num, int num_players,
     {
       if (T::clear::allows(Dtype(dtype)))
         {
-          buffers[dtype].setup(
+          buffers[dtype].setup(num_players,
               PrepBase::get_filename(prep_data_dir, Dtype(dtype), type_short,
                   my_num, thread_num), tuple_length(dtype), type_string,
               DataPositions::dtype_names[dtype]);
         }
     }
 
-  dabit_buffer.setup(
+  dabit_buffer.setup(num_players,
       PrepBase::get_filename(prep_data_dir, DATA_DABIT,
           type_short, my_num, thread_num), dabit<T>::size(), type_string,
       DataPositions::dtype_names[DATA_DABIT]);
@@ -161,10 +161,10 @@ Sub_Data_Files<T>::Sub_Data_Files(int my_num, int num_players,
       string filename = PrepBase::get_input_filename(prep_data_dir,
           type_short, i, my_num, thread_num);
       if (i == my_num)
-        my_input_buffers.setup(filename,
+        my_input_buffers.setup(num_players, filename,
             InputTuple<T>::size(), type_string);
       else
-        input_buffers[i].setup(filename,
+        input_buffers[i].setup(num_players, filename,
             T::size(), type_string);
     }
 
@@ -344,14 +344,14 @@ void Sub_Data_Files<T>::setup_extended(const DataTag& tag, int tuple_size)
     {
       stringstream ss;
       ss << prep_data_dir << tag.get_string() << "-" << T::type_short() << "-P" << my_num;
-      buffer.setup(ss.str(), tuple_length);
+      buffer.setup(num_players, ss.str(), tuple_length);
     }
 
   buffer.check_tuple_length(tuple_length);
 }
 
 template<class T>
-void Sub_Data_Files<T>::get_no_count(vector<T>& S, DataTag tag, const vector<int>& regs, int vector_size)
+void Sub_Data_Files<T>::get_no_count(StackedVector<T>& S, DataTag tag, const vector<int>& regs, int vector_size)
 {
   setup_extended(tag, regs.size());
   for (int j = 0; j < vector_size; j++)
@@ -421,7 +421,15 @@ typename Sub_Data_Files<T>::part_type& Sub_Data_Files<T>::get_part()
 template<class sint, class sgf2n>
 TimerWithComm Data_Files<sint, sgf2n>::total_time()
 {
-  return DataFp.prep_timer + DataF2.prep_timer + DataFb.prep_timer;
+  auto res = DataFp.prep_timer + DataF2.prep_timer + DataFb.prep_timer;
+  try
+  {
+    res += DataFb.get_part().prep_timer;
+  }
+  catch (...)
+  {
+  }
+  return res;
 }
 
 #endif

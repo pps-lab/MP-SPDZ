@@ -52,7 +52,7 @@ public:
 
     static DataFieldType field_type()
     {
-        throw not_implemented();
+        return DATA_GF2;
     }
 
     static void init_minimum(int)
@@ -80,7 +80,8 @@ public:
 
     bool operator!=(NoValue) const { return false; }
 
-    bool operator==(int) { fail(); return false; }
+    bool operator==(int) const { fail(); return false; }
+    bool operator==(NoValue) const { fail(); return false; }
 
     bool get_bit(int) { fail(); return 0; }
 
@@ -92,6 +93,8 @@ public:
 
     void input(istream&, bool) { fail(); }
     void output(ostream&, bool) {}
+
+    void pack(octetStream&) const { fail(); }
 };
 
 inline ostream& operator<<(ostream& o, NoValue)
@@ -169,8 +172,8 @@ public:
 
     void load_clear(Integer, Integer) { fail(); }
     void random_bit() { fail(); }
-    void bitdec(vector<NoShare>&, const vector<int>&) const { fail(); }
-    void bitcom(vector<NoShare>&, const vector<int>&) const { fail(); }
+    void bitdec(StackedVector<NoShare>&, const vector<int>&) const { fail(); }
+    void bitcom(StackedVector<NoShare>&, const vector<int>&) const { fail(); }
 
     void assign(const char*) { fail(); }
 
@@ -190,6 +193,8 @@ public:
 
     NoShare& operator+=(const NoShare&) { fail(); return *this; }
 
+    bool operator==(NoShare) const { fail(); return false; }
+
     NoShare get_bit(int) const { fail(); return {}; }
 
     void xor_bit(int, NoShare) const { fail(); }
@@ -201,6 +206,8 @@ public:
 
     void input(istream&, bool) { fail(); }
     void output(ostream&, bool) { fail(); }
+
+    void pack(octetStream&) const { fail(); }
 };
 
 } /* namespace GC */

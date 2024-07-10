@@ -31,7 +31,7 @@ protected:
     PointerVector<typename T::open_type> values;
 
 public:
-    int values_opened;
+    size_t values_opened;
 
     static void setup(Player&) {}
     static void teardown() {}

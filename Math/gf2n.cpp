@@ -510,6 +510,7 @@ gf2n_short::gf2n_short(const int128& a)
 // Expansion is by x=y^5+1 (as we embed GF(256) into GF(2^40)
 void expand_byte(gf2n_short& a,int b)
 {
+  gf2n_short::init_field(40);
   gf2n_short x,xp;
   x = (32+1);
   xp.assign_one();

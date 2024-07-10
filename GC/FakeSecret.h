@@ -142,8 +142,8 @@ public:
     template <class T>
     void store(Memory<T>& mem, size_t address) { mem[address] = *this; }
 
-    void bitcom(Memory<FakeSecret>& S, const vector<int>& regs);
-    void bitdec(Memory<FakeSecret>& S, const vector<int>& regs) const;
+    void bitcom(StackedVector<FakeSecret>& S, const vector<int>& regs);
+    void bitdec(StackedVector<FakeSecret>& S, const vector<int>& regs) const;
 
     template <class T>
     void xor_(int n, const FakeSecret& x, const T& y)

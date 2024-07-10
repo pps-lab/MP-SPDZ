@@ -64,6 +64,8 @@ void ShamirInput<T>::init()
 template<class T>
 void ShamirInput<T>::add_mine(const typename T::open_type& input, int n_bits)
 {
+    this->maybe_init(this->P);
+
     (void) n_bits;
     auto& P = this->P;
     int n = P.num_players();
@@ -106,6 +108,7 @@ void ShamirInput<T>::finalize_other(int player, T& target,
 template<class U>
 void IndividualInput<U>::add_sender(int player)
 {
+    this->maybe_init(this->P);
     senders[player] = true;
 }
 

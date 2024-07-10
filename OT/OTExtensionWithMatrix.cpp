@@ -20,7 +20,7 @@ osuCrypto::IOService ot_extension_ios;
 OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
         int128 delta, OT_ROLE role, bool passive)
 {
-    BaseOT baseOT(128, 128, &player, INV_ROLE(role));
+    BaseOT baseOT(128, &player, INV_ROLE(role));
     PRNG G;
     G.ReSeed();
     baseOT.set_receiver_inputs(delta);
@@ -31,12 +31,18 @@ OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
 OTExtensionWithMatrix::OTExtensionWithMatrix(BaseOT& baseOT, TwoPartyPlayer* player,
         bool passive) : OTCorrelator(baseOT, player, passive)
 {
+    init_me();
+}
+
+void OTExtensionWithMatrix::init_me()
+{
     G.ReSeed();
     nsubloops = 1;
     agreed = false;
 #ifndef USE_KOS
     channel = 0;
 #endif
+    softspoken_k = 2;
 }
 
 OTExtensionWithMatrix::~OTExtensionWithMatrix()
@@ -47,27 +53,43 @@ OTExtensionWithMatrix::~OTExtensionWithMatrix()
 #endif
 }
 
+bool OTExtensionWithMatrix::use_kos()
+{
+#ifdef USE_KOS
+    return true;
+#else
+    return OnlineOptions::singleton.has_option("use_kos");
+#endif
+}
+
 void OTExtensionWithMatrix::protocol_agreement()
 {
     if (agreed)
         return;
 
     Bundle<octetStream> bundle(*player);
-#ifdef USE_KOS
-    bundle.mine = string("KOS15");
-#else
-    bundle.mine = string("SoftSpokenOT");
-#endif
+    if (use_kos())
+        bundle.mine = string("KOS15");
+    else
+        bundle.mine = string("SoftSpokenOT");
+
+    if (OnlineOptions::singleton.has_option("high_softspoken"))
+        softspoken_k = 8;
+
+    bundle.mine.store(softspoken_k);
+
     player->unchecked_broadcast(bundle);
 
     try
     {
         bundle.compare(*player);
+        agreed = true;
     }
     catch (mismatch_among_parties&)
     {
         cerr << "Parties compiled with different OT extensions" << endl;
         cerr << "Set \"USE_KOS\" to the same value on all parties" << endl;
+        cerr << "and make sure that the SoftSpokenOT parameter is the same" << endl;
         exit(1);
     }
 }
@@ -104,15 +126,26 @@ void OTExtensionWithMatrix::transfer(int nOTs,
 #endif
 }
 
-void OTExtensionWithMatrix::extend(int nOTs_requested, const BitVector& newReceiverInput)
+void OTExtensionWithMatrix::extend(int nOTs_requested,
+        const BitVector& newReceiverInput, bool hash)
 {
     protocol_agreement();
 
+    if (use_kos())
+    {
+        extend_correlated(nOTs_requested, newReceiverInput);
+        if (hash)
+            hash_outputs(nOTs_requested);
+        return;
+    }
+
 #ifdef USE_KOS
-    extend_correlated(nOTs_requested, newReceiverInput);
-    hash_outputs(nOTs_requested);
+    assert(use_kos());
 #else
     resize(nOTs_requested);
+
+    if (nOTs_requested == 0)
+        return;
 
     if (not channel)
         channel = new osuCrypto::Channel(ot_extension_ios, new PlayerCtSocket(*player));
@@ -131,7 +164,7 @@ void OTExtensionWithMatrix::extend(int nOTs_requested, const BitVector& newRecei
     channel->send("hello", 6);
     char buf[6];
     channel->recv(buf, 6);
-    assert(buf == string("hello"));
+    assert(string(buf, 5) == string("hello"));
 #endif
 }
 
@@ -141,14 +174,18 @@ void OTExtensionWithMatrix::soft_sender(size_t n)
     if (not (ot_role & SENDER))
         return;
 
+    if (OnlineOptions::singleton.has_option("verbose_ot"))
+        fprintf(stderr, "%zu OTs as sender\n", n);
+
     osuCrypto::PRNG prng(osuCrypto::sysRandomSeed());
-    osuCrypto::SoftSpokenOT::TwoOneMaliciousSender sender(2);
+    osuCrypto::SoftSpokenOT::TwoOneMaliciousSender sender(softspoken_k);
 
     vector<osuCrypto::block> outputs;
     for (auto& x : G_receiver)
     {
         outputs.push_back(x.get_doubleword());
     }
+    sender.malicious = not passive_only;
     sender.setBaseOts(outputs,
             {baseReceiverInput.get_ptr(), sender.baseOtCount()}, prng,
             *channel);
@@ -171,8 +208,11 @@ void OTExtensionWithMatrix::soft_receiver(size_t n,
     if (not (ot_role & RECEIVER))
         return;
 
+    if (OnlineOptions::singleton.has_option("verbose_ot"))
+        fprintf(stderr, "%zu OTs as receiver\n", n);
+
     osuCrypto::PRNG prng(osuCrypto::sysRandomSeed());
-    osuCrypto::SoftSpokenOT::TwoOneMaliciousReceiver recver(2);
+    osuCrypto::SoftSpokenOT::TwoOneMaliciousReceiver recver(softspoken_k);
 
     vector<array<osuCrypto::block, 2>> inputs;
     for (auto& x : G_sender)
@@ -181,6 +221,7 @@ void OTExtensionWithMatrix::soft_receiver(size_t n,
         for (int i = 0; i < 2; i++)
             inputs.back()[i] = x[i].get_doubleword();
     }
+    recver.malicious = not passive_only;
     recver.setBaseOts(inputs, prng, *channel);
 
     // Choose which messages should be received.

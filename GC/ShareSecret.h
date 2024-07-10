@@ -46,6 +46,9 @@ public:
 
     static const bool is_real = true;
     static const bool actual_inputs = true;
+    static const bool symmetric = true;
+
+    static bool real_shares(const Player&) { return true; }
 
     static ShareThread<U>& get_party()
     {
@@ -118,6 +121,7 @@ public:
     typedef BitVec open_type;
     typedef NoShare mac_type;
     typedef NoValue mac_key_type;
+    typedef NoShare mac_share_type;
 
     typedef NoShare bit_type;
 
@@ -151,6 +155,11 @@ public:
     {
     }
 
+    static GC::NoValue get_mac_key()
+    {
+        throw runtime_error("no MAC");
+    }
+
     template<class T>
     static string proto_fake_opts()
     {
@@ -166,8 +175,8 @@ public:
     {
     }
 
-    void bitcom(Memory<U>& S, const vector<int>& regs);
-    void bitdec(Memory<U>& S, const vector<int>& regs) const;
+    void bitcom(StackedVector<U>& S, const vector<int>& regs);
+    void bitdec(StackedVector<U>& S, const vector<int>& regs) const;
 
     void xor_(int n, const This& x, const This& y)
     { *this = (x ^ y).mask(n); }

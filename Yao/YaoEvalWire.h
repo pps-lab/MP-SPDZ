@@ -48,7 +48,7 @@ public:
 	static void and_singlethread(
 			GC::Processor<GC::Secret<YaoEvalWire>>& processor,
 			const vector<int>& args, int total_ands);
-	static void and_(GC::Memory<GC::Secret<YaoEvalWire>>& S,
+	static void and_(StackedVector<GC::Secret<YaoEvalWire>>& S,
 			const vector<int>& args, size_t start, size_t end,
 			size_t total_ands, YaoGate* gate, long& counter, PRNG& prng,
 			map<string, Timer>& timers, bool repeat, YaoEvaluator& garbler);

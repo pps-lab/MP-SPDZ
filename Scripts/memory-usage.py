@@ -62,8 +62,11 @@ if thread_regs:
     print ('Registers in other threads:')
     output(regout(thread_regs))
 
-min = 1 * domain_size
-max = 3 * domain_size
+if len(sys.argv) > 2:
+    min = max = int(sys.argv[2]) * domain_size
+else:
+    min = 1 * domain_size
+    max = 3 * domain_size
 
 print ('The program requires at least an estimated %f-%f GB of RAM per party.'
        % (min * (total + thread_total) * 1e-9,

@@ -7,6 +7,7 @@
 #define PROCESSOR_THREADQUEUE_H_
 
 #include "ThreadJob.h"
+#include "Tools/NamedStats.h"
 
 class ThreadQueue
 {
@@ -20,6 +21,7 @@ public:
 
     map<string, TimerWithComm> timers;
     Timer wait_timer;
+    NamedStats stats;
 
     ThreadQueue() :
             left(0)
@@ -34,7 +36,8 @@ public:
     void schedule(const ThreadJob& job);
     ThreadJob next();
     void finished(const ThreadJob& job);
-    void finished(const ThreadJob& job, const NamedCommStats& comm_stats);
+    void finished(const ThreadJob& job, const NamedCommStats& comm_stats,
+            const NamedStats& stats = {});
     ThreadJob result();
 
     void set_comm_stats(const NamedCommStats& new_comm_stats);
