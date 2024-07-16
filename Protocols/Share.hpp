@@ -3,7 +3,7 @@
 
 #include "Share.h"
 
-#define VERBOSE 1
+//#define VERBOSE 1 # TODO: This generates compliation error
 
 template<class T, class V>
 typename Share_<T, V>::mac_key_type Share_<T, V>::mac_key;
