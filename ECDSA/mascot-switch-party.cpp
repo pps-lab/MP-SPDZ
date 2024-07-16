@@ -15,7 +15,7 @@
 
 #include "hm-switch-party.hpp"
 
-#define VERBOSE 1
+//#define VERBOSE 1
 #define DEBUG_NETWORKING 1
 
 int main(int argc, const char** argv)
