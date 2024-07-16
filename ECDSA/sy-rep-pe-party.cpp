@@ -21,6 +21,7 @@
 #include "Protocols/SpdzWiseInput.hpp"
 #include "Protocols/SpdzWiseShare.hpp"
 #include "Protocols/PostSacrifice.hpp"
+#include "Protocols/SpdzWiseRep3Shuffler.hpp"
 #include "Protocols/MaliciousRepPrep.hpp"
 #include "Processor/Data_Files.hpp"
 #include "GC/ShareSecret.hpp"
