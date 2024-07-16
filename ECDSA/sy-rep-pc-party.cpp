@@ -20,6 +20,7 @@
 #include "Protocols/SpdzWisePrep.hpp"
 #include "Protocols/SpdzWiseInput.hpp"
 #include "Protocols/SpdzWiseShare.hpp"
+#include "Protocols/SpdzWiseRep3Shuffler.hpp"
 #include "Protocols/PostSacrifice.hpp"
 #include "Protocols/MaliciousRepPrep.hpp"
 #include "Processor/Data_Files.hpp"
