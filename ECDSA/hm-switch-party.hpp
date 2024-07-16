@@ -503,7 +503,7 @@ vector<outputShare> convert_shares_ring_split(const typename vector<inputShare>:
             regs[i] = i * buffer_size / dl;
 //            regs[i] = i * n_bits_per_input;
 //            regs[i] = i * P.num_players() * n_bits_per_input;
-        vector<bt> bits(n_bits_per_input * P.num_players() * input_size); // TODO: bits might be too large?
+        StackedVector<bt> bits(n_bits_per_input * P.num_players() * input_size); // TODO: bits might be too large?
         inputShare::split(bits, regs, n_bits_per_input, input_shares_raw_pointer, input_size,
                           *GC::ShareThread<bt>::s().protocol);
 
