@@ -1721,12 +1721,12 @@ class Add(NoVariableLayer):
         self.inputs = inputs
 
     def _forward(self, batch=[0]):
-        assert len(batch) == 1
-        @multithread(self.n_threads, self.Y[0].total_size())
+        # assert len(batch) == 1
+        @multithread(self.n_threads, self.Y.total_size())
         def _(base, size):
-            tmp = sum(inp.Y[batch[0]].get_vector(base, size)
+            tmp = sum(inp.Y.get_vector(base, size)
                       for inp in self.inputs)
-            self.Y[batch[0]].assign_vector(tmp, base)
+            self.Y.assign_vector(tmp, base)
 
 class FusedBatchNorm(Layer):
     """ Fixed-point fused batch normalization layer (inference only).
