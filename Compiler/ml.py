@@ -1791,7 +1791,7 @@ class BatchNorm(Layer):
         else:
             print('Precise square root inverse in batch normalization')
             self.InvertSqrt = lambda x: 1 / mpc_math.sqrt(x)
-        self.is_trained = False
+        self.is_trained = True
 
     def __repr__(self):
         return '%s(%s, approx=%s)' % \
@@ -1818,6 +1818,8 @@ class BatchNorm(Layer):
             d = self.X.sizes[1]
             d_in = self.X.sizes[2]
             s = sfix.Array(d_in)
+            print("d_n", d_in)
+            print("xy", self.X.sizes)
             @map_sum_simple(self.n_threads, [len(batch), d], sfix, d_in)
             def _(i, j):
                 return (self.X[batch[i]][j].get_vector())
