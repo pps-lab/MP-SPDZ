@@ -1720,6 +1720,8 @@ class Add(NoVariableLayer):
         self.Y = Tensor(shape, sfix)
         self.inputs = inputs
 
+        self.nabla_Y = Tensor(shape, sfix)
+
     def _forward(self, batch=[0]):
         # assert len(batch) == 1
         @multithread(self.n_threads, self.Y.total_size())
@@ -1727,6 +1729,14 @@ class Add(NoVariableLayer):
             tmp = sum(inp.Y.get_vector(base, size)
                       for inp in self.inputs)
             self.Y.assign_vector(tmp, base)
+
+    def backward(self, compute_nabla_X=True, batch=None):
+        if compute_nabla_X:
+            for inp in self.inputs:
+                @multithread(self.n_threads, self.Y.total_size())
+                def _(base, size):
+                    inp.nabla_X.assign_vector(self.nabla_Y.get_vector(base, size), base)
+
 
 class FusedBatchNorm(Layer):
     """ Fixed-point fused batch normalization layer (inference only).
