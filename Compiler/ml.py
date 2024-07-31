@@ -2491,7 +2491,9 @@ class FixConv2d(Conv2d, FixBase):
             self.nabla_weights.assign_vector_by_indices(reduced, j, None, None, i)
 
         if compute_nabla_X:
-            assert tuple(self.stride) == (1, 1)
+            # TODO: implement for stride != (1, 1)
+            if tuple(self.stride) != (1, 1):
+                print("Warning: Stride != (1, 1) is not fully implemented")
             reverse_weights = MultiArray(
                 [n_channels_in, weights_h, weights_w, n_channels_out], sfix)
             @for_range_opt_multithread(self.n_threads, n_channels_in)
@@ -3643,7 +3645,8 @@ class Optimizer:
                 layer.backward(compute_nabla_X=False,
                                batch=self.batch_for(layer, batch))
             else:
-                layer.nabla_X.alloc()
+                if len(layer.inputs) == 1:
+                    layer.nabla_X.alloc()
                 layer.backward(batch=self.batch_for(layer, batch))
                 if len(layer.inputs) == 1:
                     layer.inputs[0].nabla_Y.address = \
