@@ -4606,16 +4606,20 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
                                      item.padding, item.bias is not None, **layer_args.get(item, {})))
             input_shape = layers[-1].Y.shape
             if input_via is not None:
-                shapes = [x.shape for x in
+                if item.bias is not None:
+                    shapes = [x.shape for x in
                           (layers[-1].weights, layers[-1].bias)]
-                print("shapes", shapes)
+                else:
+                    shapes = [layers[-1].weights.shape]
+                print("shapes", shapes, layers[-1].weights.shape)
                 import numpy
                 swapped = numpy.moveaxis(
                     numpy.array(item.weight.detach()), 1, -1)
+                print("swapped", swapped.shape, item.weight.shape)
                 layers[-1].weights = \
                     layers[-1].weights.value_type.input_tensor_via(
                         input_via, swapped)
-                assert layers[-1].weights.shape == shapes[0]
+                assert layers[-1].weights.shape == shapes[0], f"{layers[-1].weights.shape} != {shapes[0]}"
                 if isinstance(item.bias, torch.Tensor):
                     layers[-1].bias = sfix.input_tensor_via(
                         input_via, item.bias.detach())
