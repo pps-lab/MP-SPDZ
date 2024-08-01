@@ -2188,8 +2188,19 @@ class ConvBase(BaseLayer):
     use_conv2ds = True
     temp_weights = None
     temp_inputs = None
-    thetas = lambda self: (self.weights, self.bias)
-    nablas = lambda self: (self.nabla_weights, self.nabla_bias)
+    # thetas = lambda self: (self.weights, self.bias)
+    # nablas = lambda self: (self.nabla_weights, self.nabla_bias)
+
+    def thetas(self):
+        if self.use_bias:
+            return self.weights, self.bias
+        else:
+            return tuple([self.weights])
+    def nablas(self):
+        if self.use_bias:
+            return self.nabla_weights, self.nabla_bias
+        else:
+            return tuple([self.nabla_weights])
 
     @classmethod
     def init_temp(cls, layers):
@@ -2201,13 +2212,15 @@ class ConvBase(BaseLayer):
 
     def __init__(self, input_shape, weight_shape, bias_shape, output_shape, stride,
                  padding='SAME', tf_weight_format=False, inputs=None,
-                 weight_type=None):
+                 weight_type=None, bias=True):
+        print("ConvBase params", input_shape, weight_shape, bias_shape, output_shape, stride, padding, tf_weight_format, inputs, weight_type, bias)
         super(ConvBase, self).__init__(input_shape, output_shape, inputs=inputs)
 
         self.weight_shape = weight_shape
         self.bias_shape = bias_shape
         self.stride = stride
         self.tf_weight_format = tf_weight_format
+        self.use_bias = bias
         if padding == 'SAME':
             # https://web.archive.org/web/20171223022012/https://www.tensorflow.org/api_guides/python/nn
             self.padding = []
@@ -2238,10 +2251,12 @@ class ConvBase(BaseLayer):
         self.bias_squant = self.new_squant()
 
         self.weights = Tensor(weight_shape, self.weight_squant)
-        self.bias = Array(output_shape[-1], self.bias_squant)
+        if self.use_bias:
+            self.bias = Array(output_shape[-1], self.bias_squant)
 
         self.nabla_weights = Tensor(weight_shape, self.weight_squant)
-        self.nabla_bias = Array(output_shape[-1], self.bias_squant)
+        if self.use_bias:
+            self.nabla_bias = Array(output_shape[-1], self.bias_squant)
 
         self.unreduced = Tensor(self.output_shape, sint, address=self.Y.address)
 
@@ -2270,7 +2285,8 @@ class ConvBase(BaseLayer):
 
     def output_weights(self):
         self.weights.print_reveal_nested()
-        print_ln('%s', self.bias.reveal_nested())
+        if self.use_bias:
+            print_ln('%s', self.bias.reveal_nested())
 
     def reveal_parameters_to_binary(self):
         assert not self.tf_weight_format
@@ -2282,15 +2298,21 @@ class ConvBase(BaseLayer):
             def _(j):
                 part = self.weights.get_vector_by_indices(i, None, None, j)
                 part.reveal().binary_output()
-        self.bias.reveal_to_binary_output()
+        if self.use_bias:
+            self.bias.reveal_to_binary_output()
 
     def dot_product(self, iv, wv, out_y, out_x, out_c):
-        bias = self.bias[out_c]
-        acc = self.output_squant.unreduced_dot_product(iv, wv)
-        acc.v += bias.v
-        acc.res_params = self.output_squant.params
-        #self.Y[0][out_y][out_x][out_c] = acc.reduce_after_mul()
-        self.unreduced[0][out_y][out_x][out_c] = acc.v
+        if self.use_bias:
+            bias = self.bias[out_c]
+            acc = self.output_squant.unreduced_dot_product(iv, wv)
+            acc.v += bias.v
+            acc.res_params = self.output_squant.params
+            #self.Y[0][out_y][out_x][out_c] = acc.reduce_after_mul()
+            self.unreduced[0][out_y][out_x][out_c] = acc.v
+        else:
+            acc = self.output_squant.unreduced_dot_product(iv, wv)
+            acc.res_params = self.output_squant.params
+            self.unreduced[0][out_y][out_x][out_c] = acc.v
 
     def reduction(self, batch_length=1):
         unreduced = self.unreduced
@@ -2356,11 +2378,12 @@ class Conv2d(ConvBase):
                         inputs_h, inputs_w, weights_h, weights_w,
                         stride_h, stride_w, n_channels_in, padding_h, padding_w,
                         part_size)
-                if self.bias_before_reduction:
-                    res += self.bias.expand_to_vector(j, res.size).v
-                else:
-                    res += self.bias.expand_to_vector(j, res.size).v << \
-                        self.weight_squant.f
+                if self.use_bias:
+                    if self.bias_before_reduction:
+                        res += self.bias.expand_to_vector(j, res.size).v
+                    else:
+                        res += self.bias.expand_to_vector(j, res.size).v << \
+                            self.weight_squant.f
                 addresses = regint.inc(res.size,
                                        self.unreduced[i * part_size].address + j,
                                        n_channels_out)
@@ -2368,7 +2391,8 @@ class Conv2d(ConvBase):
             self.reduction(len(batch))
             if self.debug_output:
                 print_ln('%s weights %s', self, self.weights.reveal_nested())
-                print_ln('%s bias %s', self, self.bias.reveal_nested())
+                if self.use_bias:
+                    print_ln('%s bias %s', self, self.bias.reveal_nested())
                 @for_range(len(batch))
                 def _(i):
                     print_ln('%s X %s %s', self, i, self.X[batch[i]].reveal_nested())
@@ -2444,7 +2468,8 @@ class FixConv2d(Conv2d, FixBase):
         r = math.sqrt(6.0 / (n_in + self.weight_shape[0]))
         print('Initializing convolution weights in [%f,%f]' % (-r, r))
         self.weights.randomize(-r, r, n_threads=self.n_threads)
-        self.bias.assign_all(0)
+        if self.use_bias:
+            self.bias.assign_all(0)
 
     def backward(self, compute_nabla_X=True, batch=None):
         assert self.use_conv2ds
@@ -2459,14 +2484,15 @@ class FixConv2d(Conv2d, FixBase):
 
         N = len(batch)
 
-        self.nabla_bias.assign_all(0)
+        if self.use_bias:
+            self.nabla_bias.assign_all(0)
 
-        @for_range(N)
-        def _(i):
-            self.nabla_bias.assign_vector(
-                self.nabla_bias.get_vector() + sum(sum(
-                    self.nabla_Y[i][j][k].get_vector() for k in range(output_w))
-                                                   for j in range(output_h)))
+            @for_range(N)
+            def _(i):
+                self.nabla_bias.assign_vector(
+                    self.nabla_bias.get_vector() + sum(sum(
+                        self.nabla_Y[i][j][k].get_vector() for k in range(output_w))
+                                                       for j in range(output_h)))
 
         input_size = inputs_h * inputs_w * N
         batch_repeat = regint.Matrix(N, inputs_h * inputs_w)
@@ -2548,8 +2574,9 @@ class FixConv2d(Conv2d, FixBase):
             print_ln('%s nabla weights %s', self,
                      (self.nabla_weights.reveal_nested()))
             print_ln('%s weights %s', self, (self.weights.reveal_nested()))
-            print_ln('%s nabla b %s', self, (self.nabla_bias.reveal_nested()))
-            print_ln('%s bias %s', self, (self.bias.reveal_nested()))
+            if self.use_bias:
+                print_ln('%s nabla b %s', self, (self.nabla_bias.reveal_nested()))
+                print_ln('%s bias %s', self, (self.bias.reveal_nested()))
 
 class QuantDepthwiseConv2d(QuantConvBase, Conv2d):
     def n_summands(self):
@@ -2682,7 +2709,7 @@ class AveragePool2d(BaseLayer):
             self.Y[0][out_y][out_x][c] = self.output_squant._new(acc)
 
 def easyConv2d(input_shape, batch_size, out_channels, kernel_size, stride=1,
-               padding=0, **kwargs):
+               padding=0, bias=True, **kwargs):
     """ More convenient interface to :py:class:`FixConv2d`.
 
     :param input_shape: input shape (tuple/list of four int)
@@ -2690,6 +2717,7 @@ def easyConv2d(input_shape, batch_size, out_channels, kernel_size, stride=1,
     :param kernel_size: kernel size (int or tuple/list of two int)
     :param stride: stride (int or tuple/list of two int)
     :param padding: :py:obj:`'SAME'`, :py:obj:`'VALID'`, int, or tuple/list of two int
+    :param bias: whether layer has bias (bool)
 
     """
     if isinstance(kernel_size, int):
@@ -2703,7 +2731,7 @@ def easyConv2d(input_shape, batch_size, out_channels, kernel_size, stride=1,
     padding = padding.upper() if isinstance(padding, str) \
         else padding
     return FixConv2d(input_shape, weight_shape, (out_channels,), output_shape,
-                     stride, padding, **kwargs)
+                     stride, padding, bias=bias, **kwargs)
 
 def easyMaxPool(input_shape, kernel_size, stride=None, padding=0):
     """ More convenient interface to :py:class:`MaxPool`.
@@ -3499,6 +3527,7 @@ class Optimizer:
             if not layer.inputs and prev is not None:
                 layer.inputs = [prev]
             prev = layer
+            print(layer, layer.thetas())
             self.thetas.extend(layer.thetas())
 
     def set_layers_with_inputs(self, layers):
@@ -4054,9 +4083,11 @@ class Optimizer:
             layer.output_weights()
 
     def summary(self):
+        for var in self.thetas:
+            print(var, var.total_size())
         sizes = [var.total_size() for var in self.thetas]
-        print(sizes)
         print('Trainable params:', sum(sizes))
+        print(sizes)
 
     @property
     def trainable_variables(self):
@@ -4569,13 +4600,15 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
                 assert layers[-1].b.shape == shapes[1]
             input_shape = [batch_size, item.out_features]
         elif name == 'Conv2d':
+            print("convd", item, item.bias is not None)
             layers.append(easyConv2d(input_shape, batch_size, item.out_channels,
                                      item.kernel_size, item.stride,
-                                     item.padding, **layer_args.get(item, {})))
+                                     item.padding, item.bias is not None, **layer_args.get(item, {})))
             input_shape = layers[-1].Y.shape
             if input_via is not None:
                 shapes = [x.shape for x in
                           (layers[-1].weights, layers[-1].bias)]
+                print("shapes", shapes)
                 import numpy
                 swapped = numpy.moveaxis(
                     numpy.array(item.weight.detach()), 1, -1)
