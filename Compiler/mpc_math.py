@@ -905,7 +905,7 @@ def Sep(x, sfix=types.sfix):
     b = floatingpoint.PreOR(list(reversed(x.v.bit_decompose(x.k, maybe_mixed=True))))
     bb = b[:]
     while len(bb) < 2 * x.f - 1:
-        bb.insert(0, type(b[0])(0))
+        bb.insert(0, type(b[0])(types.cint(0)))
     t = x.v * (1 + x.v.bit_compose(b_i.bit_not()
                                    for b_i in bb[-2 * x.f + 1:]))
     u = sfix._new(t.right_shift(x.f, 2 * x.k, signed=False))
