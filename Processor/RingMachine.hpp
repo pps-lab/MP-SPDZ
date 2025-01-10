@@ -53,7 +53,7 @@ RingMachine<U, V, W>::RingMachine(int argc, const char** argv,
     }
     X(64)
 #ifndef FEWER_RINGS
-    X(72) X(128) X(192) X(256)
+    X(72) X(128) X(192) X(256) X(320)
 #endif
 #ifdef RING_SIZE
     X(RING_SIZE)
