@@ -4703,6 +4703,8 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
             if input_via is not None:
                 layer.load_state_dict(item.state_dict(), input_via)
             layers.append(layer)
+        elif name == "Identity":
+            return
         else:
             raise CompilerError('unknown PyTorch module: %s' % item)
         layers[-1].inputs = inputs
