@@ -242,6 +242,11 @@ class BitVector
         return equals(other);
     }
 
+    bool operator!=(const BitVector& other) const
+    {
+        return not equals(other);
+    }
+
     void append(const BitVector& other, size_t length);
 
     void randomize(PRNG& G);

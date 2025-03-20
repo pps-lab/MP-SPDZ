@@ -311,6 +311,8 @@ enum
     GRAWOUTPUT = 0x1B7,
     GSTARTPRIVATEOUTPUT = 0x1B8,
     GSTOPPRIVATEOUTPUT = 0x1B9,
+    GWRITEFILESHARE = 0x1BD,
+    GREADFILESHARE = 0x1BE,
     // Commsec ops
     INITSECURESOCKET = 0x1BA,
     RESPSECURESOCKET = 0x1BB
@@ -378,6 +380,8 @@ public:
 
   // Returns the maximal register used
   unsigned get_max_reg(int reg_type) const;
+
+  string get_name() const;
 };
 
 class DataPositions;

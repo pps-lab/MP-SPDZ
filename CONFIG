@@ -48,6 +48,8 @@ ARCH =
 AVX_OT = 0
 endif
 
+AVX_SIMPLEOT := $(AVX_OT)
+
 ifeq ($(OS), Darwin)
 BREW_CFLAGS += -I/usr/local/opt/openssl/include -I`brew --prefix`/opt/openssl/include -I`brew --prefix`/include
 BREW_LDLIBS += -L/usr/local/opt/openssl/lib -L`brew --prefix`/lib -L`brew --prefix`/opt/openssl/lib
@@ -69,11 +71,13 @@ CXX = clang++
 # use CONFIG.mine to overwrite DIR settings
 -include CONFIG.mine
 
+AVX_SIMPLEOT := $(AVX_OT)
+
 ifeq ($(USE_GF2N_LONG),1)
 GF2N_LONG = -DUSE_GF2N_LONG
 endif
 
-ifeq ($(AVX_OT), 0)
+ifeq ($(AVX_SIMPLEOT), 0)
 CFLAGS += -DNO_AVX_OT
 endif
 

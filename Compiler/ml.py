@@ -859,7 +859,7 @@ class Dense(DenseBase):
             prod = MultiArray([N, self.d, self.d_out], sfix)
         else:
             prod = self.f_input
-        max_size = get_program().budget // self.d_out
+        max_size = get_program().budget
         @multithread(self.n_threads, N, max_size)
         def _(base, size):
             X_sub = sfix.Matrix(self.N, self.d_in, address=self.X.address)
@@ -1723,12 +1723,12 @@ class Add(NoVariableLayer):
         self.nabla_Y = Tensor(shape, sfix)
 
     def _forward(self, batch=[0]):
-        # assert len(batch) == 1
-        @multithread(self.n_threads, self.Y.total_size())
+        @multithread(self.n_threads, self.Y[0].total_size())
         def _(base, size):
-            tmp = sum(inp.Y.get_vector(base, size)
-                      for inp in self.inputs)
-            self.Y.assign_vector(tmp, base)
+            for bb in batch:
+                tmp = sum(inp.Y[bb].get_vector(base, size)
+                          for inp in self.inputs)
+                self.Y[bb].assign_vector(tmp, base)
 
     def backward(self, compute_nabla_X=True, batch=None):
         if compute_nabla_X:
@@ -1815,11 +1815,11 @@ class BatchNorm(Layer):
 
     def _output(self, batch, mu, var):
         factor = sfix.Array(len(mu))
-        factor[:] = self.InvertSqrt(var[:] + self.epsilon)
+        factor[:] = self.InvertSqrt(var[:] + self.epsilon) * self.weights[:]
         @for_range_opt_multithread(self.n_threads,
                                    [len(batch), self.X.sizes[1]])
         def _(i, j):
-            tmp = self.weights[:] * (self.X[i][j][:] - mu[:]) * factor[:]
+            tmp = (self.X[i][j][:] - mu[:]) * factor[:]
             self.my_Y[i][j][:] = self.bias[:] + tmp
 
     @_layer_method_call_tape
@@ -3496,7 +3496,7 @@ class Optimizer:
         res.output_stats = 'output_stats' in program.args
         return res
 
-    def __init__(self, layers=[], report_loss=None):
+    def __init__(self, layers=[], report_loss=None, time_layers=False):
         if get_program().options.binary:
             raise CompilerError(
                 'machine learning code not compatible with binary circuits')
@@ -3511,6 +3511,10 @@ class Optimizer:
         self.stopped_on_loss = MemValue(0)
         self.stopped_on_low_loss = MemValue(0)
         self.layers = layers
+        self.time_layers = time_layers
+        if time_layers:
+            for i, layer in enumerate(layers):
+                print('Timer %d: %s' % (100 + i, repr(layer)))
 
     @property
     def layers(self):
@@ -3580,6 +3584,8 @@ class Optimizer:
             if self.time_layers:
                 start_timer(100 + i)
             if i != len(self.layers) - 1 or run_last:
+                for theta in layer.thetas():
+                    theta.alloc()
                 layer.forward(batch=self.batch_for(layer, batch),
                               training=training)
                 if self.print_random_update:
@@ -3963,8 +3969,12 @@ class Optimizer:
         if model_input:
             for layer in self.layers:
                 layer.input_from(0)
-        elif reset:
+        elif reset and not 'no_reset' in program.args:
             self.reset()
+        else:
+            for layer in self.layers:
+                for theta in layer.thetas():
+                    theta.alloc()
         if 'one_iter' in program.args:
             print_float_prec(16)
             self.output_weights()
@@ -3985,6 +3995,8 @@ class Optimizer:
         if 'bench10' in program.args or 'bench1' in program.args:
             n = 1 if 'bench1' in program.args else 10
             print('benchmarking %s iterations' % n)
+            # force allocatoin
+            self.layers[0].X, self.layers[-1].Y
             @for_range(n)
             def _(i):
                 batch = Array.create_from(regint.inc(batch_size))
@@ -4214,10 +4226,12 @@ class SGD(Optimizer):
         self.layers = layers
         self.n_epochs = n_epochs
         self.nablas = []
+        self.momentum_values = []
         self.delta_thetas = []
         for layer in layers:
             self.nablas.extend(layer.nablas())
             for theta in layer.thetas():
+                self.momentum_values.append(theta.same_shape())
                 self.delta_thetas.append(theta.same_shape())
         self.set_learning_rate(0.01)
         self.debug = debug
@@ -4237,23 +4251,27 @@ class SGD(Optimizer):
                     j = i + label * len(X_by_label[0])
                     self.layers[0].X[j] = X[i]
                     self.layers[-1].Y[j] = label
+        for y in self.momentum_values:
+            y.assign_all(0)
         for y in self.delta_thetas:
             y.assign_all(0)
         super(SGD, self).reset()
 
     def _update(self, i_epoch, i_batch, batch):
-        for nabla, theta, delta_theta in zip(self.nablas, self.thetas,
-                                             self.delta_thetas):
+        for nabla, theta, momentum_value, delta_theta in zip(self.nablas, self.thetas,
+                                             self.momentum_values, self.delta_thetas):
             @multithread(self.n_threads, nabla.total_size())
             def _(base, size):
-                old = delta_theta.get_vector(base, size)
+                old = momentum_value.get_vector(base, size)
                 red_old = self.momentum * old
                 rate = self.gamma.expand_to_vector(size)
                 nabla_vector = nabla.get_vector(base, size)
                 log_batch_size = math.log(len(batch), 2)
                 # divide by len(batch) by truncation
                 # increased rate if len(batch) is not a power of two
-                pre_trunc = nabla_vector.v * rate.v
+                diff = red_old - nabla_vector
+                pre_trunc = diff.v * rate.v
+                momentum_value.assign_vector(diff, base)
                 k = max(nabla_vector.k, rate.k) + rate.f
                 m = rate.f + int(log_batch_size)
                 if self.early_division:
@@ -4262,8 +4280,7 @@ class SGD(Optimizer):
                     v = pre_trunc.round(k, m, signed=True,
                                         nearest=sfix.round_nearest)
                 new = nabla_vector._new(v)
-                diff = red_old - new
-                delta_theta.assign_vector(diff, base)
+                delta_theta.assign_vector(new, base)
                 theta.assign_vector(theta.get_vector(base, size) +
                                     delta_theta.get_vector(base, size), base)
             if self.print_update_average:
@@ -4555,8 +4572,8 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
         return reduce(operator.mul, x)
 
     import torch
-    def process(item, inputs, input_shape, args):
-        # nonlocal bert_config # TODO: fix
+
+    def process(item, inputs, input_shape, args, kwargs={}):
         if item == torch.cat:
             if len(inputs) > 1:
                 layers.append(
@@ -4565,7 +4582,17 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
         elif item == operator.add:
             layers.append(Add(inputs))
             return
-        elif item == torch.flatten:
+        elif item in (torch.flatten, 'flatten', 'size'):
+            return
+        elif item == 'view':
+            assert -1 in args or \
+                reduce(operator.mul, args) == reduce(operator.mul, input_shape)
+            return
+        elif item == torch.nn.functional.avg_pool2d:
+            layers.append(FixAveragePool2d(input_shape, None, args[1],
+                                           kwargs.get('stride', args[1]),
+                                           kwargs.get('padding', 0)))
+            input_shape = layers[-1].Y.shape
             return
         # single-input layers from here
         if inputs and len(inputs) > 1:
@@ -4730,7 +4757,12 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
                 args = layer.args[0]
             else:
                 args = layer.args[0],
-            inputs = [named_layers[x] for x in args]
+            inputs = []
+            try:
+                for x in args:
+                    inputs.append(named_layers[x])
+            except KeyError:
+                pass
             if len(inputs) == 1:
                 if isinstance(inputs[0], (Dropout, BatchNorm)):
                     input_shape = inputs[0].inputs[0].Y.shape
@@ -4738,7 +4770,7 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
                     input_shape = inputs[0]._Y.shape
             else:
                 input_shape = None
-        process(target, inputs, input_shape, layer.args)
+        process(target, inputs, input_shape, layer.args, layer.kwargs)
         if layers:
             named_layers[layer] = layers[-1]
 

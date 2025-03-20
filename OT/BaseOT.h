@@ -39,6 +39,8 @@ class BaseOT
     static void hash_with_id(BitVector& bits, long id);
 
 public:
+    static int avx;
+
     /// Receiver choice bits
 	BitVector receiver_inputs;
 	/// Sender inputs
@@ -59,13 +61,6 @@ public:
 		receiver_outputs.resize(nOT);
 		G_sender.resize(nOT);
 		G_receiver.resize(nOT);
-
-		for (int i = 0; i < nOT; i++)
-		{
-			sender_inputs[i][0] = BitVector(8 * AES_BLK_SIZE);
-			sender_inputs[i][1] = BitVector(8 * AES_BLK_SIZE);
-			receiver_outputs[i] = BitVector(8 * AES_BLK_SIZE);
-		}
 	}
 
 	BaseOT(TwoPartyPlayer* player, OT_ROLE role) :
@@ -115,6 +110,10 @@ protected:
 
 	bool is_sender() { return (bool) (ot_role & SENDER); }
 	bool is_receiver() { return (bool) (ot_role & RECEIVER); }
+
+	void allocate();
+
+	bool use_avx();
 
 	/// CPU-specific instantiation of Simplest OT using Curve25519
 	template<class T, class U>

@@ -2,11 +2,16 @@
 #include "Tools/random.h"
 #include "Tools/benchmarking.h"
 #include "Tools/Bundle.h"
+#include "Processor/OnlineOptions.h"
 
 #include <stdio.h>
 #include <iostream>
 #include <fstream>
 #include <pthread.h>
+
+#if defined(__linux__) and defined(__x86_64__)
+#include <cpuid.h>
+#endif
 
 extern "C" {
 #ifndef NO_AVX_OT
@@ -106,10 +111,41 @@ void receiver_keygen(ref10_RECEIVER* r, unsigned char (*keys)[HASHBYTES])
     ref10_receiver_keygen(r, keys);
 }
 
+void BaseOT::allocate()
+{
+    for (int i = 0; i < nOT; i++)
+    {
+        sender_inputs[i][0] = BitVector(8 * AES_BLK_SIZE);
+        sender_inputs[i][1] = BitVector(8 * AES_BLK_SIZE);
+        receiver_outputs[i] = BitVector(8 * AES_BLK_SIZE);
+    }
+}
+
+int BaseOT::avx = -1;
+
+bool BaseOT::use_avx()
+{
+    if (avx == -1)
+    {
+        avx = cpu_has_avx(true);
+#if defined(__linux__) and defined(__x86_64__)
+        int info[4];
+        __cpuid(0x80000003, info[0], info[1], info[2], info[3]);
+        string str((char*) info, 16);
+        if (OnlineOptions::singleton.has_option("debug_cpu"))
+            cerr << "CPU: " << str << endl;
+        if (str.find("Gold 63") != string::npos)
+            avx = 0;
+#endif
+    }
+
+    return avx;
+}
+
 void BaseOT::exec_base(bool new_receiver_inputs)
 {
 #ifndef NO_AVX_OT
-    if (cpu_has_avx(true))
+    if (use_avx())
         exec_base<SIMPLEOT_SENDER, SIMPLEOT_RECEIVER>(new_receiver_inputs);
     else
 #endif
@@ -160,6 +196,7 @@ void BaseOT::exec_base(bool new_receiver_inputs)
     }
 
     os[0].reset_write_head();
+    allocate();
 
     for (i = 0; i < nOT; i += 4)
     {
@@ -246,6 +283,23 @@ void BaseOT::exec_base(bool new_receiver_inputs)
         #endif
     }
 
+    if (ot_role & SENDER)
+        for (int i = 0; i < nOT; i++)
+        {
+            if(sender_inputs.at(i).at(0) == sender_inputs.at(i).at(1))
+            {
+                string error = "Sender outputs are the same at " + to_string(i)
+                        + ": " + sender_inputs[i][0].str();
+#ifdef NO_AVX_OT
+                error += "This is a known problem with some Xeon CPUs. ";
+                error += "We would appreciate if you report the output of "
+                        "'cat /proc/cpuinfo | grep name'. ";
+                error += "Try compiling with 'AVX_SIMPLEOT = 0' in CONFIG.mine";
+#endif
+                throw runtime_error(error);
+            }
+        }
+
     // Hash with counter to avoid collisions
     for (int i = 0; i < nOT; i++)
     {
@@ -256,8 +310,16 @@ void BaseOT::exec_base(bool new_receiver_inputs)
                 hash_with_id(sender_inputs.at(i).at(j), i);
     }
 
+    if (ot_role & SENDER)
+        for (int i = 0; i < nOT; i++)
+            assert(sender_inputs.at(i).at(0) != sender_inputs.at(i).at(1));
+
     // Set PRG seeds
     set_seeds();
+
+    if (ot_role & SENDER)
+        for (int i = 0; i < nOT; i++)
+            assert(sender_inputs.at(i).at(0) != sender_inputs.at(i).at(1));
 }
 
 void BaseOT::hash_with_id(BitVector& bits, long id)
@@ -357,6 +419,8 @@ void FakeOT::exec_base(bool new_receiver_inputs)
     G.ReSeed();
     vector<octetStream> os(2);
     vector<BitVector> bv(2, 128);
+
+    allocate();
 
     if ((ot_role & RECEIVER) && new_receiver_inputs)
     {

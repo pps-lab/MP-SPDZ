@@ -38,12 +38,16 @@ class SubProcessor
   DataPositions bit_usage;
   NamedStats stats;
 
+  Binary_File_IO<T> binary_file_io;
+
   void resize(size_t size)       { C.resize(size); S.resize(size); }
 
   void matmulsm_prep(int ii, int j, const MemoryPart<T>& source,
       const vector<int>& dim, size_t a, size_t b);
   void matmulsm_finalize(int i, int j, const vector<int>& dim,
       typename vector<T>::iterator C);
+
+  void maybe_check();
 
   template<class sint, class sgf2n> friend class Processor;
   template<class U> friend class SPDZ;
@@ -94,8 +98,7 @@ public:
   void secure_shuffle(const Instruction& instruction);
   size_t generate_secure_shuffle(const Instruction& instruction,
       ShuffleStore& shuffle_store);
-  void apply_shuffle(const Instruction& instruction, int handle,
-          ShuffleStore& shuffle_store);
+  void apply_shuffle(const Instruction& instruction, ShuffleStore& shuffle_store);
   void inverse_permutation(const Instruction& instruction);
 
   void input_personal(const vector<int>& args);
@@ -127,6 +130,13 @@ public:
   void push_stack();
   void push_args(const vector<int>& args);
   void pop_stack(const vector<int>& results);
+
+  // Read and write secret numeric data to file (name hardcoded at present)
+  template<class U>
+  void read_shares_from_file(long start_file_pos, int end_file_pos_register,
+      const vector<int>& data_registers, size_t vector_size, U& Proc);
+  void write_shares_to_file(long start_pos, const vector<int>& data_registers,
+      size_t vector_size);
 };
 
 class ArithmeticProcessor : public ProcessorBase
@@ -223,11 +233,10 @@ class Processor : public ArithmeticProcessor
   SubProcessor<sgf2n> Proc2;
   SubProcessor<sint>  Procp;
 
-  unsigned int PC;
+  unsigned int PC, last_PC;
   TempVars<sint, sgf2n> temp;
 
   ExternalClients& external_clients;
-  Binary_File_IO binary_file_io;
 
   CommStats client_stats;
   Timer& client_timer;
@@ -288,10 +297,6 @@ class Processor : public ArithmeticProcessor
   void read_socket_private(int client_id, const vector<int>& registers,
       int size, bool send_macs);
 
-  // Read and write secret numeric data to file (name hardcoded at present)
-  void read_shares_from_file(int start_file_pos, int end_file_pos_register, const vector<int>& data_registers);
-  void write_shares_to_file(long start_pos, const vector<int>& data_registers);
-  
   cint get_inverse2(unsigned m);
 
   void fixinput(const Instruction& instruction);

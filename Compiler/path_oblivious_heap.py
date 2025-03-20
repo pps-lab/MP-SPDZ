@@ -1,4 +1,4 @@
-"""This module contains an implementation of the "Path Oblivious Heap"
+r"""This module contains an implementation of the "Path Oblivious Heap"
 oblivious priority queue as proposed by 
 `Shi <https://eprint.iacr.org/2019/274.pdf>`_.
 
@@ -968,6 +968,7 @@ class PathObliviousHeap(AbstractMinPriorityQueue[_secret]):
         self.type_hiding_security = type_hiding_security
         self.capacity = capacity
         self.entry_size = entry_size
+        self.size = MemValue(sint(0))
 
         # Print debug messages
         dprint(f"[POH] __init__: Initializing a queue...")
@@ -1024,6 +1025,7 @@ class PathObliviousHeap(AbstractMinPriorityQueue[_secret]):
             dprint_ln("\n[POH] insert")
         indent()
         self.tree.insert(value, priority, fake)
+        self.size.iadd(fake.bit_not())
         outdent()
 
     def _extract_min(self, fake: _secret) -> _secret:
@@ -1031,6 +1033,7 @@ class PathObliviousHeap(AbstractMinPriorityQueue[_secret]):
             dprint_ln("\n[POH] extract_min")
         indent()
         value = self.tree.extract_min(fake)
+        self.size.iadd(-fake.bit_not())
         outdent()
         if TRACE:
             dprint_ln("[POH] extract_min: extracted value %s", value.reveal())

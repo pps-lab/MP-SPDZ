@@ -16,17 +16,18 @@ using namespace std;
  * Intended for MPC application specific file IO.
  */
 
+template<class T>
 class Binary_File_IO
 {
   public:
 
   static string filename(int my_number);
+  static void reset(int my_number);
 
   /*
    * Append the buffer values as binary to the filename.
    * Throws file_error.   
    */
-  template <class T>
   void write_to_file(const string filename, const vector<T>& buffer,
       long start_pos);
 
@@ -36,8 +37,8 @@ class Binary_File_IO
    * Returns the current posn in the file or -1 if at eof.
    * Throws file_error.
    */
-  template <class T>
-  void read_from_file(const string filename, vector< T >& buffer, const int start_posn, int &end_posn);
+  void read_from_file(const string filename, vector<T>& buffer,
+      const long start_posn, long& end_posn);
 };
 
 #endif

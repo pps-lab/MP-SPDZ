@@ -369,7 +369,7 @@ def gf2n(instruction):
         if isinstance(arg_format, list):
             __format = []
             for __f in arg_format:
-                if __f in ('int', 'long', 'p', 'ci', 'str'):
+                if __f in ('int', 'long', 'p', 'ci', 'ciw', 'str'):
                     __format.append(__f)
                 else:
                     __format.append(__f[0] + 'g' + __f[1:])
@@ -1200,9 +1200,11 @@ class VarArgsInstruction(Instruction):
 class VectorInstruction(Instruction):
     __slots__ = []
     is_vec = lambda self: True
+    vector_index = 0
 
     def get_code(self):
-        return super(VectorInstruction, self).get_code(len(self.args[0]))
+        return super(VectorInstruction, self).get_code(
+            len(self.args[self.vector_index]))
 
 class Ciscable(Instruction):
     def copy(self, size, subs):

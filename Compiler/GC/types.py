@@ -66,7 +66,7 @@ class bits(Tape.Register, _structure, _bit):
     def bit_compose(cls, bits):
         bits = list(bits)
         if len(bits) == 1 and isinstance(bits[0], cls):
-            return bits[0]
+            return cls(bits[0])
         bits = list(bits)
         for i in range(len(bits)):
             if util.is_constant(bits[i]):
@@ -179,8 +179,11 @@ class bits(Tape.Register, _structure, _bit):
                 inst.ldbits(self[i], min(self.unit, self.n - i * self.unit), 0)
         elif (isinstance(self, type(other)) or isinstance(other, type(self))) \
              and self.n == other.n:
-            for i in range(math.ceil(self.n / self.unit)):
-                self.mov(self[i], other[i])
+            try:
+                self.mov(self, other)
+            except AssertionError:
+                for i in range(math.ceil(self.n / self.unit)):
+                    self.mov(self[i], other[i])
         elif isinstance(other, sintbit) and isinstance(self, sbits):
             assert len(other) == 1
             r = sint.get_dabit()
@@ -387,8 +390,12 @@ class cbits(bits):
         res = type(self)()
         inst.notcb(self.n, res, self)
         return res
-    def __eq__(self, other):
-        raise CompilerError('equality not implemented')
+    __lt__ = lambda self, other: regint(self) < other
+    __le__ = lambda self, other: regint(self) <= other
+    __gt__ = lambda self, other: regint(self) > other
+    __ge__ = lambda self, other: regint(self) >= other
+    __eq__ = lambda self, other: regint(self) == other
+    __ne__ = lambda self, other: regint(self) != other
     def print_reg(self, desc=''):
         inst.print_regb(self, desc)
     def print_reg_plain(self):
@@ -737,6 +744,10 @@ class sbitvec(_vec, _bit, _binary):
         :py:obj:`v` and the columns by calling :py:obj:`elements`.
         """
         class sbitvecn(cls, _structure):
+            n_bits = n
+            @staticmethod
+            def get_type(n):
+                return cls.get_type(n)
             @classmethod
             def malloc(cls, size, creator_tape=None):
                 return sbit.malloc(
@@ -754,17 +765,19 @@ class sbitvec(_vec, _bit, _binary):
 
                 :param: player (int)
                 """
-                v = [0] * n
                 sbits._check_input_player(player)
                 instructions_base.check_vector_size(size)
-                for i in range(size):
-                    vv = [sbit() for i in range(n)]
-                    inst.inputbvec(n + 3, f, player, *vv)
-                    for j in range(n):
-                        tmp = vv[j] << i
-                        v[j] = tmp ^ v[j]
-                        sbits._check_input_player(player)
-                return cls.from_vec(v)
+                if size == 1:
+                    res = cls.from_vec(sbit() for i in range(n))
+                    inst.inputbvec(n + 3, f, player, *res.v)
+                    return res
+                else:
+                    elements = []
+                    for i in range(size):
+                        v = sbits.get_type(n)()
+                        inst.inputb(player, n, f, v)
+                        elements.append(v)
+                    return cls(elements)
             get_raw_input_from = get_input_from
             @classmethod
             def from_vec(cls, vector):
@@ -789,7 +802,8 @@ class sbitvec(_vec, _bit, _binary):
             @classmethod
             def load_mem(cls, address, size=None):
                 if isinstance(address, int) or len(address) == 1:
-                    address = [address + i for i in range(size or 1)]
+                    address = [address + i * cls.mem_size()
+                               for i in range(size or 1)]
                 else:
                     assert size == None
                 return cls(
@@ -799,9 +813,7 @@ class sbitvec(_vec, _bit, _binary):
                 for x in self.v:
                     if not util.is_constant(x):
                         size = max(size, x.n)
-                if isinstance(address, int):
-                    address = range(address, address + size)
-                elif len(address) == 1:
+                if isinstance(address, int) or len(address) == 1:
                     address = [address + i * self.mem_size()
                                for i in range(size)]
                 else:
@@ -1026,7 +1038,9 @@ class sbitvec(_vec, _bit, _binary):
                 res.append([x * sbits.get_type(m)().long_one()
                             for x in util.bit_decompose(y, len(self.v))])
             else:
-                res.append([x.expand(m) if (expand and isinstance(x, bits)) else x for x in y.v])
+                v = [type(x)(x) if isinstance(x, bits) else x for x in y.v]
+                res.append([x.expand(m) if (expand and isinstance(x, bits))
+                            else x for x in v])
         return res
     def demux(self):
         if len(self) == 1:
@@ -1424,6 +1438,9 @@ class sbitintvec(sbitvec, _bitint, _number, _sbitintbase):
 
         :param k: bit length of input """
         return _sbitintbase.pow2(self, k)
+    @staticmethod
+    def reverse_type(other):
+        return isinstance(other, sbitfixvec)
 
 sbits.vec = sbitvec
 sbitint.vec = sbitintvec

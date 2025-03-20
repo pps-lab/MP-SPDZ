@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <math.h>
+#include <iostream>
 
 template<class T>
 void append(vector<T>& x, const vector<T>& y)
@@ -24,7 +25,7 @@ vector<vector<bool> > Waksman::configure(const vector<int>& perm)
         return {{perm[0] == 1, perm[0] == 1}};
 
     vector<bool> I(n / 2);
-    vector<char> O(n / 2, -1);
+    vector<int> O(n / 2, -1);
     vector<int>  p0(n / 2, -1), p1(n / 2, -1), inv_perm(n);
 
     for (int i = 0; i < n; i++)
@@ -79,6 +80,25 @@ vector<vector<bool> > Waksman::configure(const vector<int>& perm)
         res.push_back(p0_config.at(i));
         append(res.back(), p1_config.at(i));
     }
+
+#ifdef DEBUG_WAKSMAN
+    for (auto& x : perm)
+        std::cout << x << " ";
+    std::cout << endl;
+    for (auto x : I)
+        cout << x << " ";
+    cout << endl;
+    for (auto& x : O)
+        cout << int(x) << " ";
+    cout << endl;
+    for (auto& x : res)
+    {
+        for (auto y : x)
+            std::cout << y << " ";
+        std::cout << endl;
+    }
+    cout << endl;
+#endif
 
     assert(res.size() == Waksman(perm.size()).n_rounds());
     return res;

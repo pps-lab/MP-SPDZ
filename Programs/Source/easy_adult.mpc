@@ -3,7 +3,7 @@ from sklearn.model_selection import train_test_split
 from Compiler import decision_tree
 
 data = pandas.read_csv(
-    'https://datahub.io/machine-learning/adult/r/adult.csv')
+    'https://raw.githubusercontent.com/jbrownlee/Datasets/master/adult-all.csv', header=None)
 #'/tmp/adult.csv')
 
 data, attr_types = decision_tree.preprocess_pandas(data)

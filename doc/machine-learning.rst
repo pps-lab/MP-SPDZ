@@ -378,7 +378,7 @@ library::
   from Compiler import decision_tree
 
   data = pandas.read_csv(
-    'https://datahub.io/machine-learning/adult/r/adult.csv')
+    'https://raw.githubusercontent.com/jbrownlee/Datasets/master/adult-all.csv', header=None)
 
   data, attr_types = decision_tree.preprocess_pandas(data)
 

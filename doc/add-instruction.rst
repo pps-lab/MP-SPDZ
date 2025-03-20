@@ -70,8 +70,24 @@ functionality to check arguments for correctness such as Python type.
 
 By default, register arguments are understood as single registers. The
 :py:obj:`vectorize` decorator is an easy way to allow vector arguments
-if all register arguments have the same length. The vector size stored
-independently of the arguments.
+if all register arguments have the same length. The vector size is
+stored independently of the arguments. The decorator creates two
+instructions, a base version for single registers and a vectorized
+version, which is called as follows in the example for length
+:py:obj:`n`::
+
+  vprefixsums(n, result, operand)
+
+At the higher level, the vector length is usually derived from the
+input using the :py:obj:`vectorize` decorator as in
+:py:func:`~Compiler.types.sint.prefix_sum`::
+
+  @vectorize
+  def prefix_sum(self):
+      """ Prefix sum. """
+      res = sint()
+      prefixsums(res, self)
+      return res
 
 All instruction classes should inherit from :py:obj:`Instruction` in
 :download:`../Compiler/instructions_base.py`.
