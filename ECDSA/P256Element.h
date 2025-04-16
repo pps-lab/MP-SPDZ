@@ -91,7 +91,9 @@ public:
 
     // End of custom functions
 };
-
-P256Element operator*(const P256Element::Scalar& x, const P256Element& y);
+template<typename T, typename U,
+         std::enable_if_t<std::is_same_v<T, P256Element::Scalar> && std::is_same_v<U, P256Element>, int> = 0>
+P256Element operator*(const T&, const U&);
+//P256Element operator*(const P256Element::Scalar& x, const P256Element& y);
 
 #endif /* ECDSA_P256ELEMENT_H_ */

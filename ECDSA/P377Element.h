@@ -100,6 +100,9 @@ public:
 
 };
 
-P377Element operator*(const P377Element::Scalar& x, const P377Element& y);
+template<typename T, typename U,
+         std::enable_if_t<std::is_same_v<T, P377Element::Scalar> && std::is_same_v<U, P377Element>, int> = 0>
+P377Element operator*(const T&, const U&);
+//P377Element operator*(const P377Element::Scalar& x, const P377Element& y);
 
 #endif /* ECDSA_P377ELEMENT_H_ */

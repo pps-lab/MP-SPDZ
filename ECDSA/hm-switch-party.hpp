@@ -18,6 +18,7 @@
 #include "GC/MaliciousCcdSecret.h"
 #include "GC/CcdSecret.h"
 #include "GC/VectorInput.h"
+#include "GC/CcdPrep.h"
 
 #include "ECDSA/preprocessing.hpp"
 #include "ECDSA/sign.hpp"

@@ -9,6 +9,7 @@
 
 #include "Protocols/Share.hpp"
 #include "Protocols/MAC_Check.hpp"
+#include "Protocols/SPDZ.h"
 #include "GC/Secret.hpp"
 #include "GC/TinierSharePrep.hpp"
 #include "Protocols/MascotPrep.hpp"
