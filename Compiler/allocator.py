@@ -489,7 +489,7 @@ class Merger:
                 if this[-1] < other[0]:
                     del this[:]
             this.append(n)
-            if last_access_this_kind == last_mem_write_of:
+            if id(last_access_this_kind) == id(last_mem_write_of):
                 insts = itertools.chain(other, this)
             else:
                 insts = other

@@ -31,7 +31,7 @@ public:
     static int length() { return 256; }
     static string type_string() { return "P256"; }
 
-    static void init(bool init_field = false);
+    static void init(int nid = NID_X9_62_prime256v1, bool init_field = false);
     static void finish();
 
     P256Element();

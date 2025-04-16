@@ -2210,6 +2210,7 @@ class _secret(_arithmetic_register, _secret_structure):
     @classmethod
     @set_instruction_type
     def matrix_mul(cls, A, B, n, res_params=None):
+        assert issubclass(cls, sint)
         assert len(A) % n == 0
         assert len(B) % n == 0
         size = len(A) * len(B) // n**2
@@ -7104,6 +7105,9 @@ class SubMultiArray(_vectorizable):
         assert len(self.sizes) == 2
         assert len(other.sizes) == 2
         assert other.address != None
+        if program.options.binary:
+            assert indices is None
+            return self.dot(other.transpose())[:]
         if indices is None:
             assert self.sizes[1] == other.sizes[1]
             indices = [regint.inc(i) for i in self.sizes + other.sizes[::-1]]
@@ -7127,6 +7131,9 @@ class SubMultiArray(_vectorizable):
         """
         assert len(self.sizes) == 2
         assert len(other.sizes) == 2
+        if program.options.binary:
+            assert indices is None
+            return self.transpose().dot(other)[:]
         if indices is None:
             assert self.sizes[0] == other.sizes[0]
             indices = [regint.inc(i) for i in self.sizes[::-1] + other.sizes]
@@ -7151,6 +7158,9 @@ class SubMultiArray(_vectorizable):
         assert res.sizes[0] == self.sizes[1]
         assert res.sizes[1] == other.sizes[1]
         assert len(res.sizes) == 2
+        if program.options.binary:
+            res[:] = self.transpose().dot(other)
+            return
         @library.for_range_multithread(n_threads, 1, self.sizes[1])
         def _(i):
             indices = [regint(i), regint.inc(self.sizes[0])]
@@ -7171,6 +7181,9 @@ class SubMultiArray(_vectorizable):
         assert res.sizes[0] == self.sizes[0]
         assert res.sizes[1] == other.sizes[0]
         assert len(res.sizes) == 2
+        if program.options.binary:
+            res[:] = self.dot(other.transpose())
+            return
         @library.for_range_multithread(n_threads, 1, self.sizes[0])
         def _(i):
             indices = [regint(i), regint.inc(self.sizes[1])]
@@ -7260,7 +7273,7 @@ class SubMultiArray(_vectorizable):
         assert len(self.sizes) == 2
         res = Matrix(self.sizes[1], self.sizes[0], self.value_type)
         library.break_point()
-        if self.value_type.n_elements() == 1:
+        if self.value_type.n_elements() == 1 and not program.options.binary:
             if self.sizes[0] < program.budget:
                 if self.sizes[1] < program.budget:
                     nr = self.sizes[1]

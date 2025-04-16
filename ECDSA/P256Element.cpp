@@ -7,11 +7,12 @@
 
 #include "Math/gfp.hpp"
 
-EC_GROUP* P256Element::curve;
+EC_GROUP* P256Element::curve = 0;
 
-void P256Element::init(bool init_field)
+void P256Element::init(int nid, bool init_field)
 {
-    curve = EC_GROUP_new_by_curve_name(NID_secp256k1);
+    assert(not curve);
+    curve = EC_GROUP_new_by_curve_name(nid);
     assert(curve != 0);
     if (init_field) {
         auto modulus = EC_GROUP_get0_order(curve);

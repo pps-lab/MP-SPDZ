@@ -649,7 +649,7 @@ class sbits(bits):
         """ Population count / Hamming weight.
 
         :return: :py:obj:`sbits` of required length """
-        return sbitvec(self).popcnt().elements()[0]
+        return sbitvec([self]).popcnt().elements()[0]
     @classmethod
     def trans(cls, rows):
         rows = list(rows)

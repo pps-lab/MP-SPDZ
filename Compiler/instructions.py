@@ -2532,10 +2532,6 @@ class dotprods(base.VarArgsInstruction, base.DataInstruction,
                 yield 's' + field
             yield 'int'
 
-    @property
-    def gf2n_arg_format(self):
-        return self.arg_format()
-
     def get_repeat(self):
         return sum(self.args[i] // 2 - 1
                    for i, n in self.bases(iter(self.args)))
