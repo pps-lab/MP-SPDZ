@@ -103,7 +103,7 @@ void run(int argc, const char** argv) {
         P377Element::finish();
     } else if (opts.curve == "sec256k1") {
 
-        P256Element::init(false);
+        P256Element::init(NID_X9_62_prime256v1, false);
 
         bigint order = P256Element::get_order();
         run<share<P256Element::Scalar>>(argc, argv, order);

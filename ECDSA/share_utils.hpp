@@ -34,7 +34,7 @@ std::vector<T> read_inputs(Player& P, size_t size, int start, string suffix = ""
     if (size == 0) {
         return std::vector<T>();
     }
-    Binary_File_IO binary_file_io = Binary_File_IO();
+    Binary_File_IO<T> binary_file_io = Binary_File_IO<T>();
 
     string filename;
     filename = binary_file_io.filename(P.my_num());
@@ -44,8 +44,8 @@ std::vector<T> read_inputs(Player& P, size_t size, int start, string suffix = ""
 
     std::vector< T > outbuf(size);
 
-    int start_file_posn = start;
-    int end_file_posn = start_file_posn;
+    long start_file_posn = start;
+    long end_file_posn = start_file_posn;
 
     try {
         binary_file_io.read_from_file(filename_suffix, outbuf, start_file_posn, end_file_posn);
@@ -59,7 +59,7 @@ std::vector<T> read_inputs(Player& P, size_t size, int start, string suffix = ""
 
 template<class T>
 void write_shares(Player& P, vector<T>& shares, string suffix = "", bool overwrite = false, int start_pos = 0) {
-    Binary_File_IO binary_file_io = Binary_File_IO();
+    Binary_File_IO<T> binary_file_io = Binary_File_IO<T>();
 
     string filename;
     filename = binary_file_io.filename(P.my_num());

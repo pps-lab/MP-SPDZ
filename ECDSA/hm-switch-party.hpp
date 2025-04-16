@@ -36,7 +36,7 @@
 #include "GC/RepPrep.hpp"
 #include "GC/ThreadMaster.hpp"
 #include "GC/Secret.hpp"
-#include "Machines/ShamirMachine.hpp"
+#include "Protocols/ShamirOptions.h"
 #include "Machines/MalRep.hpp"
 #include "Machines/Rep.hpp"
 #include "ECDSA/share_utils.hpp"
@@ -1152,7 +1152,7 @@ void run(int argc, const char** argv, int bit_length = -1, int n_players = 3, bo
         P377Element::finish();
     } else if (opts.curve == "sec256k1") {
 
-        P256Element::init(false);
+        P256Element::init(NID_X9_62_prime256v1, false);
 
         bigint order = P256Element::get_order();
         run<inputShare, outputShare<P256Element::Scalar>>(argc, argv, order, bit_length, n_players, input_is_field);

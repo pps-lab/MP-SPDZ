@@ -353,7 +353,7 @@ void run(int argc, const char** argv) {
     PCOptions opts(opt, argc, argv);
 
     if (opts.curve == "bls12377") {
-        P256Element::init(true);
+        P256Element::init(NID_X9_62_prime256v1, true);
 
         libff::bls12_377_pp::init_public_params();
         mpz_t t;
