@@ -11,6 +11,9 @@
 #include "Protocols/AtlasShare.h"
 #include "Protocols/Rep4Share.h"
 #include "Protocols/ProtocolSet.h"
+#include "Protocols/SPDZ.h"
+#include "Protocols/Hemi.hpp"
+
 #include "Math/gfp.h"
 #include "ECDSA/P256Element.h"
 #include "Tools/Bundle.h"

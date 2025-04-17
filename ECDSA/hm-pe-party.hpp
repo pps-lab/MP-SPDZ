@@ -34,7 +34,7 @@
 #include "GC/RepPrep.hpp"
 #include "GC/ThreadMaster.hpp"
 #include "GC/Secret.hpp"
-#include "Machines/ShamirOptions.h"
+#include "Protocols/ShamirOptions.h"
 #include "Machines/MalRep.hpp"
 #include "Machines/Rep.hpp"
 

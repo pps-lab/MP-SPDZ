@@ -58,6 +58,7 @@ public:
     P377Element operator+(const P377Element& other) const;
     P377Element operator-(const P377Element& other) const;
     P377Element operator*(const Scalar& other) const;
+    friend P377Element operator*(const Scalar& x, const P377Element& y);
 
     P377Element& operator+=(const P377Element& other);
     P377Element& operator/=(const Scalar& other);
@@ -100,9 +101,9 @@ public:
 
 };
 
-template<typename T, typename U,
-         std::enable_if_t<std::is_same_v<T, P377Element::Scalar> && std::is_same_v<U, P377Element>, int> = 0>
-P377Element operator*(const T&, const U&);
+//template<typename T, typename U,
+//         std::enable_if_t<std::is_same_v<T, P377Element::Scalar> && std::is_same_v<U, P377Element>, int> = 0>
+//P377Element operator*(const T&, const U&);
 //P377Element operator*(const P377Element::Scalar& x, const P377Element& y);
 
 #endif /* ECDSA_P377ELEMENT_H_ */

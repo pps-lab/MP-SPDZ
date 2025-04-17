@@ -10,6 +10,8 @@
 #include "Protocols/SemiShare.h"
 #include "Processor/BaseMachine.h"
 #include "Protocols/ProtocolSet.h"
+#include "Protocols/SPDZ.h"
+#include "Protocols/Hemi.hpp"
 
 #include "ECDSA/preprocessing.hpp"
 #include "ECDSA/sign.hpp"
