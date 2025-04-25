@@ -256,7 +256,7 @@ void run(int argc, const char** argv, bigint order)
 
 //    string message = "Hello";
     // Now onto signing
-    P256Element::init();
+    P256Element::init(NID_X9_62_prime256v1, false);
     P256Element::Scalar::next::init_field(P256Element::Scalar::pr(), false);
 
     P256Element::Scalar keyp;
