@@ -111,7 +111,7 @@ void run(int argc, const char** argv, bigint order)
 //    std::cout << "Message: " << message << endl;
 
     // Signing
-    P256Element::init(NID_X9_62_prime256v1, false);
+//    P256Element::init(NID_X9_62_prime256v1, false);
     typedef T<P256Element::Scalar> pShare;
     OnlineOptions::singleton.batch_size = 1;
     // synchronize
