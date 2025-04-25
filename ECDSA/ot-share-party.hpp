@@ -5,6 +5,7 @@
 
 #include "Networking/Server.h"
 #include "Networking/CryptoPlayer.h"
+#include "Protocols/ShamirOptions.h"
 #include "Protocols/Replicated.h"
 #include "Protocols/MaliciousRep3Share.h"
 #include "Protocols/ReplicatedInput.h"
@@ -36,7 +37,7 @@
 #include "GC/RepPrep.hpp"
 #include "GC/ThreadMaster.hpp"
 #include "GC/Secret.hpp"
-#include "Protocols/ShamirOptions.h"
+#include "GC/CcdPrep.h"
 #include "Machines/MalRep.hpp"
 #include "Machines/Rep.hpp"
 #include "ECDSA/share_utils.hpp"
