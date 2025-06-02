@@ -1,6 +1,3 @@
-[submodule "SimpleOT"]
-	path = deps/SimpleOT
-	url = https://github.com/mkskeller/SimpleOT
 [submodule "Programs/Circuits"]
 	path = Programs/Circuits
 	url = https://github.com/mkskeller/bristol-fashion

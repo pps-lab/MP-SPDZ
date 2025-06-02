@@ -158,9 +158,12 @@ def argmax(x):
     :returns: sint or 0 if :py:obj:`x` has length 1
     """
     def op(a, b):
-        comp = (a[1] > b[1])
+        comp = b[1].less_than(a[1], sync=False)
         return comp.if_else(a[0], b[0]), comp.if_else(a[1], b[1])
-    return tree_reduce(op, enumerate(x))[0]
+    res = tree_reduce(op, enumerate(x))[0]
+    if isinstance(res, regint):
+        res = cint(res)
+    return res
 
 def softmax(x):
     """ Softmax.
@@ -244,6 +247,10 @@ class Tensor(MultiArray):
         self.alloc()
         return super(Tensor, self).assign_vector_by_indices(*args)
 
+    def randomize(self, *args, **kwargs):
+        self.alloc()
+        return super(Tensor, self).randomize(*args, **kwargs)
+
 class Layer:
     n_threads = 1
     inputs = []
@@ -286,7 +293,7 @@ class Layer:
         return type(self).__name__ + str(self._Y.shape)
 
     def __repr__(self):
-        return '%s(%s)' % (type(self).__name__, self.Y.shape)
+        return '%s(%s)' % (type(self).__name__, self._Y.shape)
 
 class NoVariableLayer(Layer):
     input_from = lambda *args, **kwargs: None
@@ -821,7 +828,7 @@ class Dense(DenseBase):
         back_N = min(N, self.back_batch_size)
         self.nabla_Y = Tensor([back_N, d, d_out], sfix)
         self.nabla_X = Tensor([back_N, d, d_in], sfix)
-        self.nabla_W = sfix.Matrix(d_in, d_out)
+        self.nabla_W = Tensor([d_in, d_out], sfix)
         self.nabla_b = sfix.Array(d_out)
 
         self.debug = debug
@@ -887,7 +894,7 @@ class Dense(DenseBase):
             batch.assign(regint.inc(self.N))
         self.compute_f_input(batch=batch)
         if self.activation_layer:
-            self.activation_layer.forward(batch)
+            self.activation_layer.forward(batch, training=True)
         if self.debug_output:
             print_ln('dense X %s', self.X.reveal_nested())
             print_ln('dense W %s', self.W.reveal_nested())
@@ -1370,12 +1377,18 @@ class Relu(ElementWiseLayer):
 
     def __init__(self, shape, inputs=None):
         super(Relu, self).__init__(shape)
-        self.comparisons = MultiArray(shape, sint)
+        self.comparisons = None
+
+    def forward(self, batch=None, training=False):
+        if training and not self.comparisons:
+            self.comparisons = MultiArray(self.shape, sint)
+        super(Relu, self).forward(batch=batch, training=training)
 
     def f_part(self, base, size):
         x = self.X.get_vector(base, size)
         c = x > 0
-        self.comparisons.assign_vector(c, base)
+        if self.comparisons:
+            self.comparisons.assign_vector(c, base)
         return c.if_else(x, 0)
 
     def f_prime_part(self, base, size):
@@ -1560,24 +1573,28 @@ class PoolBase(NoVariableLayer):
         self.nabla_X = Tensor(shape, sfix)
         self.nabla_Y = Tensor(output_shape, sfix)
         self.N = shape[0]
-        self.comparisons = MultiArray([self.N, self.X.sizes[3],
-                                       output_shape[1], output_shape[2],
-                                       ksize[1] * ksize[2]], sint)
+        self.comparisons = Tensor([self.N, self._X.sizes[3],
+                                   output_shape[1], output_shape[2],
+                                   ksize[1] * ksize[2]], sint)
 
     def __repr__(self):
         return '%s(%s, strides=%s, ksize=%s, padding=%s)' % \
-            (type(self).__name__, self.X.sizes, self.strides,
+            (type(self).__name__, self._X.sizes, self.strides,
              self.ksize, self.padding)
 
     def traverse(self, batch, process):
         need_padding = [self.strides[i] * (self.Y.sizes[i] - 1) + self.ksize[i] >
                         self.X.sizes[i] for i in range(4)]
+        if not program.options.budget:
+            budget = max(10000, program.budget)
+        else:
+            budget = program.budget
         @for_range_opt_multithread(self.n_threads,
-                                   [len(batch), self.X.sizes[3]])
+                                   [len(batch), self.X.sizes[3]], budget=budget)
         def _(l, k):
             bi = batch[l]
             XX = self.X[bi]
-            @for_range_opt(self.Y.sizes[1])
+            @for_range_opt(self.Y.sizes[1], budget=budget)
             def _(i):
                 h_base = self.strides[1] * i - self.padding[1]
                 hs = [h_base + jj for jj in range(self.ksize[1])]
@@ -1585,7 +1602,7 @@ class PoolBase(NoVariableLayer):
                     h_ins = [(h < self.X.sizes[1]) * (h >= 0) for h in hs]
                 else:
                     h_ins = [True] * self.ksize[1]
-                @for_range_opt(self.Y.sizes[2])
+                @for_range_opt(self.Y.sizes[2], budget=budget)
                 def _(j):
                     w_base = self.strides[2] * j - self.padding[1]
                     pool = []
@@ -1616,10 +1633,15 @@ class MaxPool(PoolBase):
       list/tuple of integers
 
     """
-    @_layer_method_call_tape
     def forward(self, batch=None, training=False):
         if batch is None:
             batch = Array.create_from(regint(0))
+        if training:
+            self.comparisons.alloc()
+        self._forward(batch=batch, training=training)
+
+    @_layer_method_call_tape
+    def _forward(self, batch, training):
         def process(pool, bi, k, i, j):
             def m(a, b):
                 c = a[0] > b[0]
@@ -1637,7 +1659,7 @@ class MaxPool(PoolBase):
         if compute_nabla_X:
             self.nabla_X.alloc()
             self.nabla_X.assign_all(0)
-            break_point()
+            break_point('maxpool-backward')
             def process(pool, bi, k, i, j):
                 for (x, h_in, w_in, h, w), c \
                     in zip(pool, self.comparisons[bi][k][i][j]):
@@ -2258,8 +2280,6 @@ class ConvBase(BaseLayer):
         if self.use_bias:
             self.nabla_bias = Array(output_shape[-1], self.bias_squant)
 
-        self.unreduced = Tensor(self.output_shape, sint, address=self.Y.address)
-
         if tf_weight_format:
             weight_in = weight_shape[2]
         else:
@@ -2276,6 +2296,10 @@ class ConvBase(BaseLayer):
             (type(self).__name__, self.X.sizes, self.weight_shape,
              self.bias_shape, self.Y.sizes, self.stride, repr(self.padding),
              self.tf_weight_format)
+
+    @property
+    def unreduced(self):
+        return Tensor(self.output_shape, sint, address=self.Y.address)
 
     def input_from(self, player, **kwargs):
         self.input_params_from(player)
@@ -3496,7 +3520,8 @@ class Optimizer:
         res.output_stats = 'output_stats' in program.args
         return res
 
-    def __init__(self, layers=[], report_loss=None, time_layers=False):
+    def __init__(self, layers=[], report_loss=None, time_layers=False,
+                 program=None):
         if get_program().options.binary:
             raise CompilerError(
                 'machine learning code not compatible with binary circuits')
@@ -3512,9 +3537,12 @@ class Optimizer:
         self.stopped_on_low_loss = MemValue(0)
         self.layers = layers
         self.time_layers = time_layers
-        if time_layers:
+        if program:
+            self.time_layers |= 'time_layers' in program.args
+        if self.time_layers:
             for i, layer in enumerate(layers):
                 print('Timer %d: %s' % (100 + i, repr(layer)))
+        get_program().reading('deep learning', 'KS22')
 
     @property
     def layers(self):
@@ -3539,8 +3567,9 @@ class Optimizer:
         self._layers = layers
         used = set([None])
         for layer in reversed(layers):
-            layer.last_used = list(filter(lambda x: x not in used, layer.inputs))
-            used.update(layer.inputs)
+            inputs = layer.inputs or []
+            layer.last_used = list(filter(lambda x: x not in used, inputs))
+            used.update(inputs)
 
     def set_learning_rate(self, lr):
         print('Setting learning rate to', lr)
@@ -3564,7 +3593,8 @@ class Optimizer:
 
     @_no_mem_warnings
     def forward(self, N=None, batch=None, keep_intermediate=True,
-                model_from=None, training=False, run_last=True):
+                model_from=None, training=False, run_last=True,
+                delete_params=False):
         """ Compute graph.
 
         :param N: batch size (used if batch not given)
@@ -3580,7 +3610,7 @@ class Optimizer:
             layer.Y.alloc()
             if model_from is not None:
                 layer.input_from(model_from)
-            break_point()
+            break_point('pre-forward-layer-%d' % i)
             if self.time_layers:
                 start_timer(100 + i)
             if i != len(self.layers) - 1 or run_last:
@@ -3606,10 +3636,11 @@ class Optimizer:
                               for j in range(len(batch))])
             if self.time_layers:
                 stop_timer(100 + i)
-            break_point()
+            break_point('post-forward-layer-%d' % i)
             if not keep_intermediate:
                 for l in layer.last_used:
                     l.Y.delete()
+            if delete_params:
                 for theta in layer.thetas():
                     theta.delete()
 
@@ -3623,6 +3654,8 @@ class Optimizer:
         :returns: sfix/sint Array (depening on :py:obj:`top`)
 
         """
+        MultiArray.disable_index_checks()
+        Array.check_indices = False
 
         if latent_space_layer is not None:
 
@@ -3631,7 +3664,6 @@ class Optimizer:
 
             latent = sfix.Matrix(len(data), latent_space_size)
 
-
         if isinstance(self.layers[-1].Y, Array) or top:
             if top:
                 res = sint.Array(len(data))
@@ -3639,12 +3671,10 @@ class Optimizer:
                 res = sfix.Array(len(data))
         else:
             res = sfix.Matrix(len(data), self.layers[-1].d_out)
-
-
-
+        self.set_layers_with_inputs(self.layers)
         def f(start, batch_size, batch):
             batch.assign_vector(regint.inc(batch_size, start))
-            self.forward(batch=batch, run_last=not top)
+            self.forward(batch=batch, run_last=not top, keep_intermediate=False)
 
             if latent_space_layer is not None:
                 print("latent_space_layer.Y.sizes=%s", latent_space_layer.Y.sizes)
@@ -3661,7 +3691,7 @@ class Optimizer:
                 for layer in self.layers[:-1]:
                     print_ln(layer)
                     self.stat(' Y', layer.Y)
-        self.run_in_batches(f, data, batch_size or len(self.layers[1].X))
+        self.run_in_batches(f, data, batch_size or len(self.layers[1]._X))
         print_ln(" -> done")
 
         if latent_space_layer is not None:
@@ -3966,10 +3996,12 @@ class Optimizer:
             program.options.keep_cisc = 'FPDiv,exp2_fx,log2_fx'
         model_input = 'model_input' in program.args
         acc_first = model_input and not 'train_first' in program.args
+        self.output_stats = 'output_stats' in program.args
+        small_bench = 'bench10' in program.args or 'bench1' in program.args
         if model_input:
             for layer in self.layers:
                 layer.input_from(0)
-        elif reset and not 'no_reset' in program.args:
+        elif reset and not 'no_reset' in program.args and not small_bench:
             self.reset()
         else:
             for layer in self.layers:
@@ -3992,7 +4024,7 @@ class Optimizer:
             print_ln('loss %s', self.layers[-1].l.reveal())
             self.output_weights()
             return
-        if 'bench10' in program.args or 'bench1' in program.args:
+        if small_bench:
             n = 1 if 'bench1' in program.args else 10
             print('benchmarking %s iterations' % n)
             # force allocatoin
@@ -4011,7 +4043,8 @@ class Optimizer:
                     start_timer(1)
                 print('no_loss' in program.args, 'no_loss', program.args)
                 self.run(batch_size,
-                         stop_on_loss=0 if 'no_loss' in program.args else 100)
+                         stop_on_loss=0 if 'no_loss' in program.args or
+                         'no_stop_on_loss' else 100)
                 if self.time_training:
                     stop_timer(1)
             if 'no_acc' in program.args:
@@ -4103,6 +4136,7 @@ class Optimizer:
 
     @property
     def trainable_variables(self):
+        """ List of all trainable variables. """
         return list(self.thetas)
 
     def reveal_model_to_binary(self):
@@ -4592,7 +4626,7 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
             layers.append(FixAveragePool2d(input_shape, None, args[1],
                                            kwargs.get('stride', args[1]),
                                            kwargs.get('padding', 0)))
-            input_shape = layers[-1].Y.shape
+            input_shape = layers[-1].shape
             return
         # single-input layers from here
         if inputs and len(inputs) > 1:
@@ -4654,11 +4688,11 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
         elif name == 'MaxPool2d':
             layers.append(easyMaxPool(input_shape, item.kernel_size,
                                       item.stride, item.padding))
-            input_shape = layers[-1].Y.shape
+            input_shape = layers[-1].shape
         elif name == 'AvgPool2d':
             layers.append(FixAveragePool2d(input_shape, None, item.kernel_size,
                                            item.stride, item.padding))
-            input_shape = layers[-1].Y.shape
+            input_shape = layers[-1].shape
         elif name == 'AdaptiveAvgPool2d' or \
              item == torch.nn.functional.adaptive_avg_pool2d:
             if name == 'AdaptiveAvgPool2d':
@@ -4672,7 +4706,7 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
                            for i in (0, 1)]
             layers.append(FixAveragePool2d(input_shape, None, kernel_size,
                                            stride, padding=0))
-            input_shape = layers[-1].Y.shape
+            input_shape = layers[-1].shape
         elif name == 'ReLU' or item == torch.nn.functional.relu:
             layers.append(Relu(input_shape))
         elif name == 'Flatten':

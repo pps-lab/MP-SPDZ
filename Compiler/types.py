@@ -1104,9 +1104,11 @@ class cint(_clear, _int):
 
     @staticmethod
     def in_immediate_range(value, regint=False):
-        if program.options.ring and not regint:
-            if abs(value) > 2 ** int(program.options.ring):
-                raise CompilerError('value outside range for domain')
+        if value and not regint:
+            # +1 for sign
+            bit_length = 1 + int(math.ceil(math.log(abs(value), 2)))
+            program.non_linear.require_bit_length(
+                bit_length, 'integer conversion')
         return value < 2**31 and value >= -2**31
 
     @vectorize_init
@@ -1115,13 +1117,6 @@ class cint(_clear, _int):
 
     @vectorize
     def load_int(self, val):
-        if val:
-            # +1 for sign
-            bit_length = 1 + int(math.ceil(math.log(abs(val))))
-            if program.options.ring:
-                assert(bit_length <= int(program.options.ring))
-            elif program.options.field:
-                program.curr_tape.require_bit_length(bit_length)
         if self.in_immediate_range(val):
             ldi(self, val)
         else:
@@ -1147,13 +1142,13 @@ class cint(_clear, _int):
         super(cint, self).load_other(val)
 
     @vectorize
-    def to_regint(self, n_bits=64, dest=None):
+    def to_regint(self, n_bits=64, dest=None, sync=True):
         """ Convert to regint.
 
         :param n_bits: bit length (int)
         :return: regint """
         dest = regint() if dest is None else dest
-        convmodp(dest, self, bitlength=n_bits)
+        convmodp(dest, self, sync, bitlength=n_bits)
         return dest
 
     def __mod__(self, other):
@@ -1189,16 +1184,21 @@ class cint(_clear, _int):
         return cfix._new(other) / cfix._new(self)
 
     @vectorize
-    def less_than(self, other, bit_length):
+    def less_than(self, other, bit_length=None, sync=True):
         """ Clear comparison for particular bit length.
 
         :param other: cint/regint/int
         :param bit_length: signed bit length of inputs
         :return: 0/1 (regint), undefined if inputs outside range """
+        bit_length = program.bit_length if bit_length is None else bit_length
         if not isinstance(other, (cint, regint, int)):
             return NotImplemented
         if bit_length <= 64:
-            return regint(self) < regint(other)
+            x = self.to_regint(sync=sync)
+            try:
+                return x < other.to_regint(sync=sync)
+            except:
+                return x < regint(other)
         else:
             sint.require_bit_length(bit_length + 1)
             diff = self - other
@@ -1275,7 +1275,7 @@ class cint(_clear, _int):
 
     def __abs__(self):
         """ Clear absolute. """
-        return (self >= 0).if_else(self, -self)
+        return self.conv(0).less_than(self, sync=False).if_else(self, -self)
 
     @vectorize
     def __invert__(self):
@@ -2220,6 +2220,28 @@ class _secret(_arithmetic_register, _secret_structure):
         matmuls(res, A, B, n_rows, n, n_cols)
         return res
 
+    @classmethod
+    @set_instruction_type
+    def direct_matrix_mul(cls, A, B, n, m, l, reduce=None, indices=None, indices_values=None):
+        if indices is None:
+            indices = [regint.inc(i) for i in (n, m, m, l)]
+            indices_values = [list(range(i)) for i in (n, m, m, l)]
+        res = cls(size=indices[0].size * indices[3].size)
+
+        if isinstance(A, int) and isinstance(B, int):
+            first_factor_base_addresses = [A]
+            second_factor_base_addresses = [B]
+        else:
+            first_factor_base_addresses = None
+            second_factor_base_addresses = None
+
+        matmulsm(res, regint(A), regint(B), len(indices[0]), len(indices[1]),
+                 len(indices[3]), *(list(indices) + [m, l]),
+                 first_factor_base_addresses=first_factor_base_addresses,
+                 second_factor_base_addresses=second_factor_base_addresses,
+                 indices_values=indices_values)
+        return res
+
     @staticmethod
     def _new(self):
         # mirror sfix
@@ -2254,8 +2276,17 @@ class _secret(_arithmetic_register, _secret_structure):
             movs(self, val)
         elif isinstance(val, sbits):
             assert(val.n == self.size)
+            if program.use_unsplit in (1, 2):
+                if program.use_unsplit == 1:
+                    unsplit(val, self)
+                else:
+                    x = [sint() for i in range(2)]
+                    unsplit(val, *x)
+                    movs(self, x[0].bit_xor(x[1]))
+                return
             r = self.get_dabit()
-            movs(self, r[0].bit_xor((r[1] ^ val).reveal().to_regint_by_bit()))
+            tmp = r[0].bit_xor((r[1] ^ val).reveal().to_regint_by_bit())
+            program.curr_block.replace_last_reg(self, tmp)
         elif isinstance(val, sbitvec):
             movs(self, sint.bit_compose(val))
         else:
@@ -2332,6 +2363,8 @@ class _secret(_arithmetic_register, _secret_structure):
         return self.secret_op(other, adds, addm, addsi)
 
     @set_instruction_type
+    @read_mem_value
+    @vectorize
     def mul(self, other):
         """ Secret multiplication. Either both operands have the same
         size or one size 1 for a value-vector multiplication.
@@ -2345,6 +2378,12 @@ class _secret(_arithmetic_register, _secret_structure):
             res = type(self)(size=x.size)
             mulrs(res, x, y)
             return res
+        if program.use_mulm == 1:
+            mulm = instructions.mulm
+        elif program.use_mulm == -1:
+            mulm = lambda res, x, y: instructions.mulm(res, x, cint(regint(y)))
+        else:
+            mulm = lambda res, x, y: muls(res, x, type(self)(y))
         return self.secret_op(other, muls, mulm, mulsi)
 
     def __sub__(self, other):
@@ -2579,7 +2618,11 @@ class sint(_secret, _int):
         """ Secret input.
 
         :param player: public (regint/cint/int)
+        :param binary: whether to use binary
+          (``Input-Binary-P<playerno>-<threadno>``) instead of cleartext
+          (``Input-P<playerno>-<threadno>``)
         :param size: vector size (int, default 1)
+
         """
         if binary:
             return cls(personal.read_int(player, n_bytes=n_bytes))
@@ -2591,6 +2634,7 @@ class sint(_secret, _int):
     @vectorized_classmethod
     def get_dabit(cls):
         """ Bit in arithmetic and binary circuit according to security model """
+        program.reading('(e)daBits', 'EGKRS20')
         from Compiler.GC.types import sbits
         res = cls(), sbits.get_type(get_global_vector_size())()
         dabit(*res)
@@ -2600,6 +2644,7 @@ class sint(_secret, _int):
     def get_edabit(cls, n_bits, strict=False):
         """ Bits in arithmetic and binary circuit """
         """ according to security model """
+        program.reading('(e)daBits', 'EGKRS20')
         if not program.use_edabit_for(strict, n_bits):
             if program.use_dabit:
                 a, b = zip(*(sint.get_dabit() for i in range(n_bits)))
@@ -2634,7 +2679,7 @@ class sint(_secret, _int):
     def receive_from_client(cls, n, client_id, message_type=ClientMessageType.NoType):
         """ Securely obtain shares of values input by a client.
         This uses the triple-based input protocol introduced by
-        `Damgård et al. <http://eprint.iacr.org/2015/1006>`_ unless
+        `Damgård et al. <https://eprint.iacr.org/2015/1006>`_ unless
         :py:obj:`program.active` is set to false, in which case
         it uses random values to mask the clients' input.
 
@@ -2643,6 +2688,7 @@ class sint(_secret, _int):
         :param size: vector size (default 1)
         :returns: list of sint
         """
+        program.reading('client inputs', 'DDNNT15')
         if program.active:
             # send shares of a triple to client
             triples = list(itertools.chain(*(sint.get_random_triple() for i in range(n))))
@@ -2750,27 +2796,6 @@ class sint(_secret, _int):
         """ Store in memory by public address. """
         self._store_in_mem(address, stms, stmsi)
 
-    @classmethod
-    def direct_matrix_mul(cls, A, B, n, m, l, reduce=None, indices=None, indices_values=None):
-        if indices is None:
-            indices = [regint.inc(i) for i in (n, m, m, l)]
-            indices_values = [list(range(i)) for i in (n, m, m, l)]
-        res = cls(size=indices[0].size * indices[3].size)
-
-        if isinstance(A, int) and isinstance(B, int):
-            first_factor_base_addresses = [A]
-            second_factor_base_addresses = [B]
-        else:
-            first_factor_base_addresses = None
-            second_factor_base_addresses = None
-
-        matmulsm(res, regint(A), regint(B), len(indices[0]), len(indices[1]),
-                 len(indices[3]), *(list(indices) + [m, l]),
-                 first_factor_base_addresses=first_factor_base_addresses,
-                 second_factor_base_addresses=second_factor_base_addresses,
-                 indices_values=indices_values)
-        return res
-
     @vectorize_init
     def __init__(self, val=None, size=None):
         from .GC.types import sbitvec
@@ -2800,7 +2825,7 @@ class sint(_secret, _int):
     @read_mem_value
     @type_comp
     @vectorize
-    def __lt__(self, other, bit_length=None):
+    def __lt__(self, other, bit_length=None, sync=None):
         """ Secret comparison (signed).
 
         :param other: sint/cint/regint/int
@@ -2991,7 +3016,7 @@ class sint(_secret, _int):
         """ Secret fixed-point division.
 
         :param other: any compatible type """
-        if isinstance(other, sint):
+        if isinstance(other, (sint, cfix)):
             return other.__rtruediv__(self)
         try:
             return sfix._new(self) / cfix._new(cint(other), f=sfix.f, k=sfix.k)
@@ -3012,7 +3037,7 @@ class sint(_secret, _int):
         k = bit_length or program.bit_length
         tmp = library.IntDiv(self, other, k)
         res = type(self)()
-        comparison.Trunc(res, tmp, 2 * k, k, signed=True)
+        comparison.Trunc(res, tmp, 2 * k, k, True)
         return res
 
     @vectorize
@@ -3470,6 +3495,7 @@ class _bitint(Tape._no_truth):
     @classmethod
     def carry_lookahead_adder(cls, a, b, fewer_inv=False, carry_in=0,
                               get_carry=False):
+        assert len(a) == len(b)
         lower = []
         a, b = a[:], b[:]
         for (ai, bi) in zip(a[:], b[:]):
@@ -3479,15 +3505,22 @@ class _bitint(Tape._no_truth):
                 b.pop(0)
             else:
                 break
-        carries = cls.get_carries(a, b, fewer_inv=fewer_inv, carry_in=carry_in)
+        n_carries = len(a)
+        n_carries -= (1 - get_carry) and \
+            (cls.sum_from_carries == _bitint.sum_from_carries)
+        carries = cls.get_carries(a[:n_carries], b[:n_carries],
+                                  fewer_inv=fewer_inv, carry_in=carry_in)
         res = lower + cls.sum_from_carries(a, b, carries)
         if get_carry:
             res += [carries[-1]]
+        assert len(res) == len(lower) + len(a) + get_carry
         return res
 
     @classmethod
     def get_carries(cls, a, b, fewer_inv=False, carry_in=0):
-        d = [cls.half_adder(ai, bi) for (ai,bi) in zip(a,b)]
+        d = [(0 if util.is_zero(carry_in) else a[0].bit_xor(b[0]),
+              a[0].bit_and(b[0]))]
+        d += [cls.half_adder(ai, bi) for (ai, bi) in zip(a[1:], b[1:])]
         carry = floatingpoint.carry
         if fewer_inv:
             pre_op = floatingpoint.PreOpL2
@@ -3532,23 +3565,40 @@ class _bitint(Tape._no_truth):
             bb = b[:m]
             a = a[m:]
             b = b[m:]
-            cc = [cls.ripple_carry_adder(aa, bb, i) for i in (0, cin_one)]
-            for i in range(m):
-                res.append(util.if_else(carry, cc[1][i], cc[0][i]))
-            carry = util.if_else(carry, cc[1][m], cc[0][m])
+            round_carry = get_carry or bool(a)
+            if util.is_zero(carry):
+                carries = 0,
+            else:
+                carries = 0, cin_one
+            cc = [cls.ripple_carry_adder(aa, bb, i, get_carry=round_carry)
+                  for i in carries]
+            if util.is_zero(carry):
+                res += cc[0][:m]
+                if round_carry:
+                    carry = cc[0][m]
+            else:
+                for i in range(m):
+                    res.append(util.if_else(carry, cc[1][i], cc[0][i]))
+                if round_carry:
+                    carry = util.if_else(carry, cc[1][m], cc[0][m])
         if get_carry:
             res += [carry]
+        assert len(res) == n + get_carry
         return res
 
     @classmethod
     def ripple_carry_adder(cls, a, b, carry_in=0, get_carry=True):
+        assert len(a) == len(b)
         carry = carry_in
         res = []
-        for aa, bb in zip(a, b):
+        for aa, bb in zip(a, b if get_carry else b[:-1]):
             cc, carry = cls.full_adder(aa, bb, carry)
             res.append(cc)
         if get_carry:
             res.append(carry)
+        else:
+            res.append(util.bit_xor(util.bit_xor(carry, a[-1]), b[-1]))
+        assert len(res) == len(a) + get_carry
         return res
 
     @staticmethod
@@ -4184,7 +4234,8 @@ class cfix(_number, _structure):
         other = self.parse_type(other)
         if isinstance(other, cfix):
             assert self.f == other.f
-            sgn = cint(1 - 2 * ((self < 0) ^ (other < 0)))
+            sgn = 1 - 2 * (cint(self.less_than(0, sync=False)) ^ \
+                cint(other.less_than(0, sync=False)))
             absolute = self.v * other.v * sgn
             val = sgn * (absolute >> self.f)
             return cfix._new(val, k=self.k, f=self.f)
@@ -4238,18 +4289,19 @@ class cfix(_number, _structure):
             raise NotImplementedError
 
     @vectorize
-    def __lt__(self, other):
+    def __lt__(self, other, sync=True):
         """ Clear fixed-point comparison. """
         other = self.parse_type(other)
         if isinstance(other, cfix):
             assert self.k == other.k
-            return self.v.less_than(other.v, self.k)
+            return self.v.less_than(other.v, self.k, sync=sync)
         elif isinstance(other, sfix):
             if(self.k != other.k or self.f != other.f):
                 raise TypeError('Incompatible fixed point types in comparison')
             return other.v.greater_than(self.v, self.k)
         else:
             raise NotImplementedError
+    less_than = __lt__
 
     @vectorize
     def __le__(self, other):
@@ -4331,8 +4383,9 @@ class cfix(_number, _structure):
     @vectorize
     def print_plain(self):
         """ Clear fixed-point output. """
+        nan = abs(self.v) >> (self.k - 1)
         print_float_plain(cint.conv(self.v), cint(-self.f), \
-                          cint(0), cint(0), cint(0))
+                          cint(0), cint(0), nan)
 
     def output_if(self, cond):
         cond_print_plain(cint.conv(cond), self.v, cint(-self.f, size=self.size))
@@ -4560,12 +4613,13 @@ class _single(_number, _secret_structure):
             raise NotImplementedError
 
     @vectorize
-    def __lt__(self, other):
+    def __lt__(self, other, sync=True):
         other = self.coerce(other)
         if isinstance(other, (cfix, _single)):
-            return self.v.less_than(other.v, self.k)
+            return self.v.less_than(other.v, self.k, sync=sync)
         else:
             raise NotImplementedError
+    less_than = __lt__
 
     @vectorize
     def __ge__(self, other):
@@ -4723,6 +4777,7 @@ class _fix(_single):
             raise CompilerError('cannot convert %s to sfix' % _v)
         if not isinstance(self.v, self.int_type):
             raise CompilerError('sfix conversion failure: %s/%s' % (_v, self.v))
+        program.reading('fixed-point numbers', 'CdH10-fixed')
 
     def load_int(self, v):
         self.v = self.int_type(v) << self.f
@@ -4853,57 +4908,6 @@ class _fix(_single):
         assert self.f == other.f
         self.v.update(other.v)
 
-class sfix(_fix):
-    """ Secret fixed-point number represented as secret integer, by
-    multiplying with ``2^f`` and then rounding. See :py:class:`sint`
-    for security considerations of the underlying integer operations.
-    The secret integer is stored as the :py:obj:`v` member.
-
-    It supports basic arithmetic (``+, -, *, /``), returning
-    :py:class:`sfix`, and comparisons (``==, !=, <, <=, >, >=``),
-    returning :py:class:`sbitint`. The other operand can be any of
-    sfix/sint/cfix/regint/cint/int/float. It also supports ``abs()``
-    and ``**``.
-
-    Note that the default precision (16 bits after the dot, 31 bits in
-    total) only allows numbers up to :math:`2^{31-16-1} \\approx
-    16000` with the smallest non-zero number being :math:`2^{-16}`.
-    You can change this using :py:func:`set_precision`.
-
-    :params _v: int/float/regint/cint/sint/sfloat
-    """
-    int_type = sint
-    bit_type = sintbit
-    clear_type = cfix
-    get_type = staticmethod(lambda n: sint)
-    default_type = sint
-
-    @classmethod
-    def get_prec_type(cls, f, k=None):
-        class sfix_prec(cls):
-            pass
-        sfix_prec.set_precision(f, k)
-        return sfix_prec
-
-    @vectorized_classmethod
-    def get_input_from(cls, player, binary=False, n_bytes=None):
-        """ Secret fixed-point input.
-
-        :param player: public (regint/cint/int)
-        :param size: vector size (int, default 1)
-        """
-        cls.int_type.require_bit_length(cls.k)
-        if binary:
-            return cls(personal.read_fix(player, cls.f, cls.k, int(binary)))
-        else:
-            v = cls.int_type()
-            inputmixed('fix', v, cls.f, player)
-            return cls._new(v)
-
-    @vectorized_classmethod
-    def get_raw_input_from(cls, player):
-        return cls._new(cls.int_type.get_raw_input_from(player))
-
     @vectorized_classmethod
     def get_random(cls, lower, upper, symmetric=True, public_randomness=False):
         """ Uniform secret random number around centre of bounds.
@@ -4947,6 +4951,65 @@ class sfix(_fix):
                 print('randomness range [%f,%f], %d bits' % \
                       (real(lower), real(lower) + real_range, n_bits))
             return r
+
+class sfix(_fix):
+    """ Secret fixed-point number represented as secret integer, by
+    multiplying with ``2^f`` and then rounding. See :py:class:`sint`
+    for security considerations of the underlying integer operations.
+    The secret integer is stored as the :py:obj:`v` member.
+
+    It supports basic arithmetic (``+, -, *, /``), returning
+    :py:class:`sfix`, and comparisons (``==, !=, <, <=, >, >=``),
+    returning :py:class:`sbitint`. The other operand can be any of
+    sfix/sint/cfix/regint/cint/int/float. It also supports ``abs()``
+    and ``**``.
+
+    Note that the default precision (16 bits after the dot, 31 bits in
+    total) only allows numbers up to :math:`2^{31-16-1} \\approx
+    16000` with the smallest non-zero number being :math:`2^{-16}`.
+    You can change this using :py:func:`set_precision`.
+
+    Fixed-point multiplication is not linear in the sense of the
+    computation domain. Therefore, techniques from :ref:`nonlinear`
+    have to be used.
+
+    :params _v: int/float/regint/cint/sint/sfloat
+    """
+    int_type = sint
+    bit_type = sintbit
+    clear_type = cfix
+    get_type = staticmethod(lambda n: sint)
+    default_type = sint
+
+    @classmethod
+    def get_prec_type(cls, f, k=None):
+        class sfix_prec(cls):
+            pass
+        sfix_prec.set_precision(f, k)
+        return sfix_prec
+
+    @vectorized_classmethod
+    def get_input_from(cls, player, binary=False, n_bytes=None):
+        """ Secret fixed-point input.
+
+        :param player: public (regint/cint/int)
+        :param binary: whether to use binary
+          (``Input-Binary-P<playerno>-<threadno>``) instead of cleartext
+          (``Input-P<playerno>-<threadno>``)
+        :param size: vector size (int, default 1)
+
+        """
+        cls.int_type.require_bit_length(cls.k)
+        if binary:
+            return cls(personal.read_fix(player, cls.f, cls.k, int(binary)))
+        else:
+            v = cls.int_type()
+            inputmixed('fix', v, cls.f, player)
+            return cls._new(v)
+
+    @vectorized_classmethod
+    def get_raw_input_from(cls, player):
+        return cls._new(cls.int_type.get_raw_input_from(player))
 
     @classmethod
     def direct_matrix_mul(cls, A, B, n, m, l, reduce=True, indices=None):
@@ -5451,10 +5514,10 @@ class sfloat(_number, _secret_structure):
         self.size = get_global_vector_size()
         if p is None:
             if isinstance(v, sfloat):
-                p = v.p
-                z = v.z
-                s = v.s
-                v = v.v
+                p = sint(v.p)
+                z = sint(v.z)
+                s = sint(v.s)
+                v = sint(v.v)
             elif isinstance(v, sfix):
                 f = v.f
                 v, p, z, s = floatingpoint.Int2FL(v.v, v.k,
@@ -5483,6 +5546,7 @@ class sfloat(_number, _secret_structure):
         self.p = sint(p)
         self.z = sint(z)
         self.s = sint(s)
+        program.reading('floating-point numbers', 'ABZS13')
 
     def __getitem__(self, index):
         return sfloat(*(x[index] for x in self))
@@ -6211,7 +6275,12 @@ class Array(_vectorizable):
     def input_from(self, player, budget=None, raw=False, **kwargs):
         """ Fill with inputs from player if supported by type.
 
-        :param player: public (regint/cint/int) """
+        :param player: public (regint/cint/int)
+        :param binary: whether to use binary
+          (``Input-Binary-P<playerno>-<threadno>``) instead of cleartext
+          (``Input-P<playerno>-<threadno>``)
+
+        """
         if raw or program.always_raw():
             input_from = self.value_type.get_raw_input_from
         else:
@@ -7272,7 +7341,7 @@ class SubMultiArray(_vectorizable):
         :param self: two-dimensional """
         assert len(self.sizes) == 2
         res = Matrix(self.sizes[1], self.sizes[0], self.value_type)
-        library.break_point()
+        library.break_point('pre-transpose')
         if self.value_type.n_elements() == 1 and not program.options.binary:
             if self.sizes[0] < program.budget:
                 if self.sizes[1] < program.budget:
@@ -7296,7 +7365,7 @@ class SubMultiArray(_vectorizable):
                 @library.for_range_opt(self.sizes[0], budget=100)
                 def _(j):
                     res[i][j] = self[j][i]
-        library.break_point()
+        library.break_point('post-transpose')
         return res
 
     def trace(self):
@@ -7378,6 +7447,8 @@ class SubMultiArray(_vectorizable):
             assert len(self.sizes) == 2
             library.loopy_odd_even_merge_sort(self, key_indices=key_indices)
             return
+        if isinstance(key_indices, regint):
+            key_indices = tuple(key_indices)
         key_indices = (None,) + util.tuplify(key_indices)
         from . import sorting
         keys = self.get_vector_by_indices(*key_indices)
