@@ -4727,10 +4727,15 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
             for x in item.layer:
                 process(x)
         elif name == 'BertLayer':
-            # Get config from the BertLayer item itself
-            config = item.config if hasattr(item, 'config') else bert_config if 'bert_config' in locals() else None
-            if config is None:
-                raise CompilerError('BertLayer requires config but none found')
+            # Get config from the model or item
+            if 'bert_config' in locals():
+                config = bert_config
+            elif hasattr(model, 'config'):
+                config = model.config
+            elif hasattr(item, 'config'):
+                config = item.config
+            else:
+                raise CompilerError('BertLayer requires config but none found in model or item')
             hidden_state = config.hidden_size
             intermediate_size = config.intermediate_size
             num_attention_heads = config.num_attention_heads
