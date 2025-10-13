@@ -84,7 +84,7 @@ def bits(a,m):
     return res
 
 def carry(b, a, compute_p=True):
-    """ Carry propogation:
+    """ Carry propagation:
         (p,g) = (p_2, g_2)o(p_1, g_1) -> (p_1 & p_2, g_2 | (p_2 & g_1))
     """
     if compute_p:
@@ -221,7 +221,7 @@ def PreOpN(op, items):
     return output
 
 def PreOR(a=None, raw=False):
-    if comparison.const_rounds:
+    if comparison.const_rounds and a and isinstance(a[0], types._secret):
         return PreORC(a, raw=raw)
     else:
         return PreOpL(or_op, a)
@@ -718,8 +718,12 @@ def BitDecFull(a, n_bits=None, maybe_mixed=False):
         pbits = util.bit_decompose(p)
         # Loop until we get some random integers less than p
         done = [regint(0) for i in range(a.size)]
-        @do_while
-        def get_bits_loop():
+        from Compiler import library
+        closeness = max(1, -math.log(2 ** bit_length / p - 1, 2))
+        assert closeness > 0
+        @library.for_range(int(
+            max(40, math.ceil(get_program().security) / closeness)))
+        def get_bits_loop(_):
             for j in range(a.size):
                 @if_(done[j] == 0)
                 def _():
@@ -732,9 +736,9 @@ def BitDecFull(a, n_bits=None, maybe_mixed=False):
                             tbits[j][i].link(sint.get_random_bit())
                     c = regint(BITLT(tbits[j], pbits, bit_length).reveal(False))
                     done[j].link(c)
-            from Compiler import library
             library.runtime_error_if((sum(done) < 0) + (sum(done) > a.size))
             return (sum(done) != a.size)
+        library.runtime_error_if(sum(done) != a.size, 'bad luck in bit decomposition')
         if maybe_mixed:
             b = sint(bs)
             bbits = [sbits.get_type(a.size).bit_compose(
@@ -761,3 +765,4 @@ def BitDecFull(a, n_bits=None, maybe_mixed=False):
         return abits
     else:
         return [sint.conv(bit) for bit in abits]
+

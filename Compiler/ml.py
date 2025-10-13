@@ -296,7 +296,13 @@ class NoVariableLayer(Layer):
     nablas = lambda self: ()
     reset = lambda self: None
 
-class Output(NoVariableLayer):
+class OutputBase(NoVariableLayer):
+    sample_mask = None
+
+    def set_sample_mask(self, sample_mask):
+        self.sample_mask = sample_mask and Array.create_from(sample_mask)
+
+class Output(OutputBase):
     """ Fixed-point logistic regression output layer.
 
     :param N: number of examples
@@ -345,8 +351,11 @@ class Output(NoVariableLayer):
             self.e_x.assign(e_x, base)
             if self.compute_loss:
                 lse.assign(lse_0_from_e_x(-x, e_x) + x * (1 - y), base)
-        self.l.write(sum(lse) * \
-                     self.divisor(N, 1))
+        if self.compute_loss and self.sample_mask:
+            mask = self.sample_mask.get_slice_vector(batch)
+            self.l.write(lse[:].dot(mask)) / sum(mask)
+        else:
+            self.l.write(sum(lse) * self.divisor(N, 1))
 
     def eval(self, size, base=0, top=False):
         if top:
@@ -366,6 +375,8 @@ class Output(NoVariableLayer):
                 assert N == len(self.weights)
                 diff *= self.weights.get_vector(base, size)
                 assert self.weight_total == N
+            if self.sample_mask is not None:
+                diff *= self.sample_mask.get(batch.get_vector(base, size))
             self.nabla_X.assign(diff, base)
         # @for_range_opt(len(diff))
         # def _(i):
@@ -408,7 +419,7 @@ class Output(NoVariableLayer):
 	                    i, truth, guess, b, nabla)
         return n_correct
 
-class LinearOutput(NoVariableLayer):
+class LinearOutput(OutputBase):
     n_outputs = -1
 
     def __init__(self, N, n_targets=1):
@@ -429,9 +440,14 @@ class LinearOutput(NoVariableLayer):
         guess = self.X.get_vector(0, N)
         truth = self.Y.get(batch.get_vector(0, N))
         diff = guess - truth
+        if self.sample_mask:
+            sample_mask = self.sample_mask.get(batch.get_vector(0, N))
+            diff = diff * sample_mask
+            self.l.write(sum((diff) ** 2) / sum(sample_mask))
+        else:
+            self.l.write(sum((diff) ** 2) * Output.divisor(N))
         self.nabla_X.assign_vector(diff)
         #print_ln('%s %s %s', diff.reveal(), truth.reveal(), guess.reveal())
-        self.l.write(sum((diff) ** 2) * Output.divisor(N))
 
     def backward(self, batch):
         pass
@@ -4065,7 +4081,8 @@ class Optimizer:
             self.output_weights()
 
     def fit(self, X, Y, epochs=1, batch_size=128, validation_data=(None, None),
-            program=None, reset=True, print_accuracy=False, print_loss=False):
+            program=None, reset=True, print_accuracy=False, print_loss=False,
+            sample_mask=None):
         """ Train model.
 
         :param X: training sample data (sfix tensor)
@@ -4079,10 +4096,14 @@ class Optimizer:
         :param reset: whether to initialize model
         :param print_accuracy: print accuracy on training data (reveals labels)
         :param print_loss: reveal and print training loss after every batch
+        :param sample_mask: 0/1 vector or Array to mask samples (experimental,
+          only for 0/1 labels, 0 means ignore sample)
 
         """
         self.layers[0].X = X
         self.layers[-1].Y = Y
+        if sample_mask:
+            self.layers[-1].set_sample_mask(sample_mask)
         self.revealing_correctness = print_accuracy
         self.print_losses = print_loss
         self.time_training = False
@@ -4841,19 +4862,20 @@ class OneLayerSGD:
         self.program = program
         Layer.back_batch_size = max(Layer.back_batch_size, batch_size)
 
-    def fit(self, X_train, y_train):
+    def fit(self, X_train, y_train, **kwargs):
         """ Train classifier.
 
         :param X_train: training data (sfix matrix)
         :param y_train: training binary labels (sint/sfix array)
+        :param sample_mask: sample masking (see :py:func:`Optimizer.fit`)
 
         """
         self.init(X_train)
         self.opt.fit(X_train, y_train, self.n_epochs, self.batch_size,
                      program=self.program, print_accuracy=False,
-                     print_loss=False)
+                     **kwargs)
 
-    def fit_with_testing(self, X_train, y_train, X_test, y_test):
+    def fit_with_testing(self, X_train, y_train, X_test, y_test, **kwargs):
         """ Train classifier with accuracy output after every epoch.
         This reveals all labels to simplify the accuracy computation.
 
@@ -4861,13 +4883,15 @@ class OneLayerSGD:
         :param y_train: training labels (sint/sfix array)
         :param X_test: testing data (sfix matrix)
         :param y_test: testing labels (sint/sfix array)
+        :param sample_mask: sample masking (see :py:func:`Optimizer.fit`)
 
         """
         self.init(X_train)
         self.opt.print_accuracy = self.print_accuracy
         self.opt.fit(X_train, y_train, self.n_epochs, self.batch_size,
                      validation_data=(X_test, y_test), program=self.program,
-                     print_accuracy=self.print_accuracy, print_loss=True)
+                     print_accuracy=self.print_accuracy, print_loss=True,
+                     **kwargs)
 
     def predict(self, X):
         """ Use model for prediction.

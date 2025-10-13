@@ -85,7 +85,7 @@ CONFIG.mine:
 
 online: Fake-Offline.x Server.x Player-Online.x Check-Offline.x emulate.x mascot-party.x
 
-offline: $(OT_EXE) Check-Offline.x mascot-offline.x cowgear-offline.x mal-shamir-offline.x
+offline: $(OT_EXE) Check-Offline.x mascot-offline.x cowgear-offline.x lowgear-offline.x mal-shamir-offline.x
 
 gen_input: gen_input_f2n.x gen_input_fp.x
 
@@ -269,10 +269,10 @@ semi2k-party.x: $(OT) $(GC_SEMI)
 hemi-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
 temi-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
 soho-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
-cowgear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(TINIER)
-chaigear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(TINIER)
-lowgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
-highgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
+cowgear-party.x: $(FHEOFFLINE) $(TINIER)
+chaigear-party.x: $(FHEOFFLINE) $(TINIER)
+lowgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/LowGearKeyGen.o
+highgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/HighGearKeyGen.o
 atlas-party.x: GC/AtlasSecret.o
 malicious-atlas-party.x: GC/AtlasSecret.o
 static/hemi-party.x: $(FHEOBJS)
@@ -280,8 +280,8 @@ static/temi-party.x: $(FHEOBJS)
 static/soho-party.x: $(FHEOBJS)
 static/cowgear-party.x: $(FHEOBJS)
 static/chaigear-party.x: $(FHEOBJS)
-static/lowgear-party.x: $(FHEOBJS) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
-static/highgear-party.x: $(FHEOBJS) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
+static/lowgear-party.x: $(FHEOBJS) Protocols/LowGearKeyGen.o
+static/highgear-party.x: $(FHEOBJS) Protocols/HighGearKeyGen.o
 mascot-party.x: $(SPDZ)
 static/mascot-party.x: $(SPDZ)
 Player-Online.x: $(SPDZ)
@@ -314,6 +314,7 @@ l2h-example.x: $(VM) $(OT) Machines/Tinier.o
 he-example.x: $(FHEOFFLINE)
 mascot-offline.x: $(VM) $(TINIER)
 cowgear-offline.x: $(TINIER) $(FHEOFFLINE)
+lowgear-offline.x: $(TINIER) $(FHEOFFLINE) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 semi-offline.x: $(GC_SEMI) $(OT)
 semi2k-offline.x: $(GC_SEMI) $(OT)
 hemi-offline.x: $(GC_SEMI) $(FHEOFFLINE) $(OT)

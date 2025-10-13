@@ -84,6 +84,10 @@ def print_str(s, *args, print_secrets=False):
     if len(args) != s.count('%s'):
         raise CompilerError('Incorrect number of arguments for string format:', s)
     substrings = s.split('%s')
+    def secret_error(x):
+        raise CompilerError(
+            'Cannot print secret value %s, activate printing of shares with '
+            "'print_secrets=True'" % args[i])
     for i,ss in enumerate(substrings):
         print_plain_str(ss)
         if i < len(args):
@@ -98,13 +102,14 @@ def print_str(s, *args, print_secrets=False):
                 elif print_secrets and isinstance(val, (_secret, sbits)):
                     val.output()
                 else:
-                    raise CompilerError(
-                        'Cannot print secret value %s, activate printing of shares with '
-                        "'print_secrets=True'" % args[i])
+                    secret_error(args[i])
             elif isinstance(val, cfix):
                 val.print_plain()
             elif isinstance(val, sfix) or isinstance(val, sfloat):
-                raise CompilerError('Cannot print secret value:', args[i])
+                if print_secrets:
+                    val.output()
+                else:
+                    secret_error()
             elif isinstance(val, cfloat):
                 val.print_float_plain()
             elif isinstance(val, (list, tuple)):

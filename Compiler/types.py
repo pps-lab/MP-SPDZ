@@ -2297,9 +2297,11 @@ class _secret(_arithmetic_register, _secret_structure):
         """ Compose value from bits.
 
         :param bits: iterable of any type convertible to sint """
-        from Compiler.GC.types import sbits, sbitintvec
+        from Compiler.GC.types import sbits, sbitintvec, sbitvec
         if isinstance(bits, sbits):
             bits = bits.bit_decompose()
+        elif isinstance(bits, sbitvec):
+            bits = bits.v
         bits = list(bits)
         if (program.use_edabit() or program.use_split()) and isinstance(bits[0], sbits):
             if program.use_edabit():
@@ -3767,7 +3769,8 @@ class _bitint(Tape._no_truth):
 
     @staticmethod
     def prep_comparison(a, b):
-        a[-1], b[-1] = b[-1], a[-1]
+        if len(a) > 1 and len(b) > 1:
+            a[-1], b[-1] = b[-1], a[-1]
     
     def comparison(self, other, const_rounds=False, index=None):
         a, b = self.expand(other)
@@ -4129,9 +4132,9 @@ class cfix(_number, _structure):
         return res
 
     @staticmethod
-    def int_rep(v, f, k=None):
+    def int_rep(v, f, k=None, rep_type=cint):
         if isinstance(v, regint):
-            v = cint(v)
+            v = rep_type(v)
         res = v * (2 ** f)
         try:
             res = int(round(res))
@@ -4383,7 +4386,7 @@ class cfix(_number, _structure):
     @vectorize
     def print_plain(self):
         """ Clear fixed-point output. """
-        nan = abs(self.v) >> (self.k - 1)
+        nan = (self.v < 0).if_else(-self.v - 1, self.v) >> (self.k - 1)
         print_float_plain(cint.conv(self.v), cint(-self.f), \
                           cint(0), cint(0), nan)
 
@@ -4701,7 +4704,7 @@ class _fix(_single):
 
     @classmethod
     def coerce(cls, other, equal_precision=None):
-        if isinstance(other, (_fix, cls.clear_type)):
+        if isinstance(other, (_fix, cls.clear_type, _vectorizable)):
             return other
         else:
             return cls.conv(other)
@@ -4756,7 +4759,8 @@ class _fix(_single):
         elif isinstance(_v, self.int_type):
             self.load_int(_v)
         elif isinstance(_v, cfix.scalars):
-            self.v = self.int_type(cfix.int_rep(_v, f=f, k=k), size=size)
+            self.v = self.int_type(
+                cfix.int_rep(_v, f=f, k=k, rep_type=self.rep_type), size=size)
         elif isinstance(_v, self.float_type):
             p = (f + _v.p)
             b = (p.greater_equal(0, _v.vlen))
@@ -4784,6 +4788,9 @@ class _fix(_single):
 
     def __getitem__(self, index):
         return self._new(self.v[index])
+
+    def __iter__(self):
+        return (self._new(x) for x in self.v)
 
     @vectorize 
     def add(self, other):
@@ -4980,6 +4987,7 @@ class sfix(_fix):
     clear_type = cfix
     get_type = staticmethod(lambda n: sint)
     default_type = sint
+    rep_type = cint
 
     @classmethod
     def get_prec_type(cls, f, k=None):
@@ -5147,6 +5155,11 @@ class sfix(_fix):
 
     def __repr__(self):
         return '<sfix{f=%d,k=%d} at %s>' % (self.f, self.k, self.v)
+
+    def output(self):
+        library.print_str(
+            '<sfix{f=%d,k=%d,v=%s}>' % (self.f, self.k, '%s'), self.v,
+            print_secrets=True)
 
 class unreduced_sfix(_single):
     int_type = sint
@@ -5828,6 +5841,11 @@ class sfloat(_number, _secret_structure):
         f = lambda x: type(self)(*x)
         return f, sint(list(self)), sint(list(other))
 
+    def output(self):
+        library.print_str(
+            '<sfloat{v=%s,p=%s,z=%s,s=%s}>', self.v, self.p, self.z, self.s,
+            print_secrets=True)
+
 class cfloat(Tape._no_truth):
     """ Helper class for printing revealed sfloats. """
     __slots__ = ['v', 'p', 'z', 's', 'nan']
@@ -6386,6 +6404,9 @@ class Array(_vectorizable):
         :param other: vector or container of same length and type that supports operations with type of this array """
         return self.get_vector() / value
 
+    def __rtruediv__(self, value):
+        return value / self.get_vector()
+
     def __pow__(self, value):
         """ Vector power-of computation.
 
@@ -6619,7 +6640,8 @@ class SubMultiArray(_vectorizable):
         if isinstance(index, int) and index < 0:
             index += self.sizes[0]
         key = program.curr_tape, tuple(
-            (x, x.has_else) for x in program.curr_tape.if_states), str(index)
+            (x, None if isinstance(x, bool) else x.has_else)
+            for x in program.curr_tape.if_states), str(index)
         if key not in self.sub_cache:
             index = self.check(index, self.sizes[0], self.sizes)
             if len(self.sizes) == 2:
