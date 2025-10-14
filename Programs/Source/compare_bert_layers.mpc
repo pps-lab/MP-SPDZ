@@ -129,7 +129,48 @@ def build_sfix_tensor(dataset):
 test_x, test_y = build_sfix_tensor(tokenized_validation)
 model_shape = test_x.shape
 print("model shape", model_shape)
-layers = ml.layers_from_torch(model.bert.encoder, model_shape, input_via=0, batch_size=spdz_batch_size) # set batch size bigger?
+
+# Create a wrapper module that includes encoder + pooler + dropout + classifier
+import torch.nn as nn
+class BertEncoderWithHead(nn.Module):
+    def __init__(self, encoder, pooler, dropout, classifier, config):
+        super().__init__()
+        self.encoder = encoder
+        self.pooler = pooler
+        self.dropout = dropout
+        self.classifier = classifier
+        self.config = config  # Store config so layers_from_torch can access it
+
+    def forward(self, hidden_states, attention_mask=None, head_mask=None,
+                encoder_hidden_states=None, encoder_attention_mask=None,
+                past_key_values=None, use_cache=None, output_attentions=False,
+                output_hidden_states=False, return_dict=False):
+        # Run encoder
+        encoder_outputs = self.encoder(
+            hidden_states,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        sequence_output = encoder_outputs[0]
+        pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
+        pooled_output = self.dropout(pooled_output)
+        logits = self.classifier(pooled_output)
+        return logits
+
+bert_with_head = BertEncoderWithHead(model.bert.encoder, model.bert.pooler, model.dropout, model.classifier, model.config)
+
+# Trace the combined model
+layers = ml.layers_from_torch(bert_with_head, model_shape, input_via=0, batch_size=spdz_batch_size) # set batch size bigger?
+
+print("MP-SPDZ layers", layers)
+
 optimizer = ml.SGD(layers)
 
 

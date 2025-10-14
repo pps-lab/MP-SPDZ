@@ -2951,8 +2951,8 @@ class BertEncoder(BertBase):
 
 class BertLayer(BertBase):
 
-    thetas = lambda self: self.multi_head_attention.thetas() + self.intermediate.thetas() + self.output.thetas() + tuple(self.nabla_hidden_state)
-    nablas = lambda self: self.multi_head_attention.nablas() + self.intermediate.nablas() + self.output.nablas() + tuple(self.nabla_hidden_state)
+    thetas = lambda self: self.multi_head_attention.thetas() + self.intermediate.thetas() + self.output.thetas() #+ tuple(self.nabla_hidden_state)
+    nablas = lambda self: self.multi_head_attention.nablas() + self.intermediate.nablas() + self.output.nablas() #+ tuple(self.nabla_hidden_state)
 
     def __init__(self, n_examples, seq_len, hidden_state, intermediate_size, num_attention_heads, layernorm_eps, dropout=0.1, rsqrt_approx=True, batch_size=None):
         input_shape = [n_examples, seq_len, hidden_state]
@@ -2965,7 +2965,8 @@ class BertLayer(BertBase):
         self.output = BertOutput(internal_shape, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps, rsqrt_approx)
 
         self.hidden_state = sfix.Tensor(input_shape) # TODO: Could also make this smaller
-        self.nabla_hidden_state = sfix.Tensor(input_shape)
+        # self.nabla_hidden_state = sfix.Tensor(input_shape)
+        # self.nabla_hidden_state.alloc()
 
         # self.X.address = self.multi_head_attention.X.address
         # self.Y.address = self.output.Y.address
@@ -3547,8 +3548,13 @@ class Optimizer:
             if not layer.inputs and prev is not None:
                 layer.inputs = [prev]
             prev = layer
-            print(layer, layer.thetas())
-            self.thetas.extend(layer.thetas())
+            thetas = layer.thetas()
+            print(layer, "test")
+            for i in range(len(thetas)):
+                print(layer, type(thetas[i]))
+                print(layer, thetas[i])
+            # print(layer, type(thetas))
+            self.thetas.extend(thetas)
 
     def set_layers_with_inputs(self, layers):
         """ Construct graph from :py:obj:`inputs` members of list of layers. """
@@ -4598,8 +4604,9 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
     # Custom tracer to prevent inlining BERT layers
     class BertTracer(torch.fx.Tracer):
         def is_leaf_module(self, m, module_qualified_name):
-            # Treat BertLayer and BertPooler as leaf modules (don't trace into them)
-            if 'BertLayer' in type(m).__name__ or 'BertPooler' in type(m).__name__:
+            # Treat BertLayer, BertPooler, and BertEmbeddings as leaf modules (don't trace into them)
+            type_name = type(m).__name__
+            if any(x in type_name for x in ['BertLayer', 'BertPooler', 'BertEmbeddings']):
                 return True
             return super().is_leaf_module(m, module_qualified_name)
 
@@ -4770,7 +4777,16 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
             layers.append(layer)
             input_shape = [batch_size, seq_len, hidden_state]
         elif name == 'BertPooler':
-            layer = BertPooler(input_shape[0], input_shape[1], bert_config.hidden_size)
+            # Get config from the model or item
+            if 'bert_config' in locals():
+                config = bert_config
+            elif hasattr(model, 'config'):
+                config = model.config
+            elif hasattr(item, 'config'):
+                config = item.config
+            else:
+                raise CompilerError('BertPooler requires config but none found in model or item')
+            layer = BertPooler(input_shape[0], input_shape[1], config.hidden_size)
             if input_via is not None:
                 layer.load_state_dict(item.state_dict(), input_via)
             layers.append(layer)
@@ -4785,18 +4801,43 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
     # torch_layers = list(torch.fx.symbolic_trace(model).graph.nodes)
     # Use custom tracer to keep BERT layers as modules
     tracer = BertTracer()
-    graph = tracer.trace(model,
-                        concrete_args={
-                            "attention_mask": None,
-                            "head_mask": None,
-                            "encoder_hidden_states": None,
-                            "encoder_attention_mask": None,
-                            "past_key_values": None,
-                            "use_cache": None,
-                            "output_attentions": False,
-                            "output_hidden_states": False,
-                            "return_dict": False,
-                        })
+
+    # Determine concrete_args based on model type
+    # Check if this is BertModel or BertEncoder
+    import torch as torch_module
+    model_type = type(model).__name__
+    if model_type == 'BertModel':
+        # BertModel requires both input_ids and token_type_ids in concrete_args
+        # None means they must be provided as positional args during trace
+        concrete_args = {
+            "attention_mask": None,
+            "token_type_ids": None,
+            "position_ids": None,
+            "head_mask": None,
+            "inputs_embeds": None,
+            "encoder_hidden_states": None,
+            "encoder_attention_mask": None,
+            "past_key_values": None,
+            "use_cache": None,
+            "output_attentions": False,
+            "output_hidden_states": False,
+            "return_dict": False,
+        }
+    else:
+        # BertEncoder and other modules
+        concrete_args = {
+            "attention_mask": None,
+            "head_mask": None,
+            "encoder_hidden_states": None,
+            "encoder_attention_mask": None,
+            "past_key_values": None,
+            "use_cache": None,
+            "output_attentions": False,
+            "output_hidden_states": False,
+            "return_dict": False,
+        }
+
+    graph = tracer.trace(model, concrete_args=concrete_args)
     torch_layers = list(graph.nodes)
     print(torch_layers)
     for i, layer in enumerate(torch_layers[1:-1]):
