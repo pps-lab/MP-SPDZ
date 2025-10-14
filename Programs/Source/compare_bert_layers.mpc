@@ -31,7 +31,7 @@ validation = dataset['validation']
 spdz_batch_size = 1
 n_samples_to_run = 1
 n_samples_to_run_pt = n_samples_to_run
-compare_forward = False
+compare_forward = True
 
 # # # Load the MNLI dataset
 # mnli_dataset = load_dataset('multi_nli')
@@ -182,7 +182,8 @@ def layers_for_bertlayer(bert_layer, bert_layer_pt):
         (bert_layer.multi_head_attention, bert_layer_pt.attention),
 
         (bert_layer.intermediate.dense, bert_layer_pt.intermediate.dense),
-        (bert_layer.intermediate.activation, bert_layer_pt.intermediate.intermediate_act_fn),
+        # Skip activation layer - it's internal to intermediate and shares the same output
+        # (bert_layer.intermediate.activation, bert_layer_pt.intermediate.intermediate_act_fn),
         (bert_layer.intermediate, bert_layer_pt.intermediate),
 
         (bert_layer.output.dense, bert_layer_pt.output.dense),
@@ -203,9 +204,14 @@ layers_to_compare.append((optimizer.layers[-2], model.classifier))
 activation_map = {}
 def get_activation(name):
     def hook(model, input, output):
-        print(f"{name} Activation Input", input[0].shape, "shape", output[0].shape)
-        # activation_list.append((name, output[0].detach()))
-        activation_map[name] = output[0].detach()
+        # Some layers return tuples, some return tensors directly
+        if isinstance(output, tuple):
+            actual_output = output[0]
+        else:
+            actual_output = output
+        print(f"{name} Activation Input", input[0].shape, "shape", actual_output.shape)
+        # activation_list.append((name, actual_output.detach()))
+        activation_map[name] = actual_output.detach()
     return hook
 
 if compare_forward:
@@ -271,6 +277,12 @@ def get_predictions(test_x, test_y):
         if layer_id not in activation_map:
             print(f"Warning: Layer {layer_id} not found in activation_map, skipping")
             continue
+
+        # Skip dropout layers in forward mode since they use different random masks
+        if compare_forward and 'Dropout' in str(type(layer_class)):
+            print(f"Skipping dropout layer {layer_id} in forward mode")
+            continue
+
         pt_values = activation_map[layer_id]
         # compute diff
         pt_at_runtime = sfix.input_tensor_via(0, pt_values.numpy()).get_vector().reveal()
@@ -318,6 +330,7 @@ def get_predictions(test_x, test_y):
 
 sfix.round_nearest = False
 program.use_trunc_pr = False
+
 # sfix.set_precision(18)
 # cfix.set_precision(18)
 # cfix.set_precision(f=32, k=62)
