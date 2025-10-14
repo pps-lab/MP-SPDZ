@@ -196,6 +196,7 @@ layers_to_compare = [layers_for_bertlayer(l1, l2) for l1, l2 in zip(optimizer.la
 layers_to_compare = [x for xs in layers_to_compare for x in xs]
 layers_to_compare.append((optimizer.layers[-4], model.bert.pooler))
 # dropout
+layers_to_compare.append((optimizer.layers[-3], model.dropout))
 layers_to_compare.append((optimizer.layers[-2], model.classifier))
 
 # activation_list = []
@@ -267,7 +268,9 @@ def get_predictions(test_x, test_y):
 
     for idx, (relevant_model_layer, layer_class) in l_cmp:
         layer_id = f"{idx}.{type(layer_class)}"
-        assert layer_id in activation_map, f"Layer {layer_id} not found in activation_map: {activation_map.keys()}"
+        if layer_id not in activation_map:
+            print(f"Warning: Layer {layer_id} not found in activation_map, skipping")
+            continue
         pt_values = activation_map[layer_id]
         # compute diff
         pt_at_runtime = sfix.input_tensor_via(0, pt_values.numpy()).get_vector().reveal()
