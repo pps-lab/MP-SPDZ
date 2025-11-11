@@ -728,16 +728,31 @@ class DenseBase(Layer):
         N = len(batch)
         tmp = Matrix(self.d_in, self.d_out, unreduced_sfix)
 
-        A = sfix.Matrix(N, self.d_out, address=f_schur_Y.address)
-        B = sfix.Matrix(self.N, self.d_in, address=self.X.address)
+        # A (f_schur_Y/nabla_Y) is stored at sequential batch indices [0, 1, ..., N-1]
+        A = sfix.Matrix(N * self.d, self.d_out, address=f_schur_Y.address)
+        # B (X) is stored at the full dataset size, not just the batch
+        B = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
 
         @multithread(self.n_threads, self.d_in)
         def _(base, size):
+            # For A: use sequential indices [0, 1, ..., N*d-1]
+            # For B: use actual batch indices expanded for d dimension
+            batch_d_indices = regint.Array(N * self.d)
+            @for_range(N)
+            def _(i):
+                # batch[i] gives the actual sample index in the full dataset
+                # For Dense with d>1, we need to map to flattened indices
+                actual_sample_idx = batch[i]
+                @for_range(self.d)
+                def _(d_idx):
+                    batch_d_indices[i * self.d + d_idx] = actual_sample_idx * self.d + d_idx
+
             mp = B.direct_trans_mul(A, reduce=False,
                                     indices=(regint.inc(size, base),
-                                             batch.get_vector(),
-                                             regint.inc(N),
+                                             batch_d_indices.get_vector(),
+                                             regint.inc(N * self.d),
                                              regint.inc(self.d_out)))
+
             tmp.assign_part_vector(mp, base)
 
         progress('nabla W (matmul)')
@@ -808,10 +823,13 @@ class DenseBase(Layer):
 
 class Dense(DenseBase):
     """ Fixed-point dense (matrix multiplication) layer.
+    Supports inputs of size [N, d, d_in] to map to [N, d, d_out]. If d > 1, the layer
+    behaves like torch's nn.Linear which loops over the additional d
 
     :param N: number of examples
     :param d_in: input dimension
     :param d_out: output dimension
+    :param d: (optional) extra dimension
     """
     def __init__(self, N, d_in, d_out, d=1, activation='id', debug=False):
         if activation == 'id':
@@ -870,18 +888,28 @@ class Dense(DenseBase):
 
     def compute_f_input(self, batch):
         N = len(batch)
-        assert self.d == 1
-        if self.input_bias:
-            prod = MultiArray([N, self.d, self.d_out], sfix)
-        else:
-            prod = self.f_input
+        prod = MultiArray([N, self.d, self.d_out], sfix)
+
+        # flattened_array version
+        result_matrix = sfix.Matrix(N * self.d, self.d_out, address=prod.address)
         max_size = get_program().budget
-        @multithread(self.n_threads, N, max_size)
+
+        # X is stored at full dataset indices, batch specifies which samples to use
+        X_sub = sfix.Matrix(self.N * self.d, self.d_in, address=self.X.address)
+
+        # Precompute batch_d_indices for all N*d elements
+        # For each sample in batch, expand to d consecutive indices
+        batch_d_indices = regint.Array(N * self.d)
+        @for_range(N)
+        def _(i):
+            actual_sample = batch[i]
+            batch_d_indices.assign(regint.inc(self.d, actual_sample * self.d), i * self.d)
+
+        @multithread(self.n_threads, N * self.d, max_size)
         def _(base, size):
-            X_sub = sfix.Matrix(self.N, self.d_in, address=self.X.address)
-            prod.assign_part_vector(
+            result_matrix.assign_part_vector(
                 X_sub.direct_mul(self.W, indices=(
-                    batch.get_vector(base, size), regint.inc(self.d_in),
+                    batch_d_indices.get_vector(base, size), regint.inc(self.d_in),
                     regint.inc(self.d_in), regint.inc(self.d_out))), base)
 
         if self.input_bias:
@@ -891,10 +919,11 @@ class Dense(DenseBase):
                     v = prod.get_vector(base, size) + self.b.expand_to_vector(0, size)
                     self.f_input.assign_vector(v, base)
             else:
-                @for_range_multithread(self.n_threads, 100, N)
-                def _(i):
-                    v = prod[i].get_vector() + self.b.get_vector()
-                    self.f_input[i].assign_vector(v)
+                @for_range_multithread(self.n_threads, 100, [N, self.d])
+                def _(i, j):
+                    v = prod[i][j].get_vector() + self.b.get_vector()
+                    self.f_input[i][j].assign_vector(v)
+
         progress('f input')
 
     def _forward(self, batch=None):
@@ -945,15 +974,20 @@ class Dense(DenseBase):
 
         if compute_nabla_X:
             nabla_X.alloc()
-            @multithread(self.n_threads, N)
+
+            # flattened matrix version
+            result_matrix = sfix.Matrix(N * self.d, self.d_in, address=nabla_X.address)
+            # Note: f_schur_Y is stored at indices [0, 1, ..., N-1] not at actual batch indices
+            @multithread(self.n_threads, N * self.d)
             def _(base, size):
-                B = sfix.Matrix(N, d_out, address=f_schur_Y.address)
-                nabla_X.assign_part_vector(
-                    B.direct_mul_trans(W, indices=(regint.inc(size, base),
-                                                   regint.inc(self.d_out),
-                                                   regint.inc(self.d_out),
-                                                   regint.inc(self.d_in))),
-                    base)
+                X_sub = sfix.Matrix(N * self.d, self.d_out, address=f_schur_Y.address)
+
+                result_matrix.assign_part_vector(
+                    X_sub.direct_mul_trans(self.W, indices=(regint.inc(size, base=base),
+                                                            regint.inc(self.d_out),
+                                                            regint.inc(self.d_out),
+                                                            regint.inc(self.d_in))),
+                base)
 
             if self.print_random_update:
                 print_ln('backward %s', self)
@@ -1210,23 +1244,28 @@ class Dropout(NoVariableLayer):
     """ Dropout layer.
 
     :param N: number of examples
-    :param d1: total dimension
+    :param shape: list [N, ...] where N is the number of examples and an arbitrary amount of further dimensions
     :param alpha: probability (power of two)
     """
-    def __init__(self, N, d1, d2=1, alpha=0.5):
-        self.N = N
-        self.d1 = d1
-        self.d2 = d2
-        self.X = Tensor([N, d1, d2], sfix)
-        self.Y = Tensor([N, d1, d2], sfix)
-        self.nabla_Y = Tensor([N, d1, d2], sfix)
-        self.nabla_X = Tensor([N, d1, d2], sfix)
+    def __init__(self, N, d1=None, d2=1, alpha=0.5):
+        if isinstance(N, list) or isinstance(N, tuple):
+            shape = N
+            assert d1 is None, ("If shape is given as list/tuple, d1 must be None. "
+                                "Alpha must be passed explicitly for backwards compatibility.")
+        else:
+            assert d1 is not None, "At least one non-batch dimension must be set"
+            shape = [N, d1] if d2 == 1 else [N, d1, d2]
+        self.N = shape[0]
+        self.X = Tensor(shape, sfix)
+        self.Y = Tensor(shape, sfix)
+        self.nabla_Y = Tensor(shape, sfix)
+        self.nabla_X = Tensor(shape, sfix)
         self.alpha = alpha
-        self.B = MultiArray([N, d1, d2], sint)
+        self.B = MultiArray(shape, sint)
 
     def __repr__(self):
-        return '%s(%s, %s, alpha=%s)' % \
-            (type(self).__name__, self.N, self.d1, self.alpha)
+        return '%s(%s, alpha=%s)' % \
+            (type(self).__name__, self.shape, self.alpha)
 
     def forward(self, batch, training=False):
         if training:
@@ -1243,59 +1282,10 @@ class Dropout(NoVariableLayer):
             #                      for i in range(n_bits))))
             @for_range_opt_multithread(self.n_threads, len(batch))
             def _(i):
-                self.Y[i].assign_vector(1 / (1 - self.alpha) *
-                    self.X[batch[i]].get_vector() * self.B[i].get_vector())
-        else:
-            @for_range(len(batch))
-            def _(i):
-                self.Y[i] = self.X[batch[i]]
-        if self.debug_output:
-            print_ln('dropout X %s', self.X.reveal_nested())
-            print_ln('dropout Y %s', self.Y.reveal_nested())
-
-    def backward(self, compute_nabla_X=True, batch=None):
-        if compute_nabla_X:
-            @for_range_opt_multithread(self.n_threads, len(batch))
-            def _(i):
-                self.nabla_X[batch[i]].assign_vector(
-                    self.nabla_Y[i].get_vector() * self.B[i].get_vector())
-        if self.debug_output:
-            print_ln('dropout nabla_Y %s', self.nabla_Y.reveal_nested())
-            print_ln('dropout nabla_X %s', self.nabla_X.reveal_nested())
-
-class FlexDropout(NoVariableLayer):
-    """ Dropout layer.
-
-    :param N: number of examples
-    :param d1: total dimension
-    :param alpha: probability (power of two)
-    """
-    def __init__(self, shape, alpha=0.5):
-        self.N = shape[0]
-        self.X = Tensor(shape, sfix)
-        self.Y = Tensor(shape, sfix)
-        self.nabla_Y = Tensor(shape, sfix)
-        self.nabla_X = Tensor(shape, sfix)
-        self.alpha = alpha
-        self.B = MultiArray(shape, sint)
-
-    def __repr__(self):
-        return '%s(%s, alpha=%s)' % \
-            (type(self).__name__, self.shape, self.alpha)
-
-    def forward(self, batch, training=False):
-        if training:
-            n_bits = -math.log(self.alpha, 2)
-            assert n_bits == int(n_bits)
-            n_bits = int(n_bits)
-            self.B.assign_all(1)
-            self.alpha = 0.0 # TODO: temp disable for reproducibility
-            # @for_range_opt_multithread(self.n_threads, len(batch))
-            # def _(i):
-            #     size = reduce(operator.mul, self.shape[1:])
-            #     self.B[i].assign_vector(util.tree_reduce(
-            #         util.or_op, (sint.get_random_bit(size=size)
-            #                      for i in range(n_bits))))
+                size = reduce(operator.mul, self.shape[1:])
+                self.B[i].assign_vector(util.tree_reduce(
+                    util.or_op, (sint.get_random_bit(size=size)
+                                 for i in range(n_bits))))
             @for_range_opt_multithread(self.n_threads, len(batch))
             def _(i):
                 self.Y[i].assign_vector(1 / (1 - self.alpha) *
@@ -1400,6 +1390,7 @@ class Relu(ElementWiseLayer):
 
 class Gelu(ElementWiseLayer):
     """ Fixed-point GeLU layer.
+    Based on Dong et al., "PUMA: SECURE INFERENCE OF LLAMA-7B IN FIVE MINUTES"
 
     :param shape: input/output shape (tuple/list of int)
     """
@@ -1472,7 +1463,6 @@ class Gelu(ElementWiseLayer):
 
         real_tanh = (exp_2x - 1) / (exp_2x + 1)
         return real_tanh
-
 
     def f_prime_part(self, base, size):
         if self.approx:
@@ -2204,9 +2194,6 @@ class ConvBase(BaseLayer):
     use_conv2ds = True
     temp_weights = None
     temp_inputs = None
-    # thetas = lambda self: (self.weights, self.bias)
-    # nablas = lambda self: (self.nabla_weights, self.nabla_bias)
-
     def thetas(self):
         if self.use_bias:
             return self.weights, self.bias
@@ -2229,7 +2216,6 @@ class ConvBase(BaseLayer):
     def __init__(self, input_shape, weight_shape, bias_shape, output_shape, stride,
                  padding='SAME', tf_weight_format=False, inputs=None,
                  weight_type=None, bias=True):
-        print("ConvBase params", input_shape, weight_shape, bias_shape, output_shape, stride, padding, tf_weight_format, inputs, weight_type, bias)
         super(ConvBase, self).__init__(input_shape, output_shape, inputs=inputs)
 
         self.weight_shape = weight_shape
@@ -2887,10 +2873,9 @@ class BertPooler(BertBase):
         # batch contains [n_batch, n_heads, n_dim]
         @for_range(len(batch))
         def _(j):
-            print_ln("Pooling %s %s", j, batch[j])
             self.dense.X[j][:] = self.X[batch[j]][0][:]
 
-        # if self.debug_bert_output:
+        # if self.debug_output:
         #     print_ln("forward layer pooler.dense X %s", self.dense.X.reveal_nested())
 
         self.dense.forward(batch)
@@ -2978,7 +2963,6 @@ class BertLayer(BertBase):
     def forward(self, batch, training=False):
         if batch is None:
             batch = Array.create_from(regint(0))
-        print_ln("Forward batch %s", batch)
 
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
@@ -2986,10 +2970,10 @@ class BertLayer(BertBase):
         # self.multi_head_attention.Y.address = self.Y.address
 
         self.multi_head_attention.forward(batch, self.hidden_state, training)
-        # if self.debug_bert_output:
+        # if self.debug_output:
             # print_ln("our layer X %s %s", self.X[0][0][0].reveal(), self.output.X[0][0][0].reveal())
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("forward layer multi_head_attention %s %s", self.multi_head_attention.Y[0][1][0].reveal(), sum(sum(self.multi_head_attention.Y[0].reveal())))
             # print_ln("forward layer multi_head_attention full %s", self.multi_head_attention.Y.reveal())
 
@@ -3000,7 +2984,7 @@ class BertLayer(BertBase):
         self.intermediate.X.address = self.multi_head_attention.Y.address
         self.intermediate.forward(batch_inc)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("forward layer intermediate %s %s %s", self.intermediate.Y.shape, self.intermediate.Y[0][1][0:20].reveal(), sum(sum(self.intermediate.Y[0].reveal())))
 
             print_ln(" ")
@@ -3009,7 +2993,7 @@ class BertLayer(BertBase):
         self.output.forward(batch_inc, self.multi_head_attention.Y, training)
         # self.output.Y.address = self.output.X.address
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
             # print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
             # print_ln("our output %s %s %s %s", self.Y.address, len(self.Y[0].reveal()), self.Y[0][0][0:20].reveal(), sum(sum(self.Y[0].reveal())))
@@ -3099,7 +3083,7 @@ class BertIntermediate(BertBase):
         input_shape = [n_examples, seq_len, hidden_size]
         output_shape = [n_examples, seq_len, intermediate_size]
         super(BertIntermediate, self).__init__(input_shape, output_shape)
-        self.dense = FlexDense(n_examples, hidden_size, intermediate_size, seq_len)
+        self.dense = Dense(n_examples, hidden_size, intermediate_size, seq_len)
         self.activation = Gelu([n_examples, seq_len, intermediate_size])
 
 
@@ -3109,7 +3093,7 @@ class BertIntermediate(BertBase):
         self.activation.Y.address = self.Y.address
 
         self.dense.forward(batch)
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("forward layer intermediate.dense %s", self.dense.Y[0][0][0:20].reveal())
 
         self.activation._forward(batch)
@@ -3141,9 +3125,9 @@ class BertOutput(BertBase):
         self.input_shape = input_shape
         print("INSTANTIATING BERTOUTPUT with ", input_shape, output_shape, intermediate_size, hidden_size, rsqrt_approx)
         super(BertOutput, self).__init__(input_shape, output_shape)
-        self.dense = FlexDense(n_examples, intermediate_size, hidden_size, seq_len)
+        self.dense = Dense(n_examples, intermediate_size, hidden_size, seq_len)
         self.layer_norm = LayerNorm(output_shape, layernorm_eps=layernorm_eps, approx=rsqrt_approx)
-        self.dropout = FlexDropout([n_examples, seq_len, hidden_size], alpha=dropout)
+        self.dropout = Dropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
     def forward(self, batch, input_tensor, training=False, input_tensor_batch=None):
@@ -3154,7 +3138,7 @@ class BertOutput(BertBase):
         self.layer_norm.Y.address = self.Y.address
 
         self.dense.forward(batch)
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("forward layer output.dense %s", self.dense.Y[0][0][0:20].reveal())
 
         self.dropout.forward(batch, training)
@@ -3173,12 +3157,12 @@ class BertOutput(BertBase):
                 self.layer_norm.X.assign_part_vector(
                     self.layer_norm.X.get_part_vector(base, size) +
                     input_tensor.get_part_vector(base, size), base)
-        # if self.debug_bert_output:
+        # if self.debug_output:
         #     print_ln("input tensor %s", input_tensor.reveal())
 
         # self.layer_norm.X[:] += input_tensor[:] # TODO: is it maybe this addition since we take the last value? would be strange
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("forward layer layer_norm_add %s", self.layer_norm.X[0][0][0:20].reveal())
             print_ln("")
         self.layer_norm.forward(batch)
@@ -3202,7 +3186,7 @@ class BertOutput(BertBase):
         self.layer_norm.backward(batch, compute_nabla_X)
         self.dropout.backward(compute_nabla_X, batch)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("backward layer dense x %s", self.dropout.nabla_X[0][0][0:20].reveal())
 
         self.dense.backward(compute_nabla_X, batch)
@@ -3232,10 +3216,10 @@ class MultiHeadAttention(BertBase):
         self.seq_len = seq_len
 
         self.hidden_size = hidden_size
-        self.wq = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.wk = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.wv = FlexDense(n_examples, hidden_size, self.all_head_size, self.seq_len)
-        self.dropout = FlexDropout([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
+        self.wq = Dense(n_examples, hidden_size, self.all_head_size, self.seq_len)
+        self.wk = Dense(n_examples, hidden_size, self.all_head_size, self.seq_len)
+        self.wv = Dense(n_examples, hidden_size, self.all_head_size, self.seq_len)
+        self.dropout = Dropout([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], alpha=dropout) # I think? # TODO: DROPOUT?
 
         self.output = BertOutput(internal_shape, hidden_size, hidden_size, seq_len, dropout, layernorm_eps, rsqrt_approx)
         self.context = sfix.Tensor([internal_shape, self.seq_len, hidden_size])
@@ -3265,9 +3249,7 @@ class MultiHeadAttention(BertBase):
         inc_batch = regint.Array(N)
         inc_batch.assign(regint.inc(N))
 
-        print_ln("post forward")
-
-        if self.debug_bert_output:
+        if self.debug_output:
             # print_ln('forward layer wq full %s', self.wq.X.reveal())
             print_ln('forward layer wv %s %s', self.wv.Y[0][0][0:10].reveal(), sum(self.wv.Y[0][0].reveal()))
             print_ln('forward layer hidden_state %s', hidden_state[0][1][0:10].reveal())
@@ -3291,7 +3273,7 @@ class MultiHeadAttention(BertBase):
             res = query_sub.direct_mul_trans(key_sub)
             self.attention_scores[i].assign_part_vector(res, j)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln('forward layer attention_scores %s', self.attention_scores[0][0].reveal())
             # print_ln('forward layer attention_scores full %s', self.attention_scores.reveal())
 
@@ -3300,12 +3282,11 @@ class MultiHeadAttention(BertBase):
             self.attention_scores[i][j][k][:] = self.attention_scores[i][j][k][:] / math.sqrt(self.attention_head_size)
             self.attention_scores[i][j][k][:] = softmax(self.attention_scores[i][j][k][:])
 
-        print_ln("attention scores before %s", self.attention_scores[0][0].reveal())
         self.dropout.X.address = self.attention_scores.address
         self.dropout.forward(batch=inc_batch, training=training)
 
-        # if self.debug_bert_output:
-        #     print_ln('forward layer dropout full %s', self.dropout.Y.reveal())
+        if self.debug_output:
+            print_ln('forward layer dropout full %s', self.dropout.Y.reveal())
 
         @for_range_opt_multithread(self.n_threads, [N, self.num_attention_heads])
         def _(i, j):
@@ -3332,14 +3313,14 @@ class MultiHeadAttention(BertBase):
 
         # missing half of the values ?
         # print_ln('forward layer old_context %s', self.old_context[0].get_vector().reveal())
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln('forward layer multiheadattention before internal output %s', self.context[0][0][0:20].get_vector().reveal())
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln('forward layer hidden_state %s', hidden_state[0][1][0:20].reveal())
 
         self.output.forward(inc_batch, hidden_state, training, batch)
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln('forward multiheadattention output %s', self.output.Y[0][0][0:20].reveal())
             print_ln("")
 
@@ -3367,7 +3348,7 @@ class MultiHeadAttention(BertBase):
 
         nabla_y_hidden_state = self.output.backward(True, batch)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("backward layer attention output.nabla_Y %s", self.output.nabla_Y.reveal_nested()[0][0][:8])
             print_ln("backward layer attention output.nabla_X %s", self.output.nabla_X.reveal_nested()[0][0][:8])
 
@@ -3405,7 +3386,7 @@ class MultiHeadAttention(BertBase):
         self.dropout.nabla_X.alloc()
         self.dropout.backward(True, batch)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             # Dropout nabla y is correct
             # wv nabla_Y also correct
             print_ln("backward layer attention dropout.nabla_Y %s", self.dropout.nabla_Y.reveal_nested()[:8])
@@ -3459,7 +3440,7 @@ class MultiHeadAttention(BertBase):
                 self.wq.nabla_Y[i][k].assign_part_vector(nabla_query_sub[k], j * self.attention_head_size)
                 self.wk.nabla_Y[i][k].assign_part_vector(nabla_key_sub[k], j * self.attention_head_size)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             print_ln("backward layer attention wq.nabla_Y %s", self.wq.nabla_Y.reveal_nested()[:8])
 
             # wk slightly off
@@ -3475,7 +3456,7 @@ class MultiHeadAttention(BertBase):
             self.nabla_X.assign_part_vector(
                 sum_layers, base)
 
-        if self.debug_bert_output:
+        if self.debug_output:
             # TODO: Wq seems off still
             print_ln("backward layer attention wq.nabla_X %s", self.wq.nabla_X.reveal_nested()[:8])
 
@@ -4496,8 +4477,8 @@ class keras:
                         layers.append(FixAveragePool2d(input_shape, None, **layer[1]))
                         input_shape = layers[-1].Y.sizes
                     elif name == 'dropout':
-                        layers.append(Dropout(batch_size, reduce(
-                            operator.mul, layers[-1].Y.sizes[1:]),
+                        layers.append(Dropout([batch_size] + [reduce(
+                            operator.mul, layers[-1].Y.sizes[1:])],
                                               alpha=layer[1]))
                         input_shape = layers[-1].Y.sizes
                     elif name == 'flatten':
@@ -4736,7 +4717,7 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
             if alpha == 0.1:
                 print('WARNING: dropout rate 0.1 not supported, using 0.125')
                 alpha = 0.125
-            layers.append(Dropout(input_shape[0], mul(layers[-1].Y.sizes[1:]),
+            layers.append(Dropout([input_shape[0]] + list(layers[-1].Y.sizes[1:]),
                                   alpha=alpha))
             input_shape = layers[-1].Y.sizes
         elif name == 'BertForSequenceClassification':
@@ -4841,8 +4822,6 @@ def layers_from_torch(model, data_input_shape, batch_size, input_via=None,
     torch_layers = list(graph.nodes)
     print(torch_layers)
     for i, layer in enumerate(torch_layers[1:-1]):
-        print(f"Processing layer {i}: {layer}, op={layer.op}, target={layer.target}, args={layer.args}")
-
         # Skip non-module and non-function operations (like getitem, assertions, etc.)
         if layer.op not in ('call_module', 'call_function'):
             continue
