@@ -1940,7 +1940,7 @@ class LayerNorm(Layer):  # Changed class name
     thetas = lambda self: (self.weights, self.bias)
     nablas = lambda self: (self.nabla_weights, self.nabla_bias)
 
-    def __init__(self, shape, approx=False, layernorm_eps=None, args=None):
+    def __init__(self, shape, approx=True, layernorm_eps=None, args=None):
         if len(shape) == 2:
             shape = [shape[0], 1, shape[1]] # Not sure why this extra dimension is added
         tensors = (Tensor(shape, sfix) for i in range(4))
