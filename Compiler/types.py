@@ -6984,7 +6984,10 @@ class SubMultiArray(_vectorizable):
         :return: container of same shape and type as :py:obj:`self` """
         if is_zero(other):
             return self
-        assert self.sizes == other.sizes
+        if hasattr(other, 'sizes'):
+            assert self.sizes == other.sizes
+        if hasattr(other, 'size'):
+            assert self.total_size() == other.size
         return self.from_vector(
             self.sizes, self.get_vector() + other.get_vector())
 
@@ -7563,7 +7566,7 @@ class SubMultiArray(_vectorizable):
     def __str__(self):
         return '%s multi-array of lengths %s at %s' % (
             self.value_type, self.sizes,
-            '<unallocated>' if self.array._address is None else self.address)
+            '<unallocated>' if self.address is None else self.address)
     __repr__ = __str__
 
 class MultiArray(SubMultiArray):
