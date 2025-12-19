@@ -23,13 +23,13 @@ from transformers import BertForMaskedLM, BertTokenizer
 MODEL_NAME = 'prajjwal1/bert-small'  # Tiny BERT (2 layers, 128 hidden)
 MAX_LENGTH = 16
 N_SAMPLES = 3
-BATCH_SIZE = 1
+BATCH_SIZE = N_SAMPLES # Process all samples in one batch so we can get argmax easily
 
 # Example sentences with [MASK] token
 EXAMPLES = [
     "Paris is the [MASK] of France.",
     "I like to [MASK] books.",
-    "The sky is [MASK].",
+    "Birds [MASK] in the sky.",
 ]
 
 # ============================================================================
@@ -124,20 +124,6 @@ print(f"Embeddings shape: {all_embeddings.shape}")
 # MP-SPDZ Model Conversion
 # ============================================================================
 
-
-class BertEncoderOnly(nn.Module):
-    """BERT encoder wrapper for MP-SPDZ."""
-
-    def __init__(self, encoder, config):
-        super().__init__()
-        self.encoder = encoder
-        self.config = config
-
-    def forward(self, hidden_states, attention_mask=None):
-        encoder_outputs = self.encoder(hidden_states, attention_mask=attention_mask)
-        return encoder_outputs[0]
-
-
 class BertMLM(nn.Module):
     """BERT encoder wrapper for MP-SPDZ."""
 
@@ -149,7 +135,6 @@ class BertMLM(nn.Module):
 
     def forward(self, hidden_states, attention_mask=None):
         encoder_outputs = self.encoder(hidden_states, attention_mask=attention_mask)
-        # print("Encoder output shape:", encoder_outputs[0].shape)
         cls_outputs = self.mlm(encoder_outputs[0])
         return cls_outputs
 
@@ -179,7 +164,6 @@ print_ln("Model: %s", MODEL_NAME)
 print_ln("Samples: %s", N_SAMPLES)
 
 # Prepare ground truth encoder outputs for comparison
-import numpy
 pt_encoder_concat = torch.cat(pt_encoder_outputs, dim=0)
 pt_encoder_sfix = sfix.input_tensor_via(0, pt_encoder_concat.numpy())
 
@@ -194,16 +178,7 @@ print_ln("BERT encoder successfully ran in MPC!")
 print_ln("Reveal correctness - n_correct: %s, loss: %s", n_correct, loss)
 
 # Get MPC encoder output from the model
-# mpc_layers[-2] is the last BertLayer (before the output layer)
-# It contains the full sequence output [N_SAMPLES, MAX_LENGTH, hidden_size]
-mpc_encoder_output = mpc_layers[-1].X
-print("mpc layers", mpc_layers)
-print("mpc layers output X", mpc_layers[-1].X)
-print("mpc layers output Y", mpc_layers[-1].Y)
-print("mpc dense last output", mpc_layers[-2].Y)
-print("pytorch encoder", model.cls.predictions.decoder, model.cls.predictions.bias)
-
-print_ln("MPC encoder output shape: %s", mpc_encoder_output.sizes)
+mpc_encoder_output = mpc_layers[-2].Y
 
 # ============================================================================
 # Apply MLM Head to MPC Output
@@ -225,74 +200,28 @@ print_ln("MPC output shape: %s", mpc_encoder_output.sizes)
 
 print_ln("\n=== Verifying MPC Correctness ===")
 
-# The reveal_correctness() function already verified that MPC output matches PyTorch!
-# It internally compares the MPC computation result with the expected PyTorch output
-# and would raise an error if they don't match within precision tolerance.
-
-print_ln("✓ reveal_correctness() passed - MPC output matches PyTorch!")
-print_ln("  This means BERT encoder in MPC produces the same results")
-print_ln("  as PyTorch (within fixed-point arithmetic precision)")
-
-print_ln("\n=== MPC Verification Complete ===")
-print_ln("BERT encoder verified to produce correct outputs in MPC!")
-
 # Apply MLM head to MPC output
 # We need to reveal the MPC output and apply the MLM head
 print_ln("\n=== Revealing MPC encoder output ===")
 
-print("mpc layers", mpc_layers)
-
 # Get the output from the encoder layer and reveal it
 revealed_output = mpc_encoder_output.reveal()
-print("reveal_output", revealed_output.sizes)
-print_ln("revealed output sample %s %s %s", revealed_output[0][0], revealed_output[0][1], revealed_output[0][2])
-print_ln("layer beore %s %s %s", mpc_layers[-2].Y[0][0].reveal(), mpc_layers[-2].Y[0][1].reveal(), mpc_layers[-2].Y[0][2].reveal())
-print_ln("Successfully revealed MPC encoder output")
-print_ln("Output shape: [%s, %s, %s]", len(revealed_output), len(revealed_output[0]), len(revealed_output[0][0]))
-
 print_ln("\n=== Applying Transform Head in MPC ===")
 
 # Process each sample individually through the MLM head
 # We need to do this one at a time because batch_size=1 in the MPC encoder
-all_logits = []
 predicted_idx = []
 
-max_offset = sfix(500) # argmax doesnt work with negative values
-max_offset_array = sfix.Array(model.config.vocab_size)
-max_offset_array.assign_all(max_offset)
-
 for sample_idx in range(N_SAMPLES):
-    print_ln("\nProcessing sample %s...", sample_idx)
-
     mask_pos = mask_positions[sample_idx]
-    sample_logits = (revealed_output[sample_idx][mask_pos] + max_offset_array).reveal()
-    print("sample logits", sample_logits.size)
-
-    all_logits.append(sample_logits)
-
-    sec_argmax = ml.argmax(revealed_output[sample_idx][mask_pos] + max_offset_array)
-    print(sec_argmax, type(sec_argmax))
+    sec_argmax = ml.argmax(mpc_encoder_output[sample_idx][mask_pos])
     predicted_idx.append(sec_argmax.reveal())
 
-    print_ln("Sample %s complete", sample_idx)
+    print_ln("Sample %s in position %s predicts token id %s", sample_idx, mask_pos, sec_argmax.reveal())
 
 print_ln("\n=== All Samples Processed ===")
 
-# Step 5: Find argmax to get predicted tokens
-print_ln("\n=== Computing Argmax for Token Predictions ===")
-
-# Compute argmax for each sample
-# The logits are already revealed (cfix), so we can find the max
-print_ln("Finding maximum logit indices...")
-
-# Use argmax helper from ml module
-for i in range(N_SAMPLES):
-    # Find argmax using revealed values
-    print_ln("vec %s", max_offset.get_vector().reveal())
-    print_ln("  Sample %s: predicted logits = %s %s %s", i, all_logits[i][0], all_logits[i][1], all_logits[i][2])
-    print_ln("  Securely predicted idx = %s", predicted_idx)
-
-# Also decode using PyTorch to show the actual words
+# Use PyTorch's Tokenizer to show the actual words, since we do not implement the tokenizer in MPC.
 print_ln("\n=== Decoded Predictions ===")
 with torch.no_grad():
     for i in range(N_SAMPLES):
@@ -302,9 +231,10 @@ with torch.no_grad():
         mask_logits = mlm_logits[i, mask_pos, :]
         predicted_id = torch.argmax(mask_logits).item()
         predicted_token = tokenizer.decode([predicted_id])
+        matches_spdz_output = predicted_idx[i] == predicted_id
 
         sentence_with_pred = EXAMPLES[i].replace('[MASK]', f'**{predicted_token}**')
-        print_ln("  %s (%s): %s", i, predicted_id, sentence_with_pred)
+        print_ln("  %s (%s, match=%s): %s", i, predicted_id, matches_spdz_output, sentence_with_pred)
 
 print_ln("\n=== Complete ===")
 
