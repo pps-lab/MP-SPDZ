@@ -3,12 +3,12 @@ BERT Next Token Prediction with MPC in MP-SPDZ
 
 This program:
 1. Loads a pre-trained BERT model for masked language modeling
-2. Converts BERT encoder to MP-SPDZ representation
+2. Converts BERT MLM to MP-SPDZ representation
 3. Runs the encoder in MPC on secret-shared embeddings
-4. Applies the MLM prediction head to get token predictions
-5. Compares MPC results with PyTorch ground truth
+4. Compares MPC results with PyTorch ground truth
 
-This properly demonstrates BERT running in MPC!
+Note that we do not implement the tokenizer in MPC (MP-SPDZ does not support strings), so we reveal the token ID instead of the string.
+
 """
 
 import ml
@@ -22,15 +22,14 @@ from transformers import BertForMaskedLM, BertTokenizer
 
 MODEL_NAME = 'prajjwal1/bert-small'  # Tiny BERT (2 layers, 128 hidden)
 MAX_LENGTH = 16
-N_SAMPLES = 3
-BATCH_SIZE = N_SAMPLES # Process all samples in one batch so we can get argmax easily
-
 # Example sentences with [MASK] token
 EXAMPLES = [
     "Paris is the [MASK] of France.",
     "I like to [MASK] books.",
     "Birds [MASK] in the sky.",
 ]
+N_SAMPLES = len(EXAMPLES)
+BATCH_SIZE = N_SAMPLES # Process all samples in one batch so we can get argmax easily
 
 # ============================================================================
 # Model Loading
