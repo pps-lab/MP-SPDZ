@@ -1074,7 +1074,6 @@ class Dropout(NoVariableLayer):
         return '%s(%s, alpha=%s)' % \
             (type(self).__name__, self.shape, self.alpha)
 
-    @_layer_method_call_tape
     def forward(self, batch, training=False):
         if training:
             n_bits = -math.log(self.alpha, 2)

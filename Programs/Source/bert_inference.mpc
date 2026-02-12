@@ -20,7 +20,8 @@ from datasets import load_dataset
 # Configuration
 # ============================================================================
 
-MODEL_NAME = 'M-FAC/bert-mini-finetuned-qnli'  # BERT-mini (4 layers, 256 hidden)
+# Model sizes: M-FAC/bert-tiny-finetuned-qnli, M-FAC/bert-mini-finetuned-qnli, yoshitomo-matsubara/bert-large-uncased-qnli
+MODEL_NAME = 'M-FAC/bert-tiny-finetuned-qnli'  # BERT-mini (4 layers, 256 hidden)
 MAX_LENGTH = 64  # Maximum sequence length
 N_SAMPLES = 25   # Number of samples to evaluate
 BATCH_SIZE = 1    # Batch size for MPC inference (increase for better performance)
