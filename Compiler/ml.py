@@ -1074,6 +1074,7 @@ class Dropout(NoVariableLayer):
         return '%s(%s, alpha=%s)' % \
             (type(self).__name__, self.shape, self.alpha)
 
+    @_layer_method_call_tape
     def forward(self, batch, training=False):
         if training:
             n_bits = -math.log(self.alpha, 2)
@@ -2749,18 +2750,17 @@ class BertLayer(BertBase):
         self.intermediate = BertIntermediate(internal_shape, hidden_state, intermediate_size, seq_len)
         self.output = BertOutput(internal_shape, intermediate_size, hidden_state, seq_len, dropout, layernorm_eps, rsqrt_approx)
 
-        self.hidden_state = sfix.Tensor(input_shape)
         self.d_out = hidden_state
 
+    @_layer_method_call_tape
     def forward(self, batch, training=False):
         if batch is None:
             batch = Array.create_from(regint(0))
 
         self.multi_head_attention._X.address = self.X.address
         self.output.Y.address = self.Y.address
-        self.hidden_state.address = self.X.address
 
-        self.multi_head_attention.forward(batch, self.hidden_state, training)
+        self.multi_head_attention.forward(batch, self.X, training)
         if self.debug_output:
             print_ln("forward layer multi_head_attention %s %s", self.multi_head_attention.Y[0][1][0].reveal(), sum(sum(self.multi_head_attention.Y[0].reveal())))
             # print_ln("forward layer multi_head_attention full %s", self.multi_head_attention.Y.reveal())
@@ -2866,6 +2866,7 @@ class BertIntermediate(BertBase):
         self.activation.X.address = self.dense.Y.address
         self.activation.Y.address = self.Y.address
 
+    @_layer_method_call_tape
     def forward(self, batch=None, training=None):
         self.dense.X.address = self.X.address
         self.activation.X.address = self.dense.Y.address
@@ -2906,6 +2907,7 @@ class BertOutput(BertBase):
         self.dropout = Dropout([n_examples, seq_len, hidden_size], alpha=dropout)
 
 
+    @_layer_method_call_tape
     def forward(self, batch, input_tensor, training=False, input_tensor_batch=None):
         # Because input_tensor might be the full training data shape
         self.dense.X.address = self.X.address
@@ -3001,6 +3003,7 @@ class MultiHeadAttention(BertBase):
         self.nabla_attention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
         self.nabla_preattention_scores = MultiArray([internal_shape, self.num_attention_heads, self.seq_len, self.seq_len], sfix)
 
+    @_layer_method_call_tape
     def forward(self, batch=None, hidden_state=None, training=None):
         N = len(batch)
 
