@@ -1,0 +1,165 @@
+"""
+BERT Next Token Prediction - Written from blog post instructions only.
+"""
+
+# Blog post step 1: imports (not explicitly listed in blog, must infer)
+import ml
+import torch
+import torch.nn as nn
+from transformers import BertForMaskedLM, BertTokenizer
+
+# Blog post: Configuration (not fully specified in blog - need to infer MAX_LENGTH, examples, etc.)
+MODEL_NAME = 'prajjwal1/bert-small'  # Small BERT (4 layers, 512 hidden dimension size)
+MAX_LENGTH = 16  # Not specified in blog post!
+EXAMPLES = [
+    "Paris is the [MASK] of France.",
+    "I like to [MASK] books.",
+    "Birds [MASK] in the sky.",
+]
+N_SAMPLES = len(EXAMPLES)
+BATCH_SIZE = N_SAMPLES  # Not specified in blog post!
+
+# Blog post: Load model
+model = BertForMaskedLM.from_pretrained(MODEL_NAME)
+model.eval()
+
+# Blog post: Tokenize (partially shown)
+tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
+
+# Blog shows tokenization for a single example, but we need to handle multiple
+# The blog only shows:
+#   encoded = tokenizer(text, padding='max_length', max_length=MAX_LENGTH,
+#                       return_tensors='pt')
+# Need to collect mask positions - not shown in blog!
+tokenized_examples = []
+mask_positions = []
+
+for example in EXAMPLES:
+    encoded = tokenizer(example, padding='max_length', max_length=MAX_LENGTH,
+                        truncation=True, return_tensors='pt')
+    mask_token_id = tokenizer.mask_token_id
+    mask_pos = (encoded['input_ids'][0] == mask_token_id).nonzero(as_tuple=True)[0]
+    if len(mask_pos) > 0:
+        mask_positions.append(mask_pos[0].item())
+    else:
+        mask_positions.append(1)
+    tokenized_examples.append(encoded)
+
+# Blog post: Compute embeddings
+# Blog shows single-sample version:
+#   embeddings_np = model.bert.embeddings(
+#       encoded['input_ids'],
+#       token_type_ids=encoded['token_type_ids']
+#   ).detach()
+# But we need to batch them
+embeddings_list = []
+for encoded in tokenized_examples:
+    input_ids = encoded["input_ids"]
+    token_type_ids = encoded.get("token_type_ids", torch.zeros_like(input_ids))
+    embedding = model.bert.embeddings(input_ids, token_type_ids=token_type_ids).detach()
+    embeddings_list.append(embedding)
+
+all_embeddings = torch.cat(embeddings_list, dim=0)
+
+# Blog post: PyTorch ground truth (needed for reveal_correctness and verification)
+# This section is NOT in the blog post at all - it's needed for the expected_output_sfix
+pt_encoder_outputs = []
+pt_predictions = []
+with torch.no_grad():
+    for i, encoded in enumerate(tokenized_examples):
+        input_ids = encoded["input_ids"]
+        token_type_ids = encoded.get("token_type_ids", torch.zeros_like(input_ids))
+        embeddings = model.bert.embeddings(input_ids, token_type_ids=token_type_ids)
+        encoder_output = model.bert.encoder(embeddings)[0]
+        pt_encoder_outputs.append(encoder_output)
+
+        mlm_logits = model.cls(encoder_output)
+        mask_pos = mask_positions[i]
+        mask_logits = mlm_logits[0, mask_pos, :]
+        predicted_id = torch.argmax(mask_logits).item()
+        predicted_token = tokenizer.decode([predicted_id])
+        pt_predictions.append(predicted_id)
+
+        sentence_with_pred = EXAMPLES[i].replace('[MASK]', f'**{predicted_token}**')
+        print(f"  PyTorch Sample {i}: {sentence_with_pred}")
+
+pt_encoder_concat = torch.cat(pt_encoder_outputs, dim=0)
+
+# Blog post: Secret-share embeddings
+# Blog: embeddings = sfix.input_tensor_via(0, embeddings_np.numpy())
+embeddings_sfix = sfix.input_tensor_via(0, all_embeddings.numpy())
+
+# Blog post: BertMLM wrapper
+class BertMLM(nn.Module):
+    """BERT encoder wrapper for MP-SPDZ."""
+
+    def __init__(self, encoder, mlm, config):
+        super().__init__()
+        self.encoder = encoder
+        self.mlm = mlm
+        self.config = config
+
+    def forward(self, hidden_states, attention_mask=None):
+        encoder_outputs = self.encoder(hidden_states, attention_mask=attention_mask)
+        cls_outputs = self.mlm(encoder_outputs[0])
+        return cls_outputs
+
+# Blog post: Convert to MP-SPDZ layers
+bert_wrapped = BertMLM(model.bert.encoder, model.cls, model.config)
+
+# Blog: mpc_layers = ml.layers_from_torch(bert_wrapped, embeddings.shape, input_via=0, batch_size=BATCH_SIZE)
+mpc_layers = ml.layers_from_torch(
+    bert_wrapped,
+    embeddings_sfix.shape,
+    input_via=0,
+    batch_size=BATCH_SIZE
+)
+
+# Blog post: Disable probabilistic truncation and run inference
+sfix.round_nearest = False
+program.use_trunc_pr = False
+
+optimizer = ml.SGD(mpc_layers)
+
+# Blog post: Forward pass
+# Blog: n_correct, loss = optimizer.reveal_correctness(embeddings_sfix, expected_output_sfix, batch_size=BATCH_SIZE)
+# NOTE: Blog uses "expected_output_sfix" but never shows how to create it!
+# Need to create it from PyTorch ground truth
+pt_encoder_sfix = sfix.input_tensor_via(0, pt_encoder_concat.numpy())
+
+print_ln("\n=== BERT Next Token Prediction (MPC) ===")
+print_ln("Model: %s", MODEL_NAME)
+print_ln("Samples: %s", N_SAMPLES)
+print_ln("\nRunning MPC forward pass through BERT encoder...")
+print_ln("Input embeddings are SECRET-SHARED across parties")
+
+n_correct, loss = optimizer.reveal_correctness(embeddings_sfix, pt_encoder_sfix, batch_size=BATCH_SIZE)
+
+# Blog post: Extract predictions with argmax
+# Blog: mpc_encoder_output = mpc_layers[-2].Y
+mpc_encoder_output = mpc_layers[-2].Y
+predicted_idx = []
+
+print("pre argmax")
+for sample_idx in range(N_SAMPLES):
+    mask_pos = mask_positions[sample_idx]
+    sec_argmax = ml.argmax(mpc_encoder_output[sample_idx][mask_pos])
+    predicted_idx.append(sec_argmax.reveal())
+
+print("argmax done")
+
+# Blog post: Verification
+print_ln("\n=== Decoded Predictions ===")
+with torch.no_grad():
+    for i in range(N_SAMPLES):
+        mlm_logits = model.cls(pt_encoder_concat)
+        mask_pos = int(mask_positions[i])
+        mask_logits = mlm_logits[i, mask_pos, :]
+        predicted_id = torch.argmax(mask_logits).item()
+        predicted_token = tokenizer.decode([predicted_id])
+        matches_spdz_output = predicted_idx[i] == predicted_id
+
+        sentence_with_pred = EXAMPLES[i].replace('[MASK]', f'**{predicted_token}**')
+        print_ln("  %s (%s, match=%s): %s", i, predicted_id, matches_spdz_output, sentence_with_pred)
+
+print_ln("\n=== Complete ===")
