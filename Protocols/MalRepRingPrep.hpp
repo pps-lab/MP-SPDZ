@@ -134,6 +134,11 @@ int TripleShuffleSacrifice<T>::batch_size()
     int res = BaseMachine::batch_size<T>(DATA_TRIPLE, 0, trick_max);
     if (res == trick_max)
         res = BaseMachine::batch_size<T>(DATA_TRIPLE);
+    // The usage above is for the whole program, but every thread fills its
+    // own buffer, so multi-threaded programs would generate up to n_threads
+    // times what they need. Cap at the batch size (-b) per thread instead;
+    // bucket_size() still picks a bucket size that is secure for this batch.
+    res = min(res, OnlineOptions::singleton.batch_size * T::default_length);
     return DIV_CEIL(res, T::default_length);
 }
 
