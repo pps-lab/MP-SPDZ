@@ -7711,9 +7711,14 @@ class SubMultiArray(_vectorizable):
             self.get_vector().reveal_to(player).binary_output()
 
     def __str__(self):
+        try:
+            address = self.address
+        except CompilerError:
+            # address raises instead of returning None for lazily allocated arrays
+            address = None
         return '%s multi-array of lengths %s at %s' % (
             self.value_type, self.sizes,
-            '<unallocated>' if self.address is None else self.address)
+            '<unallocated>' if address is None else address)
     __repr__ = __str__
 
 class MultiArray(SubMultiArray):
