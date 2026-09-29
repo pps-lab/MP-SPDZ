@@ -1294,9 +1294,10 @@ class Dropout(NoVariableLayer):
 
     def forward(self, batch, training=False):
         if training:
-            n_bits = -math.log(self.alpha, 2)
-            print("n_bits", n_bits, self.alpha)
-            n_bits = int(n_bits)
+            # alpha is zeroed below after the first pass, so keep the original
+            # for the (cost-relevant) number of random bits in later passes
+            self.alpha_orig = getattr(self, 'alpha_orig', self.alpha)
+            n_bits = int(-math.log(self.alpha_orig, 2))
             self.B.assign_all(1) # TODO: temp disable for reproducibility
             self.alpha = 0.0 # TODO: temp disable for reproducibility
             # @for_range_opt_multithread(self.n_threads, len(batch))
