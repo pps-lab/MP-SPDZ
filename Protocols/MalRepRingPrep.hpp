@@ -181,6 +181,9 @@ void TripleShuffleSacrifice<T>::triple_sacrifice(vector<array<T, 3>>& triples,
     if (queues)
     {
         TripleSacrificeJob job(&triples, &check_triples);
+        // helper threads must use the same bucket parameters as this buffer
+        job.arg = this->B;
+        job.length = this->C;
         int start = queues->distribute(job, N);
         triple_sacrifice(triples, check_triples, P, MC, start, N);
         if (start)

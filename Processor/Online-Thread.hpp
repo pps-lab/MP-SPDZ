@@ -230,7 +230,9 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
         {
           typedef typename sint::bit_type B;
           auto &party = GC::ShareThread<B>::s();
-          TripleShuffleSacrifice<B>().triple_sacrifice(
+          // bucket parameters come from the distributing thread, a fresh
+          // default instance might choose a different bucket size
+          TripleShuffleSacrifice<B>(job.arg, job.length).triple_sacrifice(
               *(vector<array<B, 3>>*) job.output,
               *(vector<array<B, 3>>*) job.input, *party.P, *party.MC, job.begin,
               job.end);
