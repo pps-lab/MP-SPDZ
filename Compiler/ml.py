@@ -3505,11 +3505,6 @@ class Optimizer:
                 layer.inputs = [prev]
             prev = layer
             thetas = layer.thetas()
-            print(layer, "test")
-            for i in range(len(thetas)):
-                print(layer, type(thetas[i]))
-                print(layer, thetas[i])
-            # print(layer, type(thetas))
             self.thetas.extend(thetas)
 
     def set_layers_with_inputs(self, layers):
