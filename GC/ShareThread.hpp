@@ -48,6 +48,7 @@ ShareThread<T>::ShareThread(Preprocessing<T>& prep, Player& P,
 template<class T>
 ShareThread<T>::~ShareThread()
 {
+    singleton = 0;
     if (MC)
         delete MC;
     if (protocol)
@@ -97,7 +98,7 @@ class BitOpTuple
 public:
     static const int n = 4;
 
-    BitOpTuple(vector<int>::const_iterator it) :
+    BitOpTuple(ArgVector::const_iterator it) :
             n_bits(*it++), dest(*it++), left(*it++), right(*it++)
     {
     }
@@ -122,11 +123,27 @@ public:
         return {S, left, right, n_full_blocks()};
     }
 
+    Range<StackedVector<T>> full_block_left_range(StackedVector<T>& S)
+    {
+        return {S, left, n_full_blocks()};
+    }
+
     DoubleIterator<T> partial_block(StackedVector<T>& S)
     {
         assert(n_blocks() != n_full_blocks());
         return {S.iterator_for_size(left + n_full_blocks(), 1),
             S.iterator_for_size(right + n_full_blocks(), 1)};
+    }
+
+    typename CheckVector<T>::iterator partial_left_block(StackedVector<T>& S)
+    {
+        assert(n_blocks() != n_full_blocks());
+        return S.iterator_for_size(left + n_full_blocks(), 1);
+    }
+
+    T& get_right_base(StackedVector<T>& S)
+    {
+        return S[right];
     }
 
     Range<StackedVector<T>> full_block_output_range(StackedVector<T>& S)
@@ -151,7 +168,7 @@ public:
 
 template<class T>
 void ShareThread<T>::and_(Processor<T>& processor,
-        const vector<int>& args, bool repeat)
+        const ArgVector& args, bool repeat)
 {
     auto& protocol = this->protocol;
     auto& S = processor.S;
@@ -176,16 +193,17 @@ void ShareThread<T>::and_(Processor<T>& processor,
         for (auto info : infos)
         {
             int n = T::default_length;
-            for (auto x : info.full_block_input_range(S))
+            auto& y = info.get_right_base(S);
+            for (auto x : info.full_block_left_range(S))
             {
-                x.second.extend_bit(y_ext, n);
-                protocol->prepare_mult(x.first, y_ext, n, true);
+                y.extend_bit(y_ext, n);
+                protocol->prepare_mult(x, y_ext, n, true);
             }
             n = info.last_length();
             if (n)
             {
-                info.partial_block(S).left->mask(x_ext, n);
-                info.partial_block(S).right->extend_bit(y_ext, n);
+                info.partial_left_block(S)->mask(x_ext, n);
+                y.extend_bit(y_ext, n);
                 protocol->prepare_mult(x_ext, y_ext, n, true);
             }
         }
@@ -195,7 +213,7 @@ void ShareThread<T>::and_(Processor<T>& processor,
             if (fast_mode)
                 for (auto x : info.full_block_input_range(S))
                     protocol->prepare_mul_fast(x.first, x.second);
-            else
+            else if (info.n_full_blocks())
                 for (auto x : info.full_block_input_range(S))
                     protocol->prepare_mul(x.first, x.second);
             int n = info.last_length();
@@ -230,7 +248,7 @@ void ShareThread<T>::and_(Processor<T>& processor,
             if (fast_mode)
                 for (auto& res : info.full_block_output_range(S))
                     res = protocol->finalize_mul_fast();
-            else
+            else if (info.n_full_blocks())
                 for (auto& res : info.full_block_output_range(S))
                     res = protocol->finalize_mul();
 
@@ -248,7 +266,7 @@ void ShareThread<T>::and_(Processor<T>& processor,
 }
 
 template<class T>
-void ShareThread<T>::andrsvec(Processor<T>& processor, const vector<int>& args)
+void ShareThread<T>::andrsvec(Processor<T>& processor, const ArgVector& args)
 {
     int N_BITS = T::default_length;
     auto& protocol = this->protocol;
@@ -302,7 +320,7 @@ void ShareThread<T>::andrsvec(Processor<T>& processor, const vector<int>& args)
 }
 
 template<class T>
-void ShareThread<T>::xors(Processor<T>& processor, const vector<int>& args)
+void ShareThread<T>::xors(Processor<T>& processor, const ArgVector& args)
 {
     processor.check_args(args, 4);
     auto it = args.begin();

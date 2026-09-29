@@ -7,7 +7,7 @@ TOOLS = $(patsubst %.cpp,%.o,$(wildcard Tools/*.cpp))
 
 NETWORK = $(patsubst %.cpp,%.o,$(wildcard Networking/*.cpp))
 
-PROCESSOR = $(patsubst %.cpp,%.o,$(wildcard Processor/*.cpp)) Protocols/ShamirOptions.o
+PROCESSOR = $(patsubst %.cpp,%.o,$(wildcard Processor/*.cpp)) Protocols/ShamirOptions.o Protocols/ShareInterface.o
 
 FHEOBJS = $(patsubst %.cpp,%.o,$(wildcard FHEOffline/*.cpp FHE/*.cpp)) Protocols/CowGearOptions.o
 
@@ -142,6 +142,8 @@ ecdsa: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-ecdsa-party.cpp)) Fake-ECDS
 ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ecdsa-party.cpp))
 
 poly_commit: libff $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pc-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-pe-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-switch-party.cpp)) $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-share-party.cpp)) Fake-ECDSA.x $(BLS)
+
+machines: $(patsubst %.cpp,%.o,$(wildcard Machines/*.cpp))
 
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
@@ -361,7 +363,7 @@ maybe-boost: deps/libOTe/libOTe
 	PATH="$(CURDIR)/local/bin:$(PATH)" cmake $(CURDIR)/deps/libOTe -DCMAKE_CXX_COMPILER=$(CXX) || \
 	{ cd -; make boost; }
 
-OTE_OPTS += -DENABLE_SOFTSPOKEN_OT=ON -DCMAKE_CXX_COMPILER=$(CXX) -DCMAKE_INSTALL_LIBDIR=lib
+OTE_OPTS += -DENABLE_SOFTSPOKEN_OT=ON -DCMAKE_CXX_COMPILER=$(OTE_CXX) -DCMAKE_INSTALL_LIBDIR=lib
 
 ifeq ($(ARM), 1)
 OTE_OPTS += -DENABLE_AVX=OFF -DENABLE_SSE=OFF

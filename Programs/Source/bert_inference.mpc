@@ -20,10 +20,12 @@ from datasets import load_dataset
 # Configuration
 # ============================================================================
 
-MODEL_NAME = 'M-FAC/bert-tiny-finetuned-qnli'  # BERT-tiny (2 layers, 128 hidden)
+# Model sizes: M-FAC/bert-tiny-finetuned-qnli, M-FAC/bert-mini-finetuned-qnli, yoshitomo-matsubara/bert-large-uncased-qnli
+MODEL_NAME = 'M-FAC/bert-tiny-finetuned-qnli'  # BERT-mini (4 layers, 256 hidden)
 MAX_LENGTH = 64  # Maximum sequence length
 N_SAMPLES = 25   # Number of samples to evaluate
 BATCH_SIZE = 1    # Batch size for MPC inference (increase for better performance)
+LAYER_COMPARISON = True  # Set to False to skip layer-by-layer comparison (saves ~95% compile time)
 
 # GLUE task configuration
 TASK_NAME = 'qnli'
@@ -269,110 +271,112 @@ print_ln("MPC-PyTorch Match: %s/%s = %s",
 
 # ============================================================================
 # Layer-by-Layer Comparison using Forward Hooks
+# (Generates ~95% of compile-time instructions. Disable for faster builds.)
 # ============================================================================
 
-print_ln("\n=== Layer-by-Layer Comparison ===")
+if LAYER_COMPARISON:
+    print_ln("\n=== Layer-by-Layer Comparison ===")
 
-# Map to store PyTorch activations
-activation_map = {}
+    # Map to store PyTorch activations
+    activation_map = {}
 
-def get_activation(name):
-    """Create a forward hook to capture layer outputs."""
-    def hook(model, input, output):
-        if isinstance(output, tuple):
-            actual_output = output[0]
-        else:
-            actual_output = output
-        activation_map[name] = actual_output.detach()
-    return hook
+    def get_activation(name):
+        """Create a forward hook to capture layer outputs."""
+        def hook(model, input, output):
+            if isinstance(output, tuple):
+                actual_output = output[0]
+            else:
+                actual_output = output
+            activation_map[name] = actual_output.detach()
+        return hook
 
-# Build layer comparison list
-def layers_for_bertlayer(bert_layer_mpc, bert_layer_pt):
-    """Map MPC BertLayer components to PyTorch components."""
-    return [
-        (bert_layer_mpc.multi_head_attention, bert_layer_pt.attention),
-        (bert_layer_mpc.intermediate, bert_layer_pt.intermediate),
-        (bert_layer_mpc.output, bert_layer_pt.output),
-        (bert_layer_mpc, bert_layer_pt),
-    ]
+    # Build layer comparison list
+    def layers_for_bertlayer(bert_layer_mpc, bert_layer_pt):
+        """Map MPC BertLayer components to PyTorch components."""
+        return [
+            (bert_layer_mpc.multi_head_attention, bert_layer_pt.attention),
+            (bert_layer_mpc.intermediate, bert_layer_pt.intermediate),
+            (bert_layer_mpc.output, bert_layer_pt.output),
+            (bert_layer_mpc, bert_layer_pt),
+        ]
 
-# Build complete layer comparison list
-layers_to_compare = [layers_for_bertlayer(l1, l2) for l1, l2 in
-                     zip(mpc_layers[:-4], model.bert.encoder.layer)]
-layers_to_compare = [x for xs in layers_to_compare for x in xs]
-layers_to_compare.append((mpc_layers[-4], model.bert.pooler))
-layers_to_compare.append((mpc_layers[-3], model.dropout))
-layers_to_compare.append((mpc_layers[-2], model.classifier))
+    # Build complete layer comparison list
+    layers_to_compare = [layers_for_bertlayer(l1, l2) for l1, l2 in
+                         zip(mpc_layers[:-4], model.bert.encoder.layer)]
+    layers_to_compare = [x for xs in layers_to_compare for x in xs]
+    layers_to_compare.append((mpc_layers[-4], model.bert.pooler))
+    layers_to_compare.append((mpc_layers[-3], model.dropout))
+    layers_to_compare.append((mpc_layers[-2], model.classifier))
 
-# Register forward hooks
-for layer_id, (_, pt_layer) in enumerate(layers_to_compare):
-    pt_layer.register_forward_hook(get_activation(f'{layer_id}.{type(pt_layer).__name__}'))
+    # Register forward hooks
+    for layer_id, (_, pt_layer) in enumerate(layers_to_compare):
+        pt_layer.register_forward_hook(get_activation(f'{layer_id}.{type(pt_layer).__name__}'))
 
-# Run PyTorch forward pass to populate activation_map
-print("Capturing PyTorch layer outputs...")
-with torch.no_grad():
-    for i in range(N_SAMPLES):
-        activation_map.clear()  # Clear for each sample
+    # Run PyTorch forward pass to populate activation_map
+    print("Capturing PyTorch layer outputs...")
+    with torch.no_grad():
+        for i in range(N_SAMPLES):
+            activation_map.clear()  # Clear for each sample
 
-        # Get sample embedding
-        with embedded_data.formatted_as("torch", ["embedding"]):
-            sample_embedding = embedded_data[i]['embedding'].unsqueeze(0)
+            # Get sample embedding
+            with embedded_data.formatted_as("torch", ["embedding"]):
+                sample_embedding = embedded_data[i]['embedding'].unsqueeze(0)
 
-        # Run forward through wrapped model
-        _ = bert_wrapped(sample_embedding)
+            # Run forward through wrapped model
+            _ = bert_wrapped(sample_embedding)
 
-        # Store activations for this sample
-        if i == 0:  # Only compare first sample to save time
-            break
+            # Store activations for this sample
+            if i == 0:  # Only compare first sample to save time
+                break
 
-print(f"Captured {len(activation_map)} layer outputs from PyTorch")
+    print(f"Captured {len(activation_map)} layer outputs from PyTorch")
 
-# Run MPC forward pass using reveal_correctness
-import numpy
-pt_probs_tensor = numpy.array(numpy.concatenate([p.numpy() for p in pt_probabilities]))
-pt_probabilities_sfix = sfix.input_tensor_via(0, pt_probs_tensor)
+    # Run MPC forward pass using reveal_correctness
+    import numpy
+    pt_probs_tensor = numpy.array(numpy.concatenate([p.numpy() for p in pt_probabilities]))
+    pt_probabilities_sfix = sfix.input_tensor_via(0, pt_probs_tensor)
 
-test_embeddings_one = sfix.Tensor([1] + list(test_embeddings.sizes[1:]))
-test_embeddings_one.assign(test_embeddings.get_part_vector(0))
+    test_embeddings_one = sfix.Tensor([1] + list(test_embeddings.sizes[1:]))
+    test_embeddings_one.assign(test_embeddings.get_part_vector(0))
 
-pt_probabilities_sfix_one = sfix.Tensor([1] + list(pt_probabilities_sfix.sizes[1:]))
-pt_probabilities_sfix_one.assign(pt_probabilities_sfix.get_part_vector(0))
+    pt_probabilities_sfix_one = sfix.Tensor([1] + list(pt_probabilities_sfix.sizes[1:]))
+    pt_probabilities_sfix_one.assign(pt_probabilities_sfix.get_part_vector(0))
 
-print_ln("Running MPC forward pass for layer comparison...")
-_ = optimizer.reveal_correctness(test_embeddings_one, pt_probabilities_sfix_one, batch_size=BATCH_SIZE)
+    print_ln("Running MPC forward pass for layer comparison...")
+    _ = optimizer.reveal_correctness(test_embeddings_one, pt_probabilities_sfix_one, batch_size=BATCH_SIZE)
 
-# Compare layers
-print_ln("\nLayer-by-layer comparison (Sample 0 only):")
-print_ln("=" * 100)
+    # Compare layers
+    print_ln("\nLayer-by-layer comparison (Sample 0 only):")
+    print_ln("=" * 100)
 
-for idx, (mpc_layer, pt_layer) in enumerate(layers_to_compare):
-    layer_id = f"{idx}.{type(pt_layer).__name__}"
+    for idx, (mpc_layer, pt_layer) in enumerate(layers_to_compare):
+        layer_id = f"{idx}.{type(pt_layer).__name__}"
 
-    if layer_id not in activation_map:
-        continue
+        if layer_id not in activation_map:
+            continue
 
-    # Skip dropout layers since they use different random masks
-    if 'Dropout' in type(pt_layer).__name__:
-        print_ln("%s | Skipped (dropout)", layer_id)
-        continue
+        # Skip dropout layers since they use different random masks
+        if 'Dropout' in type(pt_layer).__name__:
+            print_ln("%s | Skipped (dropout)", layer_id)
+            continue
 
-    # Get PyTorch values
-    pt_values = activation_map[layer_id]
-    pt_at_runtime = sfix.input_tensor_via(0, pt_values.numpy()).get_vector().reveal()
+        # Get PyTorch values
+        pt_values = activation_map[layer_id]
+        pt_at_runtime = sfix.input_tensor_via(0, pt_values.numpy()).get_vector().reveal()
 
-    # Get MPC values
-    mpc_output = mpc_layer.Y[0].get_vector().reveal()
+        # Get MPC values
+        mpc_output = mpc_layer.Y[0].get_vector().reveal()
 
-    # Compute detailed statistics
-    total_abs_diff = sum(abs(pt_at_runtime - mpc_output))
-    pt_magnitude = sum(abs(pt_at_runtime))
+        # Compute detailed statistics
+        total_abs_diff = sum(abs(pt_at_runtime - mpc_output))
+        pt_magnitude = sum(abs(pt_at_runtime))
 
-    # Print layer comparison
-    print_ln("\n%s", layer_id)
-    print_ln("  Shape: %s, Elements: %s", pt_values.shape, len(pt_at_runtime))
-    print_ln("  Total Abs Diff: %s", total_abs_diff)
-    print_ln("  PT Total Magnitude: %s", pt_magnitude)
-    print_ln("  First 8 PT:  %s", pt_at_runtime[:8])
-    print_ln("  First 8 MPC: %s", mpc_output[:8])
+        # Print layer comparison
+        print_ln("\n%s", layer_id)
+        print_ln("  Shape: %s, Elements: %s", pt_values.shape, len(pt_at_runtime))
+        print_ln("  Total Abs Diff: %s", total_abs_diff)
+        print_ln("  PT Total Magnitude: %s", pt_magnitude)
+        print_ln("  First 8 PT:  %s", pt_at_runtime[:8])
+        print_ln("  First 8 MPC: %s", mpc_output[:8])
 
 print_ln("\n=== Inference Complete ===")

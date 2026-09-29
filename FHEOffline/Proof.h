@@ -9,6 +9,7 @@ using namespace std;
 #include "FHE/Ciphertext.h"
 #include "FHE/AddableVector.h"
 #include "Protocols/CowGearOptions.h"
+#include "Processor/OnlineOptions.h"
 
 #include "config.h"
 
@@ -27,6 +28,8 @@ class Proof
   unsigned int sec;
 
   bool diagonal;
+
+  octetStream session_id;
 
   Proof();   // Private to avoid default 
 
@@ -90,9 +93,6 @@ class Proof
         {
           V = ceil((sec + 2) / log2(2 * phim + 1));
           U = 2 * V;
-#ifdef VERBOSE
-          cerr << "Using " << U << " ciphertexts per proof" << endl;
-#endif
         }
       else
         {
@@ -128,7 +128,9 @@ class Proof
     return Proof(sec, pk, 1, diagonal).U;
   }
 
-  void set_challenge(const octetStream& ciphertexts);
+  void set_session_id(const PlayerBase& P);
+  void set_challenge(const octetStream& ciphertexts, int prover,
+      const FHE_PK& pk);
   void set_challenge(PRNG& G);
   void generate_challenge(const Player& P);
 
@@ -151,14 +153,24 @@ class Proof
             output += input.at(j);
         }
   }
+
+  void debugging()
+  {
+    if (OnlineOptions::singleton.has_option("verbose_he"))
+      {
+        cerr << "Using " << U << " ciphertexts per proof" << endl;
+        cerr << "Plaintext bound check bit length: " << B_plain_length << endl;
+        cerr << "Randomness bound check bit length: " << B_rand_length << endl;
+      }
+  }
 };
 
 class NonInteractiveProof : public Proof
 {
-  // sec = 0 used for protocols without proofs
-  static int comp_sec(int sec) { return sec > 0 ? max(COMP_SEC, sec) : 0; }
-
 public:
+  // sec = 0 used for protocols without proofs
+  static int comp_sec(int sec);
+
   bigint static slack(int sec, int phim)
   { sec = comp_sec(sec); return bigint(phim * sec * sec) << (sec / 2 + 8); }
 
@@ -174,6 +186,7 @@ public:
     B_rand_length = numBits(B*3*phim*rho);
     plain_check = (bigint(1) << B_plain_length) - sec * tau;
     rand_check = (bigint(1) << B_rand_length) - sec * rho;
+    debugging();
   }
 };
 
@@ -194,6 +207,7 @@ public:
     // leeway for completeness
     plain_check = (bigint(2) << B_plain_length);
     rand_check = (bigint(2) << B_rand_length);
+    debugging();
   }
 };
 

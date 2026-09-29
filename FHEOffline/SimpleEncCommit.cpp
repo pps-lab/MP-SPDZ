@@ -140,7 +140,7 @@ size_t NonInteractiveProofSimpleEncCommit<FD>::generate_proof(AddableVector<Ciph
     Prover<FD, Plaintext_<FD> > prover(proof, FTD);
 #endif
     size_t prover_memory = prover.NIZKPoK(proof, ciphertexts, cleartexts,
-            pk, c, m, r);
+            pk, c, m, r, P.my_num());
     timers["Proving"].stop();
 
     if (proof.top_gear)
@@ -161,8 +161,10 @@ size_t NonInteractiveProofSimpleEncCommit<FD>::generate_proof(AddableVector<Ciph
 template<class T,class FD,class S>
 void SimpleEncCommit<T,FD,S>::create_more()
 {
+    CODE_LOCATION
     cout << "Generating more ciphertexts in round " << this->n_rounds << endl;
     octetStream ciphertexts, cleartexts;
+    this->proof.set_session_id(this->P);
     size_t prover_memory = this->generate_proof(this->c, this->m, ciphertexts, cleartexts);
     size_t verifier_memory =
             NonInteractiveProofSimpleEncCommit<FD>::create_more(ciphertexts,
@@ -181,6 +183,7 @@ template <class FD>
 size_t NonInteractiveProofSimpleEncCommit<FD>::create_more(octetStream& ciphertexts,
         octetStream& cleartexts)
 {
+    CODE_LOCATION
     AddableVector<Ciphertext> others_ciphertexts;
     others_ciphertexts.resize(proof.U, pk.get_params());
     for (int i = 1; i < P.num_players(); i++)
@@ -201,7 +204,7 @@ size_t NonInteractiveProofSimpleEncCommit<FD>::create_more(octetStream& cipherte
 #endif
         timers["Verifying"].start();
         verifier.NIZKPoK(others_ciphertexts, ciphertexts,
-                cleartexts, get_pk_for_verification(i));
+                cleartexts, get_pk_for_verification(i), P.get_player(-i));
         timers["Verifying"].stop();
         add_ciphertexts(others_ciphertexts, i);
         this->memory_usage.update("verifier", verifier.report_size(CAPACITY));
@@ -244,6 +247,7 @@ SummingEncCommit<FD>::SummingEncCommit(const Player& P, const FHE_PK& pk,
 template<class FD>
 void SummingEncCommit<FD>::create_more()
 {
+    CODE_LOCATION
     octetStream cleartexts;
     const Player& P = this->P;
     AddableVector<Ciphertext> commitments;
@@ -267,10 +271,11 @@ void SummingEncCommit<FD>::create_more()
         this->c.unpack(ciphertexts, this->pk);
         commitments.unpack(ciphertexts, this->pk);
 
-#ifdef VERBOSE_HE
-        cout << "Tree-wise sum of ciphertexts with "
-                << 1e-9 * ciphertexts.get_length() << " GB" << endl;
-#endif
+        if (OnlineOptions::singleton.has_option("verbose_he"))
+            cerr << "Tree-wise sum of " << this->c.size()
+                    << " ciphertexts with " << 1e-9 * ciphertexts.get_length()
+                    << " GB" << endl;
+
         this->timers["Exchanging ciphertexts"].start();
         tree_sum.run(this->c, P);
         tree_sum.run(commitments, P);

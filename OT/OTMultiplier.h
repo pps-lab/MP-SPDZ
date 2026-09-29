@@ -38,6 +38,9 @@ public:
     WaitQueue<MultJob> inbox;
     WaitQueue<MultJob> outbox;
 
+    template<class U>
+    static void init(U& key, Player& P, int other, OTTripleSetup& ot_setup);
+
     virtual ~OTMultiplierBase() {}
     virtual void multiply() = 0;
 };
@@ -53,6 +56,8 @@ public:
 template <class T>
 class OTMultiplier : public OTMultiplierMac<typename T::sacri_type, typename T::mac_type>
 {
+    void multiply_raw();
+
 protected:
     BitVector keyBits;
     vector< array<BitVector, 2> > senderOutput;

@@ -34,7 +34,7 @@ KeyGenProtocol<X, L>::KeyGenProtocol(Player& P, const FHE_Params& params,
     if (OnlineOptions::singleton.live_prep)
     {
         prep = new MascotDabitOnlyPrep<share_type>(0, usage);
-        alphai.randomize(G);
+        alphai = MascotDabitOnlyPrep<share_type>::get_mac_key(P);
     }
     else
     {
@@ -62,6 +62,7 @@ KeyGenProtocol<X, L>::~KeyGenProtocol()
     delete MC;
 
     MC->teardown();
+    MascotDabitOnlyPrep<share_type>::teardown();
 
     OnlineOptions::singleton.batch_size = backup_batch_size;
     open_type::reset();
@@ -199,7 +200,14 @@ void LowGearKeyGen<L>::run(PairwiseSetup<FD>& setup)
 
     RunningTimer timer;
 
-    auto mac_key = SeededPRNG().get<typename FD::T>();
+    typename FD::T mac_key;
+
+    bool fresh = setup.alphai == 0;
+
+    if (fresh)
+        mac_key = SeededPRNG().get<typename FD::T>();
+    else
+        mac_key = setup.alphai;
 
     PairwiseGenerator<FD> generator(0, machine, &P);
     map<string, Timer> timers;
@@ -212,13 +220,14 @@ void LowGearKeyGen<L>::run(PairwiseSetup<FD>& setup)
 
     AddableVector<Ciphertext> C;
     octetStream ciphertexts, cleartexts;
+    EC.get_proof().set_session_id(P);
     EC.generate_proof(C, m, ciphertexts, cleartexts);
 
     AddableVector<Ciphertext> others_ciphertexts;
     others_ciphertexts.resize(EC.proof.U, machine.pk.get_params());
     Verifier<FD> verifier(EC.proof, setup.FieldD);
     verifier.NIZKPoK(others_ciphertexts, ciphertexts,
-            cleartexts, machine.pk);
+            cleartexts, machine.pk, P.my_num());
 
     machine.enc_alphas.clear();
     for (int i = 0; i < P.num_players(); i++)
@@ -240,7 +249,7 @@ void LowGearKeyGen<L>::run(PairwiseSetup<FD>& setup)
 #endif
         timers["Verifying"].start();
         verifier.NIZKPoK(others_ciphertexts, ciphertexts,
-                cleartexts, machine.other_pks[player]);
+                cleartexts, machine.other_pks[player], player);
         timers["Verifying"].stop();
         machine.enc_alphas.at(player) = others_ciphertexts.at(0);
     }
