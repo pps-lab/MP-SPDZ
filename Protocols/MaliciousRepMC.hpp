@@ -78,7 +78,7 @@ void HashMaliciousRepMC<T>::finalize(vector<typename T::open_type>& values,
     for (auto& x : secrets)
     {
         values.push_back(
-                x.sum() + received_values.get<typename T::open_type>());
+                x.sum() + received_values.template get<typename T::open_type>());
     }
     received_values.hash(hash_buffer);
     if (hash_buffer != to_receive.at(P.get_player(-1)))

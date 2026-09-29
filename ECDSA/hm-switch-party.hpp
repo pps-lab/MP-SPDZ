@@ -499,7 +499,7 @@ vector<outputShare> convert_shares_ring_split(const typename vector<inputShare>:
         inputShare *input_shares_raw_pointer = input_shares_shifted.data();
 
 //        buffer_size = input_size * dl;
-        vector<int> regs(P.num_players() * n_bits_per_input);
+        ArgVector regs(P.num_players() * n_bits_per_input);
         for (size_t i = 0; i < regs.size(); i++)
             regs[i] = i * buffer_size / dl;
 //            regs[i] = i * n_bits_per_input;

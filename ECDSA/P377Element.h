@@ -35,6 +35,7 @@ public:
     static int length() { return 256; }
     static string type_string() { return "P377"; }
     static char type_char() { return Scalar::type_char(); }
+    static void specification(octetStream& os) { Scalar::specification(os); }
 
     static void init();
     static void finish();
